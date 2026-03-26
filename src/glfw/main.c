@@ -543,7 +543,17 @@ int main(int argc, char* argv[]) {
     // Main loop
     bool debugPaused = false;
     double lastFrameTime = glfwGetTime();
+    uint16_t frameCounter = 0;
+    double lastSecondTime = 0;
     while (!glfwWindowShouldClose(window) && !runner->shouldExit) {
+        if (glfwGetTime() - lastSecondTime > 1) {
+            lastSecondTime = glfwGetTime();
+            runner->currentFps = frameCounter;
+            frameCounter = 0;
+        }
+        frameCounter++;
+
+
         // Clear last frame's pressed/released state, then poll new input events
         RunnerKeyboard_beginFrame(runner->keyboard);
         glfwPollEvents();
@@ -769,6 +779,7 @@ int main(int argc, char* argv[]) {
         if (!args.headless && runner->currentRoom->speed > 0) {
             double targetFrameTime = 1.0 / (runner->currentRoom->speed * args.speedMultiplier);
             double nextFrameTime = lastFrameTime + targetFrameTime;
+            runner->currentDeltaTime = (nextFrameTime - lastFrameTime) * 1000000;
             // Sleep for most of the remaining time, then spin-wait for precision
             double remaining = nextFrameTime - glfwGetTime();
             if (remaining > 0.002) {

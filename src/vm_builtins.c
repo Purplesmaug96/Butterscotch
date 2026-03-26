@@ -383,7 +383,9 @@ RValue VMBuiltins_getVariable(VMContext* ctx, const char* name, int32_t arrayInd
     if (strcmp(name, "path_action_continue") == 0) return RValue_makeReal(2.0);
     if (strcmp(name, "path_action_reverse") == 0) return RValue_makeReal(3.0);
 
-    if (strcmp(name, "fps") == 0) return RValue_makeReal(ctx->dataWin->gen8.gms2FPS);
+    if (strcmp(name, "fps") == 0) return RValue_makeReal(runner->currentFps);
+
+    if (strcmp(name, "delta_time") == 0) return RValue_makeReal(runner->currentDeltaTime);
 
     fprintf(stderr, "VM: Unhandled built-in variable read '%s' (arrayIndex=%d)\n", name, arrayIndex);
     return RValue_makeReal(0.0);
