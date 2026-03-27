@@ -543,21 +543,15 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
                 repeat(maskDataCount, j) {
                     spr->masks[j] = safeMalloc(bytesPerMask);
                     BinaryReader_readBytes(reader, spr->masks[j], bytesPerMask);
-                    // Skip padding to 4-byte alignment
-                    uint32_t remainder = bytesPerMask % 4;
-                    if (remainder != 0) {
-                        BinaryReader_skip(reader, 4 - remainder);
-                    }
                 }
             } else {
-                repeat(maskDataCount, j) {
-                    BinaryReader_skip(reader, bytesPerMask);
-                    // Skip padding to 4-byte alignment
-                    uint32_t remainder = bytesPerMask % 4;
-                    if (remainder != 0) {
-                        BinaryReader_skip(reader, 4 - remainder);
-                    }
-                }
+                BinaryReader_skip(reader, bytesPerMask * maskDataCount);
+            }
+            // Pad the TOTAL mask data to 4-byte alignment (not per-mask)
+            uint32_t totalMaskBytes = bytesPerMask * maskDataCount;
+            uint32_t remainder = totalMaskBytes % 4;
+            if (remainder != 0) {
+                BinaryReader_skip(reader, 4 - remainder);
             }
         } else {
             spr->masks = nullptr;

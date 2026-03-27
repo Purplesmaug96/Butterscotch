@@ -91,6 +91,9 @@ GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
 
     // Derive basePath by stripping the filename from dataWinPath
     const char* lastSlash = strrchr(dataWinPath, '/');
+    const char* lastBackslash = strrchr(dataWinPath, '\\');
+    if (lastBackslash != nullptr && (lastSlash == nullptr || lastBackslash > lastSlash))
+        lastSlash = lastBackslash;
     if (lastSlash != nullptr) {
         size_t dirLen = (size_t) (lastSlash - dataWinPath + 1); // include the trailing /
         fs->basePath = safeMalloc(dirLen + 1);
