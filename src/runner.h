@@ -106,6 +106,8 @@ typedef struct Runner {
     struct { char* key; int value; }* disabledObjects; // stb_ds string hashmap, nullptr = no filtering
     uint16_t currentFps;
     int currentDeltaTime;
+    struct { int key; Instance* value; }* instancesToId;
+    bool isGMS2;
 } Runner;
 
 const char* Runner_getEventName(int32_t eventType, int32_t eventSubtype);
