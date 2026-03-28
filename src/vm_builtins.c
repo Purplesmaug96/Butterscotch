@@ -2,6 +2,7 @@
 #include "instance.h"
 #include "json_reader.h"
 #include "runner.h"
+#include "utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1508,9 +1509,11 @@ static RValue builtinDsListFindIndex([[maybe_unused]] VMContext* ctx, RValue* ar
             case RVALUE_BOOL:
                 if (item.int32 == needle.int32) return RValue_makeReal((GMLReal) i);
                 break;
+#ifndef NO_RVALUE_INT64
             case RVALUE_INT64:
                 if (item.int64 == needle.int64) return RValue_makeReal((GMLReal) i);
                 break;
+#endif
             case RVALUE_STRING:
                 if (item.string != nullptr && needle.string != nullptr && strcmp(item.string, needle.string) == 0) return RValue_makeReal((GMLReal) i);
                 break;
@@ -3025,7 +3028,9 @@ static RValue builtin_drawText(VMContext* ctx, RValue* args, [[maybe_unused]] in
     float y = (float) RValue_toReal(args[1]);
     char* str = RValue_toString(args[2]);
 
-    runner->renderer->vtable->drawText(runner->renderer, str, x, y, 1.0f, 1.0f, 0.0f);
+    char* processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawText(runner->renderer, processedText, x, y, 1.0f, 1.0f, 0.0f);
+    free(processedText);
     free(str);
     return RValue_makeUndefined();
 }
@@ -3041,7 +3046,9 @@ static RValue builtin_drawTextTransformed(VMContext* ctx, RValue* args, [[maybe_
     float yscale = (float) RValue_toReal(args[4]);
     float angle = (float) RValue_toReal(args[5]);
 
-    runner->renderer->vtable->drawText(runner->renderer, str, x, y, xscale, yscale, angle);
+    char* processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawText(runner->renderer, processedText, x, y, xscale, yscale, angle);
+    free(processedText);
     free(str);
     return RValue_makeUndefined();
 }
@@ -3347,7 +3354,7 @@ static RValue builtin_stringWidth(VMContext* ctx, RValue* args, int32_t argCount
     Font* font = &renderer->dataWin->font.fonts[fontIndex];
     char* str = RValue_toString(args[0]);
 
-    char* processed = TextUtils_preprocessGmlText(str);
+    char* processed = TextUtils_preprocessGmlTextIfNeeded(runner, str);
     free(str);
     int32_t textLen = (int32_t) strlen(processed);
 
@@ -3387,7 +3394,7 @@ static RValue builtin_stringHeight(VMContext* ctx, RValue* args, int32_t argCoun
     Font* font = &renderer->dataWin->font.fonts[fontIndex];
     char* str = RValue_toString(args[0]);
 
-    char* processed = TextUtils_preprocessGmlText(str);
+    char* processed = TextUtils_preprocessGmlTextIfNeeded(runner, str);
     free(str);
     int32_t textLen = (int32_t) strlen(processed);
     int32_t lineCount = TextUtils_countLines(processed, textLen);
@@ -3778,7 +3785,37 @@ static RValue builtinActionSetAlarm(VMContext* ctx, [[maybe_unused]] RValue* arg
 }
 
 static RValue builtinActionIfVariable(VMContext* ctx, [[maybe_unused]] RValue* args, [[maybe_unused]] int32_t argCount) {
-    if (args[0].int32 || args[0].int64 || args[0].real || args[0].string) {
+    bool check;
+    switch (args[0].type) {
+        case RVALUE_REAL: {
+            check = args[0].real != 0.0;
+            break;
+        }
+        case RVALUE_INT32: {
+            check = args[0].int32 != 0;
+            break;
+        }
+#ifndef NO_RVALUE_INT64
+        case RVALUE_INT64: {
+            check = args[0].int64 != 0;
+            break;
+        }
+#endif
+        case RVALUE_BOOL: {
+            check = args[0].int32 != 0;
+            break;
+        }
+        case RVALUE_STRING: {
+            check = args[0].string != nullptr && args[0].string[0] != '\0';
+            break;
+        }
+        default: {
+            check = false;
+            break;
+        }
+    }
+
+    if (check) {
         return args[1];
     } else {
         return args[2];
@@ -3894,15 +3931,7 @@ static RValue builtinPathEnd(VMContext* ctx, [[maybe_unused]] RValue* args, [[ma
 static RValue builtinStringHashToNewline([[maybe_unused]] VMContext* ctx, RValue* args, int32_t argCount) { 
     if (1 > argCount) return RValue_makeString(""); 
     char* str = RValue_toString(args[0]); 
-    int32_t len = (int32_t) strlen(str); 
-    char *result = malloc((len + 1) * sizeof(char));
-    repeat(len, i) {
-        char cur = str[i]; 
-        if(cur == '#') 
-            cur = '\n'; 
-        result[i] = cur; 
-    }
-    result[len] = '\0';
+    char *result = TextUtils_preprocessGmlText(str);
     free(str); 
     return RValue_makeOwnedString(result);
 }
@@ -3928,6 +3957,17 @@ static RValue builtinJsonDecode([[maybe_unused]] VMContext* ctx, RValue* args, i
     JsonReader_free(json);
 
     return RValue_makeReal((double) mapIndex);
+}
+
+static RValue builtinObjectGetSprite(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) {
+        fprintf(stderr, "[object_get_sprite] Expected at least 1 argument\n");
+        return RValue_makeUndefined();
+    }
+
+    int32_t id = RValue_toInt32(args[0]);
+
+    return RValue_makeReal((double) ctx->dataWin->objt.objects[id].spriteId);
 }
 
 STUB_RETURN_VALUE(font_add_sprite_ext, -1.0)
@@ -4318,5 +4358,6 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("string_hash_to_newline", builtinStringHashToNewline);
     registerBuiltin("json_decode", builtinJsonDecode);
     registerBuiltin("font_add_sprite_ext", builtin_font_add_sprite_ext);
+    registerBuiltin("object_get_sprite", builtinObjectGetSprite);
     registerBuiltin("asset_get_index", builtinAssetGetIndex);
 }
