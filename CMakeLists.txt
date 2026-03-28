@@ -70,6 +70,38 @@ if(PLATFORM STREQUAL "glfw")
         target_compile_options(butterscotch PRIVATE -fsanitize=address -fno-omit-frame-pointer)
         target_link_options(butterscotch PRIVATE -fsanitize=address)
     endif()
+elseif(PLATFORM STREQUAL "sdl2")
+    # GLAD
+    add_library(glad STATIC vendor/glad/src/glad.c)
+    target_include_directories(glad PUBLIC vendor/glad/include)
+
+    # stb_image
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # stb_vorbis
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
+
+    # miniaudio
+    target_include_directories(butterscotch PUBLIC vendor/miniaudio)
+
+    # 1. Look for a SDL2 package, 2. look for the SDL2 component and 3. fail if none can be found
+    find_package(SDL2 REQUIRED CONFIG REQUIRED COMPONENTS SDL2)
+
+
+    target_link_libraries(butterscotch glad m pthread dl SDL2::SDL2)
+
+
+    # Enable AddressSanitizer by default in Debug builds
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(ENABLE_ASAN_DEFAULT ON)
+    else()
+        set(ENABLE_ASAN_DEFAULT OFF)
+    endif()
+    set(ENABLE_ASAN ${ENABLE_ASAN_DEFAULT} CACHE BOOL "Enable AddressSanitizer")
+    if(ENABLE_ASAN AND NOT MINGW)
+        target_compile_options(butterscotch PRIVATE -fsanitize=address -fno-omit-frame-pointer -DSDL2)
+        target_link_options(butterscotch PRIVATE -fsanitize=address)
+    endif()
 elseif(PLATFORM STREQUAL "ps2")
     # The PS2 EE has a single-precision FPU only, so double is software-emulated
     add_compile_definitions(USE_FLOAT_REALS)
