@@ -126,7 +126,7 @@ elseif(PLATFORM STREQUAL "xbox")
     # Bring in SDL2 from NXDK
     # Bring in pbkit support (Xbox hardware access, often required for SDL on NXDK)
     target_link_libraries(butterscotch PUBLIC ${NXDK_DIR}/lib/libSDL2.lib ${NXDK_DIR}/lib/libpbkit.lib)
-    target_include_directories(butterscotch PRIVATE ${NXDK_DIR}/lib/sdl/SDL2/include ${NXDK_DIR}/lib/sdl)
+    target_include_directories(butterscotch PRIVATE ${NXDK_DIR}/lib/sdl/SDL2/include ${NXDK_DIR}/lib/sdl ${NXDK_DIR}/lib)
 
     # target_link_libraries(butterscotch PUBLIC ${NXDK_DIR}/lib/libpbkit.lib)
 
