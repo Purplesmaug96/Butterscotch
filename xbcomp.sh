@@ -8,11 +8,11 @@ cd build-xbox
 
 make -j$(nproc)
 
-$NXDK_DIR/tools/cxbe/cxbe -OUT:butterscotch.xbe butterscotch.exe
+$NXDK_DIR/tools/cxbe/cxbe -OUT:default.xbe butterscotch.exe
 
 mkdir -p iso_root
 
-cp butterscotch.xbe iso_root/
+cp default.xbe iso_root/
 cp -r ../undertale/* iso_root/
 
 /hdd/Butterscotch/nxdk/tools/extract-xiso/extract-xiso -c iso_root/ butterscotch.iso

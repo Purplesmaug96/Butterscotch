@@ -30,19 +30,63 @@ static char* glfwResolvePath(FileSystem* fs, const char* relativePath) {
 }
 
 static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
-    return false;
+    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    printf("Trying to open %s...\n", fullPath);
+    FILE *file;
+    bool exists = false;
+    if ((file = fopen(fullPath, "r")))
+    {
+        fclose(file);
+        exists = true;
+    }
+    if (exists) {
+        printf("File %s found.", fullPath);
+    }
+    else {
+        printf("File %s not found.", fullPath);
+    }
+    free(fullPath);
+    return exists;
 }
 
 static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
-    return NULL;
+    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    FILE* f = fopen(fullPath, "rb");
+    free(fullPath);
+
+    if (f == nullptr) return nullptr;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char* content = safeMalloc((size_t) size + 1);
+    size_t bytesRead = fread(content, 1, (size_t) size, f);
+    content[bytesRead] = '\0';
+    fclose(f);
+
+    return content;
 }
 
 static bool glfwWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
-    return false;
+    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    FILE* f = fopen(fullPath, "wb");
+    free(fullPath);
+
+    if (f == nullptr) return false;
+
+    size_t len = strlen(contents);
+    size_t written = fwrite(contents, 1, len, f);
+    fclose(f);
+
+    return written == len;
 }
 
 static bool glfwDeleteFile(FileSystem* fs, const char* relativePath) {
-    return false;
+    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    int result = remove(fullPath);
+    free(fullPath);
+    return result == 0;
 }
 
 // ===[ Vtable ]===
@@ -60,6 +104,13 @@ static FileSystemVtable glfwFileSystemVtable = {
 GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
     GlfwFileSystem* fs = safeCalloc(1, sizeof(GlfwFileSystem));
     fs->base.vtable = &glfwFileSystemVtable;
+    
+    debugPrint("Checking for file %s...\n", dataWinPath);
+    bool dataWinExists = glfwFileExists((FileSystem*) fs, dataWinPath);
+    if (!dataWinExists) {
+        debugPrint("Error: file %s not found! Rebooting...\n", dataWinPath);
+        XReboot();
+    }
 
     const char* lastSlash = strrchr(dataWinPath, '/');
     const char* lastBackslash = strrchr(dataWinPath, '\\');

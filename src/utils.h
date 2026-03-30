@@ -11,6 +11,16 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#ifdef NXDK
+#include <hal/debug.h>
+#include <hal/xbox.h>
+#include <hal/video.h>
+
+#define printf debugPrint
+#define fprintf(stream, ...) \
+    ((stream == stderr) ? debugPrint(__VA_ARGS__) : 0)
+#endif
+
 #define forEach(type, item, array, count) \
     for (typeof(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
     for (type* item = &(array)[item##_i_]; item; item = NULL)

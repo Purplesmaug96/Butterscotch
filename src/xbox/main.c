@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include <malloc.h>
+#include <windows.h>
 #include <hal/debug.h>
 #include <hal/xbox.h>
 #include <hal/video.h>
@@ -297,7 +298,8 @@ static InputRecording* globalInputRecording = nullptr;
 // ===[ MAIN ]===
 int main(int argc, char* argv[]) {
     XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
-    XReboot();
+
+    debugPrint("Butterscotch running!\n");
 
     CommandLineArgs args;
     
@@ -309,8 +311,6 @@ int main(int argc, char* argv[]) {
     
     argc = my_argc;
     argv = my_argv;
-    
-    while (true) {printf("Hello world!\n");}
 
     parseCommandLineArgs(&args, argc, argv);
 
