@@ -1,4 +1,6 @@
 build/
+build-xbox/
+nxdk/
 .gitignore
 undertale
 survey_program

@@ -19,6 +19,13 @@ if(PLATFORM STREQUAL "")
     message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw (or another supported platform).")
 endif()
 
+if(PLATFORM STREQUAL "xbox")
+    # Make sure to point CMAKE_MODULE_PATH to wherever you store NXDK's cmake files
+    # list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+    include(PostbuildAction OPTIONAL)
+    include(PrebuildNXDK OPTIONAL)
+endif()
+
 file(GLOB SOURCES src/*.c)
 # Platform specific files builds
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
@@ -84,14 +91,12 @@ elseif(PLATFORM STREQUAL "sdl2")
     # miniaudio
     target_include_directories(butterscotch PUBLIC vendor/miniaudio)
 
-    # 1. Look for a SDL2 package, 2. look for the SDL2 component and 3. fail if none can be found
     find_package(SDL2 REQUIRED CONFIG REQUIRED COMPONENTS SDL2)
 
 
     target_link_libraries(butterscotch glad m pthread dl SDL2::SDL2)
 
 
-    # Enable AddressSanitizer by default in Debug builds
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(ENABLE_ASAN_DEFAULT ON)
     else()
@@ -101,6 +106,38 @@ elseif(PLATFORM STREQUAL "sdl2")
     if(ENABLE_ASAN AND NOT MINGW)
         target_compile_options(butterscotch PRIVATE -fsanitize=address -fno-omit-frame-pointer -DSDL2)
         target_link_options(butterscotch PRIVATE -fsanitize=address)
+    endif()
+elseif(PLATFORM STREQUAL "xbox")
+    set(XBE_TITLE "Butterscotch")
+    set(XBOX_ISO_DIR ${CMAKE_CURRENT_BINARY_DIR}/xiso)
+
+    # Set Xbox specific definitions needed for SDL and the system
+    target_compile_definitions(butterscotch PRIVATE _XBOX NXDK XBOX SDL_DISABLE_JOYSTICK_INIT_DELAY DEBUG_CONSOLE)
+
+    # stb_image
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # stb_vorbis
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
+
+    # miniaudio
+    target_include_directories(butterscotch PUBLIC vendor/miniaudio)
+
+    # Bring in SDL2 from NXDK
+    # Bring in pbkit support (Xbox hardware access, often required for SDL on NXDK)
+    target_link_libraries(butterscotch PUBLIC ${NXDK_DIR}/lib/libSDL2.lib ${NXDK_DIR}/lib/libpbkit.lib)
+    target_include_directories(butterscotch PRIVATE ${NXDK_DIR}/lib/sdl/SDL2/include ${NXDK_DIR}/lib/sdl)
+
+    # target_link_libraries(butterscotch PUBLIC ${NXDK_DIR}/lib/libpbkit.lib)
+
+    # Link everything together
+    # target_link_libraries(butterscotch glad)
+
+    # Generate the Xbox executable and ISO
+    if(COMMAND add_xbox_build_steps)
+        add_xbox_build_steps(butterscotch ${XBE_TITLE} ${XBOX_ISO_DIR})
+    else()
+        message(WARNING "add_xbox_build_steps macro not found. Ensure NXDK CMake modules are loaded.")
     endif()
 elseif(PLATFORM STREQUAL "ps2")
     # The PS2 EE has a single-precision FPU only, so double is software-emulated
