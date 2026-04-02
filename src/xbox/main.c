@@ -463,6 +463,11 @@ int main(int argc, char* argv[]) {
         windowFlags |= SDL_WINDOW_HIDDEN;
     }
 
+    debugPrint("Attempting to create window with dimensions %dx%d (max is %dx%d)...\n", gen8->defaultWindowWidth, gen8->defaultWindowHeight, XBOX_MAX_FB_WIDTH, XBOX_MAX_FB_HEIGHT);
+
+    requireMessage(gen8->defaultWindowWidth <= XBOX_MAX_FB_WIDTH, "gen8->defaultWindowWidth exeeded XBOX_MAX_FB_WIDTH.\n");
+    requireMessage(gen8->defaultWindowHeight <= XBOX_MAX_FB_HEIGHT, "gen8->defaultWindowHeight exeeded XBOX_MAX_FB_Height.\n");
+
     SDL_Window* window = SDL_CreateWindow(
         windowTitle, 
         SDL_WINDOWPOS_CENTERED, 

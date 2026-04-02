@@ -21,6 +21,9 @@
 #include <hal/video.h>
 #include <windows.h>
 
+#define XBOX_MAX_FB_WIDTH 640
+#define XBOX_MAX_FB_HEIGHT 480
+
 #define XBMemStat() ({ \
     MM_STATISTICS stats; \
     stats.Length = sizeof(MM_STATISTICS); \
@@ -37,11 +40,6 @@
 #define abort() debugPrint("abort() called at %s:%d! Rebooting in 10s...\n", __FILE__, __LINE__); XBMemStat(); Sleep(10000); XReboot()
 
 #endif
-
-#define DPInit int __DPNum = 0
-#define DPReset __DPNum = 0
-
-#define DPPrint printf("Debug Print %d\n", __DPNum); __DPNum++
 
 #define forEach(type, item, array, count) \
     for (typeof(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
