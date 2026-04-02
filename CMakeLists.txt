@@ -78,10 +78,6 @@ if(PLATFORM STREQUAL "glfw")
         target_link_options(butterscotch PRIVATE -fsanitize=address)
     endif()
 elseif(PLATFORM STREQUAL "sdl2")
-    # GLAD
-    add_library(glad STATIC vendor/glad/src/glad.c)
-    target_include_directories(glad PUBLIC vendor/glad/include)
-
     # stb_image
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
 
@@ -94,7 +90,7 @@ elseif(PLATFORM STREQUAL "sdl2")
     find_package(SDL2 REQUIRED CONFIG REQUIRED COMPONENTS SDL2)
 
 
-    target_link_libraries(butterscotch glad m pthread dl SDL2::SDL2)
+    target_link_libraries(butterscotch m pthread dl SDL2::SDL2)
 
 
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
