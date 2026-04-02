@@ -3,6 +3,7 @@
 #include "text_utils.h"
 #include <SDL_render.h>
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,30 +41,48 @@ static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx
     *vy = ly * (sdl->currentPortH / sdl->currentViewH);
 }
 
+typedef struct SDL_Vertex
+{
+    SDL_FPoint position;        /**< Vertex position, in SDL_Renderer coordinates  */
+    SDL_Color  color;           /**< Vertex color */
+    SDL_FPoint tex_coord;       /**< Normalized texture coordinates, if needed */
+} SDL_Vertex;
+
 static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
-    // SDL_Vertex verts[4];
     
-    // for (int i = 0; i < 4; i++) {
-    //     float vx, vy;
-    //     transformWorldToView(sdl, x[i], y[i], &vx, &vy);
-        
-    //     verts[i].position.x = vx;
-    //     verts[i].position.y = vy;
-    //     verts[i].tex_coord.x = u[i];
-    //     verts[i].tex_coord.y = v[i];
-        
-    //     verts[i].color.r = (uint8_t)(r[i] * 255.0f);
-    //     verts[i].color.g = (uint8_t)(g[i] * 255.0f);
-    //     verts[i].color.b = (uint8_t)(b[i] * 255.0f);
-    //     verts[i].color.a = (uint8_t)(a[i] * 255.0f);
-    // }
+    // 1. Get the texture's actual dimensions in pixels
+    int texW, texH;
+    SDL_QueryTexture(tex, NULL, NULL, &texW, &texH);
 
-    // int indices[6] = {0, 1, 2, 2, 3, 0};
-    // SDL_RenderGeometry(sdl->sdlRenderer, tex, verts, 4, indices, 6);
+    // 2. Define the Source Rect (What part of the atlas to grab)
+    // We assume u[0]/v[0] is Top-Left and u[2]/v[2] is Bottom-Right
+    SDL_Rect srcrect;
+    srcrect.x = (int)(u[0] * texW);
+    srcrect.y = (int)(v[0] * texH);
+    srcrect.w = (int)((u[2] - u[0]) * texW);
+    srcrect.h = (int)((v[2] - v[0]) * texH);
+
+    // 3. Define the Destination Rect (Where to draw it on screen)
+    // We'll use your WorldToView logic here
+    float vx0, vy0, vx2, vy2;
+    transformWorldToView(sdl, x[0], y[0], &vx0, &vy0);
+    transformWorldToView(sdl, x[2], y[2], &vx2, &vy2);
+
+    SDL_Rect dstrect;
+    dstrect.x = (int)vx0;
+    dstrect.y = (int)vy0;
+    dstrect.w = (int)(vx2 - vx0);
+    dstrect.h = (int)(vy2 - vy0);
+
+    // 4. Apply color modulation (using the color of the first vertex)
+    SDL_SetTextureColorMod(tex, (uint8_t)(r[0] * 255), (uint8_t)(g[0] * 255), (uint8_t)(b[0] * 255));
+    SDL_SetTextureAlphaMod(tex, (uint8_t)(a[0] * 255));
+
+    // 5. Finally, RenderCopy with BOTH rects
+    SDL_RenderCopy(sdl->sdlRenderer, tex, &srcrect, &dstrect);
 }
-
 static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
     float rc[4] = {r, r, r, r};
     float gc[4] = {g, g, g, g};
