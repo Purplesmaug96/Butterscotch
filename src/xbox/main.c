@@ -480,7 +480,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    uint32_t rendererFlags = SDL_RENDERER_ACCELERATED;
+    uint32_t rendererFlags = SDL_RENDERER_SOFTWARE;
     if (!args.headless && args.speedMultiplier == 1.0) {
         // rendererFlags |= SDL_RENDERER_PRESENTVSYNC;
     }

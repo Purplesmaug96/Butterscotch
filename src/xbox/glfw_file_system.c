@@ -101,14 +101,9 @@ static FileSystemVtable glfwFileSystemVtable = {
 // ===[ Lifecycle ]===
 
 GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
-    debugPrint("Attempting to create filesystem...\n");
-    DPInit;
-
     GlfwFileSystem* fs = safeCalloc(1, sizeof(GlfwFileSystem));
-    DPPrint;
     fs->base.vtable = &glfwFileSystemVtable;
     bool dataWinExists = glfwFileExists((FileSystem*) fs, dataWinPath);
-    DPPrint;
     if (!dataWinExists) {
         debugPrint("Error: file %s not found! Rebooting in 10s...\n", dataWinPath);
         Sleep(10000);
@@ -118,24 +113,16 @@ GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
     const char* lastSlash = strrchr(dataWinPath, '/');
     const char* lastBackslash = strrchr(dataWinPath, '\\');
 
-    DPPrint;
-
     const char* lastSep = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
 
-    DPPrint;
-
     if (lastSep != nullptr) {
-        debugPrint("Filesystem: lastSep != nullptr\n");
         size_t dirLen = (size_t) (lastSep - dataWinPath + 1);
         fs->basePath = safeMalloc(dirLen + 1);
         memcpy(fs->basePath, dataWinPath, dirLen);
         fs->basePath[dirLen] = '\0';
     } else {
-        debugPrint("Filesystem: lastSep == nullptr\n");
         fs->basePath = safeStrdup("./");
     }
-
-    debugPrint("Filesystem created.\n");
 
     return fs;
 }
