@@ -295,16 +295,29 @@ static InputRecording* globalInputRecording = nullptr;
 #ifdef main
 #undef main
 #endif
+
+extern BOOL nxMountDrive(char driveLetter, const char* devicePath); // i don't know what header its in so prototype here!
+
 // ===[ MAIN ]===
 int main(int argc, char* argv[]) {
     XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
 
+    debugClearScreen();
+
     debugPrint("Butterscotch running!\n");
+
+    XBMemStat();
+
+    if (nxMountDrive('D', "\\Device\\CdRom0")) {
+        debugPrint("D: drive manually mounted to \\Device\\CdRom0\n");
+    } else {
+        debugPrint("Failed to mount D: drive!\n");
+    }
 
     CommandLineArgs args;
     
     char* my_argv[] = {
-        "butterscotch.exe",
+        "D:\\default.xbe",
         "D:\\assets\\game.unx"
     };
     int my_argc = 2;
