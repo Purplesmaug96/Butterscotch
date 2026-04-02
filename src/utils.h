@@ -34,6 +34,11 @@
 
 #endif
 
+#define DPInit int __DPNum = 0
+#define DPReset __DPNum = 0
+
+#define DPPrint printf("Debug Print %d\n", __DPNum); __DPNum++
+
 #define forEach(type, item, array, count) \
     for (typeof(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
     for (type* item = &(array)[item##_i_]; item; item = NULL)

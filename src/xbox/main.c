@@ -318,7 +318,7 @@ int main(int argc, char* argv[]) {
     
     char* my_argv[] = {
         "D:\\default.xbe",
-        "D:\\assets\\game.unx"
+        "D:\\data.win"
     };
     int my_argc = 2;
     

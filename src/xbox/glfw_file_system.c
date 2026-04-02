@@ -30,22 +30,21 @@ static char* glfwResolvePath(FileSystem* fs, const char* relativePath) {
 }
 
 static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
-    printf("Trying to open %s...\n", fullPath);
-    FILE *file;
+
+    printf("Trying to open %s...\n", relativePath);
+    FILE *file = fopen(relativePath, "r");
     bool exists = false;
-    if ((file = fopen(fullPath, "r")))
+    if (file != nullptr)
     {
         fclose(file);
         exists = true;
     }
     if (exists) {
-        printf("File %s found.", fullPath);
+        printf("File %s found.\n", relativePath);
     }
     else {
-        printf("File %s not found.", fullPath);
+        printf("File %s not found.\n", relativePath);
     }
-    free(fullPath);
     return exists;
 }
 
@@ -102,29 +101,41 @@ static FileSystemVtable glfwFileSystemVtable = {
 // ===[ Lifecycle ]===
 
 GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
+    debugPrint("Attempting to create filesystem...\n");
+    DPInit;
+
     GlfwFileSystem* fs = safeCalloc(1, sizeof(GlfwFileSystem));
+    DPPrint;
     fs->base.vtable = &glfwFileSystemVtable;
-    
-    debugPrint("Checking for file %s...\n", dataWinPath);
     bool dataWinExists = glfwFileExists((FileSystem*) fs, dataWinPath);
+    DPPrint;
     if (!dataWinExists) {
-        debugPrint("Error: file %s not found! Rebooting...\n", dataWinPath);
+        debugPrint("Error: file %s not found! Rebooting in 10s...\n", dataWinPath);
+        Sleep(10000);
         XReboot();
     }
 
     const char* lastSlash = strrchr(dataWinPath, '/');
     const char* lastBackslash = strrchr(dataWinPath, '\\');
 
+    DPPrint;
+
     const char* lastSep = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
 
+    DPPrint;
+
     if (lastSep != nullptr) {
+        debugPrint("Filesystem: lastSep != nullptr\n");
         size_t dirLen = (size_t) (lastSep - dataWinPath + 1);
         fs->basePath = safeMalloc(dirLen + 1);
         memcpy(fs->basePath, dataWinPath, dirLen);
         fs->basePath[dirLen] = '\0';
     } else {
+        debugPrint("Filesystem: lastSep == nullptr\n");
         fs->basePath = safeStrdup("./");
     }
+
+    debugPrint("Filesystem created.\n");
 
     return fs;
 }
