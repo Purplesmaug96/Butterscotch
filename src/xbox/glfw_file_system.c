@@ -7,20 +7,68 @@
 
 // ===[ Helpers ]===
 
-static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
-    if(strncmp(relativePath, fs->basePath, strlen(fs->basePath)) == 0) {
-        return safeStrdup(relativePath);
+// taken from stackoverflow
+char* str_replace(char *target, const char *needle, const char *replacement)
+{
+    char* buffer = malloc(1024);
+    char *insert_point = &buffer[0];
+    const char *tmp = target;
+    size_t needle_len = strlen(needle);
+    size_t repl_len = strlen(replacement);
+
+    while (1) {
+        const char *p = strstr(tmp, needle);
+
+        // walked past last occurrence of needle; copy remaining part
+        if (p == NULL) {
+            strcpy(insert_point, tmp);
+            break;
+        }
+
+        // copy part before needle
+        memcpy(insert_point, tmp, p - tmp);
+        insert_point += p - tmp;
+
+        // copy replacement string
+        memcpy(insert_point, replacement, repl_len);
+        insert_point += repl_len;
+
+        // adjust pointers, move on
+        tmp = p + needle_len;
     }
 
-    size_t baseLen = strlen(fs->basePath);
-    size_t relLen = strlen(relativePath);
-    char* fullPath = safeMalloc(baseLen + relLen + 1);
+    // write altered string back to target
+    // strcpy(target, buffer);
+    return buffer;
+}
 
-    memcpy(fullPath, fs->basePath, baseLen);
-    memcpy(fullPath + baseLen, relativePath, relLen);
-    fullPath[baseLen + relLen] = '\0';
+size_t strlen_s(char* p, size_t s) {
+    char* _p = p;
+    size_t l = 0;
+    while (_p && l < s) {
+        _p++; l++;
+    }
+    
+    return l;
+}
 
-    return fullPath;
+static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
+    // if(strncmp(relativePath, fs->basePath, strlen_s(fs->basePath, 1024)) == 0) {
+    //     return safeStrdup(relativePath);
+    // }
+
+    // size_t baseLen = strlen(fs->basePath);
+    // size_t relLen = strlen(relativePath);
+    // char* fullPath = safeMalloc(baseLen + relLen + 1);
+
+    // memcpy(fullPath, fs->basePath, baseLen);
+    // memcpy(fullPath + baseLen, relativePath, relLen);
+    // fullPath[baseLen + relLen] = '\0';
+
+    // str_replace(fullPath, "/", "\\");
+
+    // return fullPath;
+    return str_replace((char*)relativePath, "/", "\\");
 }
 
 // ===[ Vtable Implementations ]===
@@ -30,9 +78,10 @@ static char* glfwResolvePath(FileSystem* fs, const char* relativePath) {
 }
 
 static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
-
-    printf("Trying to open %s...\n", relativePath);
-    FILE *file = fopen(relativePath, "r");
+    // char* fullPath = buildFullPath((GlfwFileSystem*)fs, fullPath);
+    char* fullPath = str_replace(relativePath, "/", "\\");
+    printf("Trying to open %s...\n", fullPath);
+    FILE *file = fopen(fullPath, "r");
     bool exists = false;
     if (file != nullptr)
     {
@@ -40,11 +89,12 @@ static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
         exists = true;
     }
     if (exists) {
-        printf("File %s found.\n", relativePath);
+        printf("File %s found.\n", fullPath);
     }
     else {
-        printf("File %s not found.\n", relativePath);
+        printf("File %s not found.\n", fullPath);
     }
+    free(fullPath);
     return exists;
 }
 

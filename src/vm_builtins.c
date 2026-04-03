@@ -1828,6 +1828,9 @@ static RValue builtin_audioSoundSetTrackPosition(VMContext* ctx, RValue* args, [
 }
 
 static RValue builtin_audioCreateStream(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    #ifdef NXDK
+    return RValue_makeReal(0);
+    #endif
     AudioSystem* audio = getAudioSystem(ctx);
     if (audio == nullptr) return RValue_makeReal(-1.0);
     const char* filename = RValue_toString(args[0]);
@@ -1836,6 +1839,9 @@ static RValue builtin_audioCreateStream(VMContext* ctx, RValue* args, [[maybe_un
 }
 
 static RValue builtin_audioDestroyStream(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    #ifdef NXDK
+    return RValue_makeReal(0);
+    #endif
     AudioSystem* audio = getAudioSystem(ctx);
     if (audio == nullptr) return RValue_makeReal(-1.0);
     int32_t streamIndex = RValue_toInt32(args[0]);

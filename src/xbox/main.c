@@ -431,6 +431,7 @@ int main(int argc, char* argv[]) {
     GlfwFileSystem* fileSystem = GlfwFileSystem_create(args.dataWinPath);
 
     Runner* runner = Runner_create(dataWin, vm, (FileSystem*) fileSystem);
+    VMContext* ctx = runner->vmContext;
     runner->debugMode = args.debug;
 
     if (args.playbackInputsPath != nullptr) {
@@ -439,16 +440,16 @@ int main(int argc, char* argv[]) {
         globalInputRecording = InputRecording_createRecorder(args.recordInputsPath);
     }
 
-    shcopyFromTo(args.varReadsToBeTraced, runner->vmContext->varReadsToBeTraced);
-    shcopyFromTo(args.varWritesToBeTraced, runner->vmContext->varWritesToBeTraced);
-    shcopyFromTo(args.functionCallsToBeTraced, runner->vmContext->functionCallsToBeTraced);
-    shcopyFromTo(args.alarmsToBeTraced, runner->vmContext->alarmsToBeTraced);
-    shcopyFromTo(args.instanceLifecyclesToBeTraced, runner->vmContext->instanceLifecyclesToBeTraced);
-    shcopyFromTo(args.eventsToBeTraced, runner->vmContext->eventsToBeTraced);
-    shcopyFromTo(args.opcodesToBeTraced, runner->vmContext->opcodesToBeTraced);
-    shcopyFromTo(args.stackToBeTraced, runner->vmContext->stackToBeTraced);
-    shcopyFromTo(args.tilesToBeTraced, runner->vmContext->tilesToBeTraced);
-    runner->vmContext->traceEventInherited = args.traceEventInherited;
+    shcopyFromTo(args.varReadsToBeTraced, ctx->varReadsToBeTraced);
+    shcopyFromTo(args.varWritesToBeTraced, ctx->varWritesToBeTraced);
+    shcopyFromTo(args.functionCallsToBeTraced, ctx->functionCallsToBeTraced);
+    shcopyFromTo(args.alarmsToBeTraced, ctx->alarmsToBeTraced);
+    shcopyFromTo(args.instanceLifecyclesToBeTraced, ctx->instanceLifecyclesToBeTraced);
+    shcopyFromTo(args.eventsToBeTraced, ctx->eventsToBeTraced);
+    shcopyFromTo(args.opcodesToBeTraced, ctx->opcodesToBeTraced);
+    shcopyFromTo(args.stackToBeTraced, ctx->stackToBeTraced);
+    shcopyFromTo(args.tilesToBeTraced, ctx->tilesToBeTraced);
+    ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS) != 0) {
@@ -593,8 +594,8 @@ int main(int argc, char* argv[]) {
             }
 
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F10)) {
-                int32_t interactVarId = shget(runner->vmContext->globalVarNameMap, "interact");
-                runner->vmContext->globalVars[interactVarId] = RValue_makeInt32(0);
+                int32_t interactVarId = shget(ctx->globalVarNameMap, "interact");
+                ctx->globalVars[interactVarId] = RValue_makeInt32(0);
                 printf("Changed global.interact [%d] value!\n", interactVarId);
             }
         }
@@ -667,7 +668,7 @@ int main(int argc, char* argv[]) {
             uint8_t b = BGR_B(runner->backgroundColor);
             SDL_SetRenderDrawColor(sdlRenderer, r, g, b, 255);
         } else {
-            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
+            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);\
         }
         SDL_RenderClear(sdlRenderer);
 

@@ -33,6 +33,8 @@ file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
 add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES})
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+add_definitions(-w)
+
 # stb_ds
 target_include_directories(butterscotch PUBLIC vendor/stb/ds)
 

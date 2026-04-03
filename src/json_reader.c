@@ -341,7 +341,11 @@ static JsonValue* parseValue(JsonParser* parser) {
             if (c == '-' || (c >= '0' && c <= '9')) {
                 return parseNumber(parser);
             }
-            fprintf(stderr, "JsonReader: unexpected character '%c' at position %zu\n", c, parser->position);
+            // printf("\n\n%s\n%d\n\n\n", &c, (int)c);
+            if ((int)c != 0) 
+                fprintf(stderr, "JsonReader: unexpected character '%c' at position %zu\n", c, parser->position);
+            else
+                fprintf(stderr, "JsonReader: unexpected character (NULL) at position %zu\n", parser->position);
             return nullptr;
     }
 }

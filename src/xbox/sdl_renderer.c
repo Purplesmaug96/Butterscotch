@@ -100,6 +100,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     sdl->textureWidths = safeCalloc(sdl->textureCount, sizeof(int32_t));
     sdl->textureHeights = safeCalloc(sdl->textureCount, sizeof(int32_t));
 
+    
     for (uint32_t i = 0; sdl->textureCount > i; i++) {
         Texture* txtr = &dataWin->txtr.textures[i];
         int w, h, channels;

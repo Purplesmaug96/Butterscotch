@@ -142,6 +142,9 @@ static inline GMLReal clampFloat(GMLReal f) {
 #define BGR_G(c) (((c) >>  8) & 0xFF)
 #define BGR_R(c) (((c) >>  0) & 0xFF)
 
+#define min(x, y) (x < y ? x : y)
+#define max(x, y) (x > y ? x : y)
+
 #define shcopyFromTo(src, dst)                        \
 do {                                        \
 (dst) = NULL;                           \
