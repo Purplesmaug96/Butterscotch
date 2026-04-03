@@ -3,6 +3,8 @@
 #include "renderer.h"
 #include <SDL.h>
 
+typedef struct AssetCache_ AssetCache;
+
 typedef struct {
     Renderer base;
 
@@ -34,6 +36,9 @@ typedef struct {
     uint32_t originalTexturePageCount;
     uint32_t originalTpagCount;
     uint32_t originalSpriteCount;
+
+    AssetCache* assetCache;
 } SDLRenderer;
 
 Renderer* SDLRenderer_create(SDL_Window* window, SDL_Renderer* renderer);
+void SDLRenderer_setAssetCache(SDLRenderer* renderer, AssetCache* cache);

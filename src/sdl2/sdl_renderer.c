@@ -82,8 +82,20 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
 
     for (uint32_t i = 0; sdl->textureCount > i; i++) {
         Texture* txtr = &dataWin->txtr.textures[i];
+        
+        // Lazy-load texture blob if needed
+        uint8_t* blobData = txtr->blobData;
+        if (blobData == nullptr) {
+            blobData = DataWin_loadTextureBlob(dataWin, txtr);
+        }
+        
+        if (blobData == nullptr) {
+            fprintf(stderr, "SDL: Failed to load texture blob for TXTR page %u\n", i);
+            continue;
+        }
+        
         int w, h, channels;
-        uint8_t* pixels = stbi_load_from_memory(txtr->blobData, (int) txtr->blobSize, &w, &h, &channels, 4);
+        uint8_t* pixels = stbi_load_from_memory(blobData, (int) txtr->blobSize, &w, &h, &channels, 4);
         
         if (pixels == nullptr) {
             fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", i);

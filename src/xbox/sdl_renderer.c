@@ -1,4 +1,5 @@
 ﻿#include "sdl_renderer.h"
+#include "asset_cache.h"
 #include "matrix_math.h"
 #include "text_utils.h"
 #include <SDL_render.h>
@@ -91,6 +92,48 @@ static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], floa
     emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
 }
 
+// Lazy-load a texture on demand when it's first needed
+static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
+    if (pageId >= sdl->textureCount) return;
+    if (sdl->sdlTextures[pageId] != nullptr) return;  // Already loaded
+    
+    Texture* txtr = &dw->txtr.textures[pageId];
+    int w, h, channels;
+    
+    uint8_t* pngData = txtr->blobData;
+    uint32_t pngSize = txtr->blobSize;
+    
+    // If blob data wasn't preloaded, try to load from asset cache
+    if (pngData == nullptr && sdl->assetCache != nullptr) {
+        AssetCacheEntry entry = AssetCache_getTextureBlobData(sdl->assetCache, txtr->blobOffset, txtr->blobSize);
+        pngData = (uint8_t*) entry.data;
+        pngSize = (uint32_t) entry.size;
+    }
+    
+    if (pngData == nullptr) {
+        fprintf(stderr, "SDL: TXTR page %u has no data and no cache available\n", pageId);
+        return;
+    }
+    
+    uint8_t* pixels = stbi_load_from_memory(pngData, (int) pngSize, &w, &h, &channels, 4);
+    
+    if (pixels == nullptr) {
+        fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
+        return;
+    }
+
+    sdl->textureWidths[pageId] = w;
+    sdl->textureHeights[pageId] = h;
+
+    SDL_Texture* tex = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    SDL_UpdateTexture(tex, nullptr, pixels, w * 4);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    
+    sdl->sdlTextures[pageId] = tex;
+    stbi_image_free(pixels);
+    fprintf(stderr, "SDL: Lazy-loaded TXTR page %u (%dx%d)\n", pageId, w, h);
+}
+
 static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     SDLRenderer* sdl = (SDLRenderer*) renderer;
     renderer->dataWin = dataWin;
@@ -100,28 +143,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     sdl->textureWidths = safeCalloc(sdl->textureCount, sizeof(int32_t));
     sdl->textureHeights = safeCalloc(sdl->textureCount, sizeof(int32_t));
 
-    
-    for (uint32_t i = 0; sdl->textureCount > i; i++) {
-        Texture* txtr = &dataWin->txtr.textures[i];
-        int w, h, channels;
-        uint8_t* pixels = stbi_load_from_memory(txtr->blobData, (int) txtr->blobSize, &w, &h, &channels, 4);
-        
-        if (pixels == nullptr) {
-            fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", i);
-            continue;
-        }
-
-        sdl->textureWidths[i] = w;
-        sdl->textureHeights[i] = h;
-
-        SDL_Texture* tex = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-        SDL_UpdateTexture(tex, nullptr, pixels, w * 4);
-        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-        
-        sdl->sdlTextures[i] = tex;
-        stbi_image_free(pixels);
-        fprintf(stderr, "SDL: Loaded TXTR page %u (%dx%d)\n", i, w, h);
-    }
+    // Don't load textures here - they will be loaded on-demand when first used
 
     sdl->whiteTexture = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, 1, 1);
     uint8_t whitePixel[4] = {255, 255, 255, 255};
@@ -217,6 +239,9 @@ static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float 
     int16_t pageId = tpag->texturePageId;
     if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
 
+    // Lazy-load texture on demand
+    ensureTextureLoaded(sdl, dw, pageId);
+    
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -262,6 +287,9 @@ static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t src
     int16_t pageId = tpag->texturePageId;
     if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
 
+    // Lazy-load texture on demand
+    ensureTextureLoaded(sdl, dw, pageId);
+    
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -368,6 +396,9 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
     int16_t pageId = fontTpag->texturePageId;
     if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
 
+    // Lazy-load texture on demand
+    ensureTextureLoaded(sdl, dw, pageId);
+    
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -617,4 +648,10 @@ Renderer* SDLRenderer_create(SDL_Window* window, SDL_Renderer* renderer) {
     sdl->sdlWindow = window;
     sdl->sdlRenderer = renderer;
     return (Renderer*) sdl;
+}
+
+void SDLRenderer_setAssetCache(SDLRenderer* renderer, AssetCache* cache) {
+    if (renderer) {
+        renderer->assetCache = cache;
+    }
 }

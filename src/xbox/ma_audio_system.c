@@ -12,6 +12,7 @@
 #include "miniaudio.h"
 
 #include "ma_audio_system.h"
+#include "asset_cache.h"
 #include "utils.h"
 
 #include <stdio.h>
@@ -175,9 +176,26 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
         }
 
         AudioEntry* entry = &dw->audo.entries[sound->audioFile];
+        
+        const uint8_t* audioData = entry->data;
+        uint32_t audioSize = entry->dataSize;
+        uint8_t* cacheData = nullptr;
+        
+        // If audio wasn't preloaded, try to load from asset cache
+        if (audioData == nullptr && ma->assetCache != nullptr) {
+            AssetCacheEntry cacheEntry = AssetCache_getAudioBlobData(ma->assetCache, entry->dataOffset, entry->dataSize);
+            audioData = cacheEntry.data;
+            audioSize = (uint32_t) cacheEntry.size;
+            cacheData = (uint8_t*) cacheEntry.data;  // Keep reference for potential cleanup
+        }
+        
+        if (audioData == nullptr) {
+            fprintf(stderr, "Audio: Sound '%s' has no data and no cache available\n", sound->name);
+            return -1;
+        }
 
         ma_decoder_config decoderConfig = ma_decoder_config_init_default();
-        result = ma_decoder_init_memory(entry->data, entry->dataSize, &decoderConfig, &slot->decoder);
+        result = ma_decoder_init_memory(audioData, audioSize, &decoderConfig, &slot->decoder);
         if (result != MA_SUCCESS) {
             fprintf(stderr, "Audio: Failed to init decoder for '%s' (error %d)\n", sound->name, result);
             return -1;
@@ -540,4 +558,10 @@ MaAudioSystem* MaAudioSystem_create(void) {
     MaAudioSystem* ma = safeCalloc(1, sizeof(MaAudioSystem));
     ma->base.vtable = &maAudioSystemVtable;
     return ma;
+}
+
+void MaAudioSystem_setAssetCache(MaAudioSystem* audioSystem, AssetCache* cache) {
+    if (audioSystem) {
+        audioSystem->assetCache = cache;
+    }
 }

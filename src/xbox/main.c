@@ -19,6 +19,7 @@
 #include "sdl_renderer.h"
 #include "glfw_file_system.h"
 #include "ma_audio_system.h"
+#include "asset_cache.h"
 #include "stb_ds.h"
 #include "stb_image_write.h"
 
@@ -318,7 +319,7 @@ int main(int argc, char* argv[]) {
     
     char* my_argv[] = {
         "D:\\default.xbe",
-        "D:\\data.win"
+        "D:\\assets\\game.unx"
     };
     int my_argc = 2;
     
@@ -355,14 +356,26 @@ int main(int argc, char* argv[]) {
             .parseStrg = true,
             .parseTxtr = true,
             .parseAudo = true,
-            .skipLoadingPreciseMasksForNonPreciseSprites = true
+            .skipLoadingPreciseMasksForNonPreciseSprites = true,
+            .skipLoadingTxtrBlobData = true,
+            .skipLoadingAudoBlobData = true
         }
     );
 
     Gen8* gen8 = &dataWin->gen8;
     printf("Loaded \"%s\" (%d) successfully!\n", gen8->name, gen8->gameID);
 
-    //{
+    // Create asset cache for streaming (16MB budget)
+    AssetCache* assetCache = AssetCache_create(16 * 1024 * 1024, args.dataWinPath);
+    if (!assetCache) {
+        fprintf(stderr, "Failed to create asset cache!\n");
+        DataWin_free(dataWin);
+        freeCommandLineArgs(&args);
+        return 1;
+    }
+    printf("Asset cache created (16MB max)\n");
+
+    //{  
     //    struct mallinfo2 mi = mallinfo2();
     //    printf("Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
     //}
@@ -486,6 +499,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    debugPrint("Window created.\n");
+
     uint32_t rendererFlags = SDL_RENDERER_SOFTWARE;
     if (!args.headless && args.speedMultiplier == 1.0) {
         // rendererFlags |= SDL_RENDERER_PRESENTVSYNC;
@@ -499,22 +514,32 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    debugPrint("SDL Renderer created.\n");
+
     Renderer* renderer = SDLRenderer_create(window, sdlRenderer);
+    SDLRenderer_setAssetCache((SDLRenderer*) renderer, assetCache);
     renderer->vtable->init(renderer, dataWin);
     runner->renderer = renderer;
+
+    debugPrint("Renderer created...\n");
 
     MaAudioSystem* maAudio = nullptr;
     if (!args.headless) {
         maAudio = MaAudioSystem_create();
+        MaAudioSystem_setAssetCache(maAudio, assetCache);
         AudioSystem* audioSystem = (AudioSystem*) maAudio;
         audioSystem->vtable->init(audioSystem, dataWin, (FileSystem*) fileSystem);
         runner->audioSystem = audioSystem;
     }
 
+    debugPrint("Audio system created...\n");
+
     Runner_initFirstRoom(runner);
 
     bool debugPaused = false;
     double lastFrameTime = get_time_sec();
+
+    debugPrint("Starting main loop...\n");
 
     // MAIN LOOP
     while (!runner->shouldExit) {
@@ -766,6 +791,7 @@ int main(int argc, char* argv[]) {
     GlfwFileSystem_destroy(fileSystem);
     VM_free(vm);
     DataWin_free(dataWin);
+    AssetCache_destroy(assetCache);
 
     freeCommandLineArgs(&args);
 

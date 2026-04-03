@@ -752,6 +752,7 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
     if (count == 0) { free(ptrs); f->fonts = nullptr; return; }
 
     f->fonts = safeMalloc(count * sizeof(Font));
+    
     repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
         Font* font = &f->fonts[i];
@@ -1406,7 +1407,7 @@ static void parseSTRG(BinaryReader* reader, DataWin* dw) {
     free(ptrs);
 }
 
-static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
+static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd, size_t chunkDataStart, bool skipLoadingBlobData) {
     Txtr* t = &dw->txtr;
 
     uint32_t count;
@@ -1432,6 +1433,7 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
     free(ptrs);
 
     // Compute blob sizes from successive offsets
+    // Note: blobOffset values are already absolute file offsets from the data.win file
     repeat(count, i) {
         if (t->textures[i].blobOffset == 0) {
             t->textures[i].blobSize = 0; // external texture
@@ -1442,16 +1444,25 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
         } else {
             t->textures[i].blobSize = (uint32_t)(chunkEnd - t->textures[i].blobOffset);
         }
+        
+        // Debug: log if skipLoadingBlobData to help diagnose offset issues
+        if (skipLoadingBlobData && (i == 0 || i == count - 1)) {
+            double mb = t->textures[i].blobSize / (1024.0 * 1024.0);
+            fprintf(stderr, "TXTR[%d] offset=0x%x size=%u bytes (%.2f MB) chunkEnd=0x%zx\n",
+                    i, t->textures[i].blobOffset, t->textures[i].blobSize, mb, chunkEnd);
+        }
     }
 
-    // Load blob data into owned buffers
-    repeat(count, i) {
-        if (t->textures[i].blobOffset == 0 || t->textures[i].blobSize == 0) continue;
-        t->textures[i].blobData = BinaryReader_readBytesAt(reader, t->textures[i].blobOffset, t->textures[i].blobSize);
+    // Load blob data into owned buffers (unless skipped for streaming)
+    if (!skipLoadingBlobData) {
+        repeat(count, i) {
+            if (t->textures[i].blobOffset == 0 || t->textures[i].blobSize == 0) continue;
+            t->textures[i].blobData = BinaryReader_readBytesAt(reader, t->textures[i].blobOffset, t->textures[i].blobSize);
+        }
     }
 }
 
-static void parseAUDO(BinaryReader* reader, DataWin* dw) {
+static void parseAUDO(BinaryReader* reader, DataWin* dw, size_t chunkDataStart, bool skipLoadingBlobData) {
     Audo* a = &dw->audo;
 
     uint32_t count;
@@ -1464,9 +1475,17 @@ static void parseAUDO(BinaryReader* reader, DataWin* dw) {
     repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
         a->entries[i].dataSize = BinaryReader_readUint32(reader);
-        a->entries[i].dataOffset = (uint32_t)BinaryReader_getPosition(reader);
-        // Load audio data into owned buffer
-        if (a->entries[i].dataSize > 0) {
+        uint32_t relativeOffset = (uint32_t)BinaryReader_getPosition(reader);
+        
+        // Convert relative offset (within chunk) to absolute file offset if skipping blob loading
+        if (skipLoadingBlobData && relativeOffset != 0) {
+            a->entries[i].dataOffset = (uint32_t)(chunkDataStart + relativeOffset);
+        } else {
+            a->entries[i].dataOffset = relativeOffset;
+        }
+        
+        // Load audio data into owned buffer (unless skipped for streaming)
+        if (!skipLoadingBlobData && a->entries[i].dataSize > 0) {
             a->entries[i].data = safeMalloc(a->entries[i].dataSize);
             BinaryReader_readBytes(reader, a->entries[i].data, a->entries[i].dataSize);
         } else {
@@ -1502,6 +1521,10 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
 
     // Allocate and zero-initialize DataWin
     DataWin* dw = safeCalloc(1, sizeof(DataWin));
+    
+    // Store the file path for lazy-loading assets
+    dw->filePath = safeMalloc(strlen(filePath) + 1);
+    strcpy((char*)dw->filePath, filePath);
 
     BinaryReader reader = BinaryReader_create(file, (size_t) fileSize);
 
@@ -1644,9 +1667,9 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         } else if (options.parseStrg && memcmp(chunkName, "STRG", 4) == 0) {
             parseSTRG(&reader, dw);
         } else if (options.parseTxtr && memcmp(chunkName, "TXTR", 4) == 0) {
-            parseTXTR(&reader, dw, chunkEnd);
+            parseTXTR(&reader, dw, chunkEnd, chunkDataStart, options.skipLoadingTxtrBlobData);
         } else if (options.parseAudo && memcmp(chunkName, "AUDO", 4) == 0) {
-            parseAUDO(&reader, dw);
+            parseAUDO(&reader, dw, chunkDataStart, options.skipLoadingAudoBlobData);
         } else {
             printf("Unknown chunk: %.4s (length %u at offset 0x%zX)\n", chunkName, chunkLength, chunkDataStart - 8);
         }
@@ -1680,6 +1703,9 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
 
 void DataWin_free(DataWin* dw) {
     if (!dw) return;
+    
+    // Free the stored file path
+    free((void*)dw->filePath);
 
     // GEN8
     free(dw->gen8.roomOrder);
@@ -1888,4 +1914,72 @@ int32_t DataWin_resolveSPRT(DataWin* dw, uint32_t offset) {
     ptrdiff_t idx = hmgeti(dw->sprtOffsetMap, offset);
     if (0 > idx) return -1;
     return dw->sprtOffsetMap[idx].value;
+}
+
+// ===[ LAZY-LOADING HELPERS ]===
+
+uint8_t* DataWin_loadTextureBlob(DataWin* dw, Texture* txtr) {
+    // If blob data is already loaded, return it
+    if (txtr->blobData != nullptr) {
+        return txtr->blobData;
+    }
+    
+    // If we don't have the file path or no data to load, return NULL
+    if (dw->filePath == nullptr || txtr->blobSize == 0) {
+        return nullptr;
+    }
+    
+    // Load the blob data from the file at the specified offset
+    FILE* file = fopen(dw->filePath, "rb");
+    if (!file) {
+        fprintf(stderr, "Failed to open data.win for lazy-loading: %s\n", dw->filePath);
+        return nullptr;
+    }
+    
+    fseek(file, txtr->blobOffset, SEEK_SET);
+    txtr->blobData = safeMalloc(txtr->blobSize);
+    size_t bytesRead = fread(txtr->blobData, 1, txtr->blobSize, file);
+    fclose(file);
+    
+    if (bytesRead != txtr->blobSize) {
+        fprintf(stderr, "Failed to read texture blob from data.win\n");
+        free(txtr->blobData);
+        txtr->blobData = nullptr;
+        return nullptr;
+    }
+    
+    return txtr->blobData;
+}
+
+uint8_t* DataWin_loadAudioBlob(DataWin* dw, AudioEntry* entry) {
+    // If blob data is already loaded, return it
+    if (entry->data != nullptr) {
+        return entry->data;
+    }
+    
+    // If we don't have the file path or no data to load, return NULL
+    if (dw->filePath == nullptr || entry->dataSize == 0) {
+        return nullptr;
+    }
+    
+    // Load the blob data from the file at the specified offset
+    FILE* file = fopen(dw->filePath, "rb");
+    if (!file) {
+        fprintf(stderr, "Failed to open data.win for lazy-loading: %s\n", dw->filePath);
+        return nullptr;
+    }
+    
+    fseek(file, entry->dataOffset, SEEK_SET);
+    entry->data = safeMalloc(entry->dataSize);
+    size_t bytesRead = fread(entry->data, 1, entry->dataSize, file);
+    fclose(file);
+    
+    if (bytesRead != entry->dataSize) {
+        fprintf(stderr, "Failed to read audio blob from data.win\n");
+        free(entry->data);
+        entry->data = nullptr;
+        return nullptr;
+    }
+    
+    return entry->data;
 }

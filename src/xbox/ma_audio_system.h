@@ -3,6 +3,8 @@
 #include "audio_system.h"
 #include "miniaudio.h"
 
+typedef struct AssetCache_ AssetCache;
+
 #define MAX_SOUND_INSTANCES 128
 #define SOUND_INSTANCE_ID_BASE 100000
 
@@ -27,6 +29,8 @@ typedef struct {
     SoundInstance instances[MAX_SOUND_INSTANCES];
     int32_t nextInstanceCounter;
     FileSystem* fileSystem;
+    AssetCache* assetCache;
 } MaAudioSystem;
 
 MaAudioSystem* MaAudioSystem_create(void);
+void MaAudioSystem_setAssetCache(MaAudioSystem* audioSystem, AssetCache* cache);

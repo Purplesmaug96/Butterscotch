@@ -175,9 +175,20 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
         }
 
         AudioEntry* entry = &dw->audo.entries[sound->audioFile];
+        
+        // Lazy-load audio blob if needed
+        uint8_t* audioData = entry->data;
+        if (audioData == nullptr) {
+            audioData = DataWin_loadAudioBlob((DataWin*) dw, entry);
+        }
+        
+        if (audioData == nullptr) {
+            fprintf(stderr, "Audio: Failed to load audio blob for sound '%s'\n", sound->name);
+            return -1;
+        }
 
         ma_decoder_config decoderConfig = ma_decoder_config_init_default();
-        result = ma_decoder_init_memory(entry->data, entry->dataSize, &decoderConfig, &slot->decoder);
+        result = ma_decoder_init_memory(audioData, entry->dataSize, &decoderConfig, &slot->decoder);
         if (result != MA_SUCCESS) {
             fprintf(stderr, "Audio: Failed to init decoder for '%s' (error %d)\n", sound->name, result);
             return -1;

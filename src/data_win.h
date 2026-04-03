@@ -33,6 +33,10 @@ typedef struct {
     bool parseAudo;
     // If true, precise masks will be skipped when the sprite does not have a precise state set
     bool skipLoadingPreciseMasksForNonPreciseSprites;
+    // If true, parse TXTR metadata (for fonts) but don't load blob data into memory
+    bool skipLoadingTxtrBlobData;
+    // If true, parse AUDO metadata but don't load audio data into memory
+    bool skipLoadingAudoBlobData;
 
     // Optional progress callback, called before each chunk is parsed.
     // chunkName: 4-character chunk name (e.g. "GEN8", "SPRT")
@@ -717,6 +721,7 @@ typedef struct {
 
 // ===[ Top-level DataWin container ]===
 typedef struct DataWin {
+    const char* filePath;       // path to the data.win file (for lazy-loading assets)
     uint8_t* strgBuffer;        // owned copy of STRG chunk raw data
     // Absolute file offset of strgBuffer[0], we need this because data.win stores absolute offsets (from the beginning of the data.win file) instead of relative offsets
     size_t strgBufferBase;
@@ -763,3 +768,8 @@ int32_t DataWin_resolveTPAG(DataWin* dw, uint32_t offset);
 int32_t DataWin_resolveSPRT(DataWin* dw, uint32_t offset);
 void GamePath_computeInternal(GamePath* path);
 PathPositionResult GamePath_getPosition(GamePath* path, double t);
+
+// Lazy-loading helpers for assets (textures and audio)
+// These load blob data on-demand from the data.win file if not already loaded
+uint8_t* DataWin_loadTextureBlob(DataWin* dw, Texture* txtr);
+uint8_t* DataWin_loadAudioBlob(DataWin* dw, AudioEntry* entry);
