@@ -39,6 +39,12 @@
 #define exit(errcode) debugPrint("exit(%d) called at %s:%d! Rebooting in 10s...\n", errcode, __FILE__, __LINE__); XBMemStat(); Sleep(10000); XReboot()
 #define abort() debugPrint("abort() called at %s:%d! Rebooting in 10s...\n", __FILE__, __LINE__); XBMemStat(); Sleep(10000); XReboot()
 
+float _strtof(const char* s, __attribute__((unused)) char** endptr);
+float _strtod(const char* s, __attribute__((unused)) char** endptr);
+
+#define strtof _strtof
+#define strtod _strtod
+
 #endif
 
 #define forEach(type, item, array, count) \

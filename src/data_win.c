@@ -1475,14 +1475,9 @@ static void parseAUDO(BinaryReader* reader, DataWin* dw, size_t chunkDataStart, 
     repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
         a->entries[i].dataSize = BinaryReader_readUint32(reader);
-        uint32_t relativeOffset = (uint32_t)BinaryReader_getPosition(reader);
         
-        // Convert relative offset (within chunk) to absolute file offset if skipping blob loading
-        if (skipLoadingBlobData && relativeOffset != 0) {
-            a->entries[i].dataOffset = (uint32_t)(chunkDataStart + relativeOffset);
-        } else {
-            a->entries[i].dataOffset = relativeOffset;
-        }
+        // dataOffset is the absolute file position where audio data starts
+        a->entries[i].dataOffset = (uint32_t)BinaryReader_getPosition(reader);
         
         // Load audio data into owned buffer (unless skipped for streaming)
         if (!skipLoadingBlobData && a->entries[i].dataSize > 0) {
