@@ -292,6 +292,18 @@ static int32_t sdlKeyToGml(SDL_Keycode key) {
     }
 }
 
+static int32_t sdlButtonToGml(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_A:        return VK_ENTER;
+        case SDL_CONTROLLER_BUTTON_B:        return VK_SHIFT;
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:            return VK_UP;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:          return VK_DOWN;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:          return VK_LEFT;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:         return VK_RIGHT;
+        default:                 return -1;
+    }
+}
+
 static InputRecording* globalInputRecording = nullptr;
 #ifdef main
 #undef main
@@ -465,12 +477,14 @@ int main(int argc, char* argv[]) {
     ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
         DataWin_free(dataWin);
         freeCommandLineArgs(&args);
         return 1;
     }
+
+    SDL_GameController *pad = NULL;
 
     uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
     if (args.headless) {
@@ -549,7 +563,7 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 runner->shouldExit = true;
-            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) { 
                 if (!InputRecording_isPlaybackActive(globalInputRecording)) {
                     int32_t gmlKey = sdlKeyToGml(event.key.keysym.sym);
                     if (gmlKey >= 0) {
@@ -560,9 +574,34 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
+            } else if (event.type == SDL_CONTROLLERDEVICEADDED) {
+                SDL_GameController *new_pad = SDL_GameControllerOpen(event.cdevice.which);
+                if (pad == NULL) {
+                pad = new_pad;
+                }
+            } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+                if (pad == SDL_GameControllerFromInstanceID(event.cdevice.which)) {
+                pad = NULL;
+                }
+                SDL_GameControllerClose(SDL_GameControllerFromInstanceID(event.cdevice.which));
+            } else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
+                if (!InputRecording_isPlaybackActive(globalInputRecording)) {
+                    int32_t gmlKey = sdlButtonToGml(event.cbutton.button);
+                    if (gmlKey >= 0) {
+                        RunnerKeyboard_onKeyDown(runner->keyboard, gmlKey);
+                    }
+                }
+            } else if (event.type == SDL_CONTROLLERBUTTONUP) {
+                if (!InputRecording_isPlaybackActive(globalInputRecording)) {
+                    int32_t gmlKey = sdlButtonToGml(event.cbutton.button);
+                    if (gmlKey >= 0) {
+                        RunnerKeyboard_onKeyUp(runner->keyboard, gmlKey);
+                    }
+                }
             }
         }
 
+        SDL_GameControllerUpdate();
         InputRecording_processFrame(globalInputRecording, runner->keyboard, runner->frameCount);
 
         // Debug key bindings
