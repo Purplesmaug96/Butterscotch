@@ -16,7 +16,14 @@
 #include "runner_keyboard.h"
 #include "runner.h"
 #include "input_recording.h"
+
+#ifdef XBOX_SDL_RENDERER
 #include "sdl_renderer.h"
+#else
+#include "xbox_renderer.h"
+#include <pbkit/pbkit.h>
+#endif
+
 #include "glfw_file_system.h"
 #include "ma_audio_system.h"
 #include "asset_cache.h"
@@ -228,7 +235,7 @@ static void freeCommandLineArgs(CommandLineArgs* args) {
 }
 
 // ===[ SCREENSHOT ]===
-static void captureScreenshot(SDLRenderer* sdlRenderer, const char* filenamePattern, int frameNumber, int width, int height) {
+static void captureScreenshot(MainRenderer* sdlRenderer, const char* filenamePattern, int frameNumber, int width, int height) {
     // char filename[512];
     // snprintf(filename, sizeof(filename), filenamePattern, frameNumber);
 
@@ -477,14 +484,22 @@ int main(int argc, char* argv[]) {
     ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
+    #ifdef XBOX_SDL_RENDERER
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
+    #else
+    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
+    #endif
         fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
         DataWin_free(dataWin);
         freeCommandLineArgs(&args);
         return 1;
     }
 
+
+
     SDL_GameController *pad = NULL;
+
+    #ifdef XBOX_SDL_RENDERER
 
     uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
     if (args.headless) {
@@ -529,9 +544,22 @@ int main(int argc, char* argv[]) {
     }
 
     debugPrint("SDL Renderer created.\n");
+    Renderer* renderer = MainRenderer_create(window, sdlRenderer);
+    
+    #else
+    
+    bool pbk_init = pb_init() == 0;
+    if (!pbk_init) {
+        debugPrint("pbkit init failed\n");
+    }
 
-    Renderer* renderer = SDLRenderer_create(window, sdlRenderer);
-    SDLRenderer_setAssetCache((SDLRenderer*) renderer, assetCache);
+    pb_show_front_screen();
+
+    Renderer* renderer = MainRenderer_create();
+
+    #endif
+    
+    MainRenderer_setAssetCache((MainRenderer*) renderer, assetCache);
     renderer->vtable->init(renderer, dataWin);
     runner->renderer = renderer;
 
@@ -557,6 +585,7 @@ int main(int argc, char* argv[]) {
 
     // MAIN LOOP
     while (!runner->shouldExit) {
+        debugPrint("A wild frame appeared!\n");
         RunnerKeyboard_beginFrame(runner->keyboard);
         
         SDL_Event event;
@@ -714,15 +743,17 @@ int main(int argc, char* argv[]) {
 
         Room* activeRoom = runner->currentRoom;
 
+        int32_t gameW = (int32_t) gen8->defaultWindowWidth;
+        int32_t gameH = (int32_t) gen8->defaultWindowHeight;
+
+        #ifdef XBOX_SDL_RENDERER
+
         int fbWidth, fbHeight;
         SDL_GetWindowSize(window, &fbWidth, &fbHeight);
 
         SDL_SetRenderTarget(sdlRenderer, NULL);
         SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
         SDL_RenderClear(sdlRenderer);
-
-        int32_t gameW = (int32_t) gen8->defaultWindowWidth;
-        int32_t gameH = (int32_t) gen8->defaultWindowHeight;
 
         renderer->vtable->beginFrame(renderer, gameW, gameH, fbWidth, fbHeight);
 
@@ -736,8 +767,28 @@ int main(int argc, char* argv[]) {
         }
         SDL_RenderClear(sdlRenderer);
 
+        #else
+
+        debugPrint("1. Syncing VBL...\n");
+        pb_wait_for_vbl();
+        pb_target_back_buffer();
+
+        debugPrint("2. Clearing Screen...\n");
+        pb_erase_depth_stencil_buffer(0, 0, 640, 480);
+        pb_fill(0, 0, 640, 480, 0xFF000000); 
+
+        debugPrint("3. Begin Frame...\n");
+        renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 480);
+
+        debugPrint("4. Drawing Room/Views...\n");
+        // ... (Your View/Runner_draw logic here) ...
+
+        #endif
+
         bool viewsEnabled = (activeRoom->flags & 1) != 0;
         bool anyViewRendered = false;
+
+        #ifdef XBOX_SDL_RENDERER
 
         if (viewsEnabled) {
             repeat(8, vi) {
@@ -773,23 +824,53 @@ int main(int argc, char* argv[]) {
         runner->viewCurrent = 0;
 
         renderer->vtable->endFrame(renderer);
-
-        bool shouldScreenshot = hmget(args.screenshotFrames, runner->frameCount);
-        if (shouldScreenshot) {
-            captureScreenshot((SDLRenderer*)renderer, args.screenshotPattern, runner->frameCount, (int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight);
-        }
-
-        if (args.exitAtFrame >= 0 && runner->frameCount >= args.exitAtFrame) {
-            printf("Exiting at frame %d (--exit-at-frame)\n", runner->frameCount);
-            runner->shouldExit = true;
-        }
-
-        if (shouldStep && args.traceFrames) {
-            double frameElapsedMs = (get_time_sec() - frameStartTime) * 1000.0;
-            fprintf(stderr, "Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
-        }
-
+        
         SDL_RenderPresent(sdlRenderer);
+
+        #else
+
+        if (viewsEnabled) {
+            repeat(8, vi) {
+                if (!activeRoom->views[vi].enabled) continue;
+
+                int32_t viewX = activeRoom->views[vi].viewX;
+                int32_t viewY = activeRoom->views[vi].viewY;
+                int32_t viewW = activeRoom->views[vi].viewWidth;
+                int32_t viewH = activeRoom->views[vi].viewHeight;
+                int32_t portX = activeRoom->views[vi].portX;
+                int32_t portY = activeRoom->views[vi].portY;
+                int32_t portW = activeRoom->views[vi].portWidth;
+                int32_t portH = activeRoom->views[vi].portHeight;
+                float viewAngle = runner->viewAngles[vi];
+
+                runner->viewCurrent = vi;
+                renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
+
+                Runner_draw(runner);
+
+                renderer->vtable->endView(renderer);
+                anyViewRendered = true;
+            }
+        }
+
+        if (!anyViewRendered) {
+            runner->viewCurrent = 0;
+            renderer->vtable->beginView(renderer, 0, 0, gameW, gameH, 0, 0, gameW, gameH, 0.0f);
+            Runner_draw(runner);
+            renderer->vtable->endView(renderer);
+        }
+
+        runner->viewCurrent = 0;
+
+        debugPrint("5. Waiting for GPU (Spinlock)...\n");
+        while (pb_busy());
+
+        debugPrint("6. Ending Frame...\n");
+        renderer->vtable->endFrame(renderer);
+        
+        debugPrint("7. Frame Complete!\n");
+
+        #endif
 
         // Frame rate limiting
         if (!args.headless && runner->currentRoom->speed > 0) {
@@ -822,8 +903,10 @@ int main(int argc, char* argv[]) {
     }
 
     renderer->vtable->destroy(renderer);
+    #ifdef XBOX_SDL_RENDERER
     SDL_DestroyRenderer(sdlRenderer);
     SDL_DestroyWindow(window);
+    #endif
     SDL_Quit();
 
     Runner_free(runner);

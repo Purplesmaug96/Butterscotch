@@ -1,26 +1,31 @@
 ﻿#pragma once
 
 #include "renderer.h"
-#include <SDL.h>
 
 typedef struct AssetCache_ AssetCache;
 
 typedef struct {
+    void* pixels;      // Must be allocated with MmAllocateContiguousMemoryEx
+    int width;
+    int height;
+    int pitch;
+    int format;      // e.g., NV097_SET_TEXTURE_FORMAT_COLOR_SZ_A8B8G8R8
+    int blendMode;
+} PbTexture;
+
+typedef struct {
     Renderer base;
 
-    SDL_Renderer* sdlRenderer;
-    SDL_Window* sdlWindow;
-
-    SDL_Texture** sdlTextures;
+    PbTexture** renderTextures;
     int32_t* textureWidths;
     int32_t* textureHeights;
-    uint32_t* sdlTexturesUsedTracker;
+    uint32_t* renderTexturesUsedTracker;
     uint32_t textureCount;
 
 
-    SDL_Texture* whiteTexture;
+    PbTexture* whiteTexture;
 
-    SDL_Texture* fboTexture;
+    PbTexture* fboTexture;
     int32_t fboWidth;
     int32_t fboHeight;
     int32_t windowW;
@@ -42,5 +47,12 @@ typedef struct {
     AssetCache* assetCache;
 } MainRenderer;
 
-Renderer* MainRenderer_create(SDL_Window* window, SDL_Renderer* renderer);
+enum {
+    BLENDMODE_NONE = 0,
+    BLENDMODE_BLEND,
+    BLENDMODE_ADD,
+    BLENDMODE_MOD
+};
+
+Renderer* MainRenderer_create();
 void MainRenderer_setAssetCache(MainRenderer* renderer, AssetCache* cache);

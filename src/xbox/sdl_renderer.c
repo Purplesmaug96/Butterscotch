@@ -1,4 +1,6 @@
-﻿#include "sdl_renderer.h"
+﻿#ifdef XBOX_SDL_RENDERER
+
+#include "sdl_renderer.h"
 #include "asset_cache.h"
 #include "matrix_math.h"
 #include "text_utils.h"
@@ -16,7 +18,7 @@
 
 #define DYNAMIC_TPAG_OFFSET_BASE 0xD0000000u
 
-static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx, float* vy) {
+static void transformWorldToView(MainRenderer* sdl, float wx, float wy, float* vx, float* vy) {
     float lx = wx - sdl->currentViewX;
     float ly = wy - sdl->currentViewY;
 
@@ -49,7 +51,7 @@ typedef struct SDL_Vertex
     SDL_FPoint tex_coord;       /**< Normalized texture coordinates, if needed */
 } SDL_Vertex;
 
-static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
+static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
 
@@ -86,7 +88,7 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
     // 5. Finally, RenderCopy with BOTH rects
     SDL_RenderCopy(sdl->sdlRenderer, tex, &srcrect, &dstrect);
 }
-static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
+static void emitColoredQuad(MainRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
     float rc[4] = {r, r, r, r};
     float gc[4] = {g, g, g, g};
     float bc[4] = {b, b, b, b};
@@ -107,7 +109,7 @@ void print_array(int parray[], int size)
     printf("\n");
 }
 
-static void evictOldest(SDLRenderer* sdl) {
+static void evictOldest(MainRenderer* sdl) {
     // The oldest texture is always at index 0
     uint32_t oldestId = sdl->sdlTexturesUsedTracker[0];
 
@@ -125,7 +127,7 @@ static void evictOldest(SDLRenderer* sdl) {
     sdl->sdlTexturesUsedTracker[sdl->textureCount - 1] = 0xFFFFFFFF; 
 }
 
-static void updateLRU(SDLRenderer* sdl, uint32_t pageId) {
+static void updateLRU(MainRenderer* sdl, uint32_t pageId) {
     // 1. Find if pageId is already in the tracker and remove it
     int foundIdx = -1;
     for (int i = 0; i < sdl->textureCount; i++) {
@@ -147,7 +149,7 @@ static void updateLRU(SDLRenderer* sdl, uint32_t pageId) {
 #define ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE 8
 
 // Lazy-load a texture on demand when it's first needed
-static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
+static void ensureTextureLoaded(MainRenderer* sdl, DataWin* dw, uint32_t pageId) {
     if (pageId >= sdl->textureCount) return;
     if (sdl->sdlTextures[pageId] != nullptr) return;  // Already loaded
     
@@ -208,7 +210,7 @@ static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
 }
 
 static void sdlInit(Renderer* renderer, DataWin* dataWin) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     renderer->dataWin = dataWin;
 
     sdl->textureCount = dataWin->txtr.count;
@@ -230,7 +232,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
 }
 
 static void sdlDestroy(Renderer* renderer) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     if (sdl->fboTexture) SDL_DestroyTexture(sdl->fboTexture);
     if (sdl->whiteTexture) SDL_DestroyTexture(sdl->whiteTexture);
@@ -247,7 +249,7 @@ static void sdlDestroy(Renderer* renderer) {
 }
 
 static void sdlBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     sdl->windowW = windowW;
     sdl->windowH = windowH;
@@ -268,7 +270,7 @@ static void sdlBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int3
 }
 
 static void sdlBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     sdl->currentViewX = (float)viewX;
     sdl->currentViewY = (float)viewY;
@@ -286,12 +288,12 @@ static void sdlBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32
 }
 
 static void sdlEndView(Renderer* renderer) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     SDL_RenderSetClipRect(sdl->sdlRenderer, nullptr);
 }
 
 static void sdlEndFrame(Renderer* renderer) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     SDL_SetRenderTarget(sdl->sdlRenderer, nullptr);
     SDL_RenderSetViewport(sdl->sdlRenderer, nullptr);
@@ -306,7 +308,7 @@ static void sdlRendererFlush(Renderer* renderer) {
 }
 
 static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
@@ -354,7 +356,7 @@ static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float 
 }
 
 static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
@@ -389,7 +391,7 @@ static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t src
 }
 
 static void sdlDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     float r = (float) BGR_R(color) / 255.0f;
     float g = (float) BGR_G(color) / 255.0f;
@@ -424,7 +426,7 @@ static void sdlDrawLine(Renderer* renderer, float x1, float y1, float x2, float 
 }
 
 static void sdlDrawLineColor(Renderer* renderer, float x1, float y1, float x2, float y2, float width, uint32_t color1, uint32_t color2, float alpha) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
 
     float dx = x2 - x1;
     float dy = y2 - y1;
@@ -457,7 +459,7 @@ static void sdlDrawLineColor(Renderer* renderer, float x1, float y1, float x2, f
 }
 
 static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, float angleDeg) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     int32_t fontIndex = renderer->drawFont;
@@ -562,7 +564,7 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
 }
 
 
-static uint32_t findOrAllocTexturePageSlot(SDLRenderer* sdl) {
+static uint32_t findOrAllocTexturePageSlot(MainRenderer* sdl) {
     for (uint32_t i = sdl->originalTexturePageCount; sdl->textureCount > i; i++) {
         if (sdl->sdlTextures[i] == nullptr) return i;
     }
@@ -596,7 +598,7 @@ static uint32_t findOrAllocSpriteSlot(DataWin* dw, uint32_t originalSpriteCount)
 }
 
 static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     if (0 >= w || 0 >= h || !sdl->fboTexture) return -1;
@@ -652,7 +654,7 @@ static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t
 }
 
 static void sdlDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
-    SDLRenderer* sdl = (SDLRenderer*) renderer;
+    MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     if (0 > spriteIndex || dw->sprt.count <= (uint32_t) spriteIndex) return;
@@ -711,8 +713,8 @@ static RendererVtable sdlVtable = {
 
 // ===[ Public API ]===
 
-Renderer* SDLRenderer_create(SDL_Window* window, SDL_Renderer* renderer) {
-    SDLRenderer* sdl = safeCalloc(1, sizeof(SDLRenderer));
+Renderer* MainRenderer_create(SDL_Window* window, SDL_Renderer* renderer) {
+    MainRenderer* sdl = safeCalloc(1, sizeof(MainRenderer));
     sdl->base.vtable = &sdlVtable;
     sdl->base.drawColor = 0xFFFFFF; // white (BGR)
     sdl->base.drawAlpha = 1.0f;
@@ -725,8 +727,10 @@ Renderer* SDLRenderer_create(SDL_Window* window, SDL_Renderer* renderer) {
     return (Renderer*) sdl;
 }
 
-void SDLRenderer_setAssetCache(SDLRenderer* renderer, AssetCache* cache) {
+void MainRenderer_setAssetCache(MainRenderer* renderer, AssetCache* cache) {
     if (renderer) {
         renderer->assetCache = cache;
     }
 }
+
+#endif
