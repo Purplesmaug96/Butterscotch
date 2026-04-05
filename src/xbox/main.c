@@ -17,7 +17,7 @@
 #include "runner.h"
 #include "input_recording.h"
 
-#ifdef XBOX_SDL_RENDERER
+#ifndef XBOX_PB_RENDERER
 #include "sdl_renderer.h"
 #else
 #include "xbox_renderer.h"
@@ -485,7 +485,7 @@ int main(int argc, char* argv[]) {
     ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
-    #ifdef XBOX_SDL_RENDERER
+    #ifndef XBOX_PB_RENDERER
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
     #else
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -500,7 +500,7 @@ int main(int argc, char* argv[]) {
 
     SDL_GameController *pad = NULL;
 
-    #ifdef XBOX_SDL_RENDERER
+    #ifndef XBOX_PB_RENDERER
 
     uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
     if (args.headless) {
@@ -746,7 +746,7 @@ int main(int argc, char* argv[]) {
         int32_t gameW = (int32_t) gen8->defaultWindowWidth;
         int32_t gameH = (int32_t) gen8->defaultWindowHeight;
 
-        #ifdef XBOX_SDL_RENDERER
+        #ifndef XBOX_PB_RENDERER
 
         int fbWidth, fbHeight;
         SDL_GetWindowSize(window, &fbWidth, &fbHeight);
@@ -784,7 +784,7 @@ int main(int argc, char* argv[]) {
         bool viewsEnabled = (activeRoom->flags & 1) != 0;
         bool anyViewRendered = false;
 
-        #ifdef XBOX_SDL_RENDERER
+        #ifndef XBOX_PB_RENDERER
 
         if (viewsEnabled) {
             repeat(8, vi) {
@@ -895,7 +895,7 @@ int main(int argc, char* argv[]) {
     }
 
     renderer->vtable->destroy(renderer);
-    #ifdef XBOX_SDL_RENDERER
+    #ifndef XBOX_PB_RENDERER
     SDL_DestroyRenderer(sdlRenderer);
     SDL_DestroyWindow(window);
     #endif

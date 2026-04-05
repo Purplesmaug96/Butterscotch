@@ -110,7 +110,7 @@ elseif(PLATFORM STREQUAL "xbox")
     set(XBOX_ISO_DIR ${CMAKE_CURRENT_BINARY_DIR}/xiso)
 
     # Set Xbox specific definitions needed for SDL and the system
-    target_compile_definitions(butterscotch PRIVATE _XBOX NXDK XBOX SDL_DISABLE_JOYSTICK_INIT_DELAY DEBUG_CONSOLE XBOX_SDL_RENDERER)
+    target_compile_definitions(butterscotch PRIVATE _XBOX NXDK XBOX SDL_DISABLE_JOYSTICK_INIT_DELAY DEBUG_CONSOLE)
 
     # stb_image
     target_include_directories(butterscotch PUBLIC vendor/stb/image)

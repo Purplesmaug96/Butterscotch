@@ -1,4 +1,4 @@
-﻿#ifndef XBOX_SDL_RENDERER
+﻿#ifdef XBOX_PB_RENDERER
 
 #include "xbox_renderer.h"
 #include "asset_cache.h"
