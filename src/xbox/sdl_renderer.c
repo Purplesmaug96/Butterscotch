@@ -52,6 +52,8 @@ typedef struct SDL_Vertex
 static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
+
+    if (tex == nullptr) return;
     
     // 1. Get the texture's actual dimensions in pixels
     int texW, texH;
@@ -105,38 +107,43 @@ void print_array(int parray[], int size)
     printf("\n");
 }
 
-static void shiftLRU(SDLRenderer* sdl, uint32_t pageId) {
-    // Declaration and initialization of an integer array 'result'
-    uint32_t* result = safeCalloc(sdl->textureCount, sizeof(uint32_t));
+static void evictOldest(SDLRenderer* sdl) {
+    // The oldest texture is always at index 0
+    uint32_t oldestId = sdl->sdlTexturesUsedTracker[0];
 
-    print_array(sdl->sdlTexturesUsedTracker, sdl->textureCount);
-
-    // Loop to generate the elements of the new array 'result'
-    for (int i = 0; i < sdl->textureCount; i++)
-    {
-        result[i] = sdl->sdlTexturesUsedTracker[(i + 1) % sdl->textureCount];
+    if (sdl->sdlTextures[oldestId] != nullptr) {
+        SDL_DestroyTexture(sdl->sdlTextures[oldestId]);
+        sdl->sdlTextures[oldestId] = nullptr; 
     }
 
-    // Last element in list is LRU element because it gets shifted to the front
-    if (sdl->sdlTextures[result[sdl->textureCount-1]] != nullptr) {
-        printf("Attempting to destroy SDL_Texture of pageId %u.\n", pageId);
-        SDL_DestroyTexture(sdl->sdlTextures[result[sdl->textureCount-1]]);
-        sdl->sdlTextures[result[sdl->textureCount-1]] = nullptr;
+    // Shift everything left to remove the hole at index 0
+    for (int i = 0; i < sdl->textureCount - 1; i++) {
+        sdl->sdlTexturesUsedTracker[i] = sdl->sdlTexturesUsedTracker[i + 1];
     }
-    else {
-        printf("SDL_Texture of pageId %u is nullptr\n", pageId);
-    }
-
-    result[sdl->textureCount-1] = pageId;
-
-    // Free previous and set to new
-    free(sdl->sdlTexturesUsedTracker);
-
-    sdl->sdlTexturesUsedTracker = result;
-
-    print_array(sdl->sdlTexturesUsedTracker, sdl->textureCount);
+    // Set the last slot to a placeholder (e.g., a dummy value) 
+    // so it doesn't look like a valid pageId until updated
+    sdl->sdlTexturesUsedTracker[sdl->textureCount - 1] = 0xFFFFFFFF; 
 }
 
+static void updateLRU(SDLRenderer* sdl, uint32_t pageId) {
+    // 1. Find if pageId is already in the tracker and remove it
+    int foundIdx = -1;
+    for (int i = 0; i < sdl->textureCount; i++) {
+        if (sdl->sdlTexturesUsedTracker[i] == pageId) {
+            foundIdx = i;
+            break;
+        }
+    }
+
+    // 2. Shift items left to close the gap if it was found
+    int startIdx = (foundIdx != -1) ? foundIdx : 0;
+    for (int i = startIdx; i < sdl->textureCount - 1; i++) {
+        sdl->sdlTexturesUsedTracker[i] = sdl->sdlTexturesUsedTracker[i + 1];
+    }
+
+    // 3. Put the current page at the very end (Most Recently Used)
+    sdl->sdlTexturesUsedTracker[sdl->textureCount - 1] = pageId;
+}
 #define ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE 8
 
 // Lazy-load a texture on demand when it's first needed
@@ -171,7 +178,7 @@ static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
         
         if (pixels == nullptr) {
             fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
-            shiftLRU(sdl, pageId);
+            evictOldest(sdl);
             // debugPrint("LRU freed: %s\n", freed ? "true" : "false");
             XBMemStat();
         }
@@ -180,13 +187,13 @@ static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
     }
 
     if (i == ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE) {
-        fprintf(stderr, "Loading retries for TXTR page %u hit max of %u, giving up.\n", pageId, ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE);
+        fprintf(stderr, "Loading retries for TXTR page %u hit max of %u, giving up and loading whiteTexture.\n", pageId, ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE);
+        sdl->sdlTextures[pageId] = sdl->whiteTexture;
+        updateLRU(sdl, pageId);
         return;
     }
 
-    if (i == 1) {
-        shiftLRU(sdl, pageId);
-    }
+    updateLRU(sdl, pageId);
 
     sdl->textureWidths[pageId] = w;
     sdl->textureHeights[pageId] = h;
