@@ -301,8 +301,9 @@ static int32_t sdlKeyToGml(SDL_Keycode key) {
 
 static int32_t sdlButtonToGml(SDL_GameControllerButton button) {
     switch (button) {
-        case SDL_CONTROLLER_BUTTON_A:        return VK_ENTER;
-        case SDL_CONTROLLER_BUTTON_B:        return VK_SHIFT;
+        case SDL_CONTROLLER_BUTTON_A:                  return VK_ENTER;
+        case SDL_CONTROLLER_BUTTON_B:                  return VK_SHIFT;
+        case SDL_CONTROLLER_BUTTON_Y:                  return 67; // I'm sorry but this is just the keycode for C
         case SDL_CONTROLLER_BUTTON_DPAD_UP:            return VK_UP;
         case SDL_CONTROLLER_BUTTON_DPAD_DOWN:          return VK_DOWN;
         case SDL_CONTROLLER_BUTTON_DPAD_LEFT:          return VK_LEFT;
@@ -530,7 +531,7 @@ int main(int argc, char* argv[]) {
 
     debugPrint("Window created.\n");
 
-    uint32_t rendererFlags = SDL_RENDERER_SOFTWARE;
+    uint32_t rendererFlags = 0;
     if (!args.headless && args.speedMultiplier == 1.0) {
         // rendererFlags |= SDL_RENDERER_PRESENTVSYNC;
     }
@@ -585,7 +586,6 @@ int main(int argc, char* argv[]) {
 
     // MAIN LOOP
     while (!runner->shouldExit) {
-        debugPrint("A wild frame appeared!\n");
         RunnerKeyboard_beginFrame(runner->keyboard);
         
         SDL_Event event;
@@ -769,18 +769,14 @@ int main(int argc, char* argv[]) {
 
         #else
 
-        debugPrint("1. Syncing VBL...\n");
         pb_wait_for_vbl();
         pb_target_back_buffer();
 
-        debugPrint("2. Clearing Screen...\n");
         pb_erase_depth_stencil_buffer(0, 0, 640, 480);
         pb_fill(0, 0, 640, 480, 0xFF000000); 
 
-        debugPrint("3. Begin Frame...\n");
         renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 480);
 
-        debugPrint("4. Drawing Room/Views...\n");
         // ... (Your View/Runner_draw logic here) ...
 
         #endif
@@ -862,14 +858,10 @@ int main(int argc, char* argv[]) {
 
         runner->viewCurrent = 0;
 
-        debugPrint("5. Waiting for GPU (Spinlock)...\n");
         while (pb_busy());
 
-        debugPrint("6. Ending Frame...\n");
         renderer->vtable->endFrame(renderer);
         
-        debugPrint("7. Frame Complete!\n");
-
         #endif
 
         // Frame rate limiting
