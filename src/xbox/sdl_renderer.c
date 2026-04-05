@@ -119,6 +119,7 @@ static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
     
     if (pixels == nullptr) {
         fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
+        sdl->sdlTextures[pageId] = sdl->whiteTexture;
         return;
     }
 

@@ -1132,7 +1132,7 @@ static void handleDiv(VMContext* ctx) {
     GMLReal divisor = RValue_toReal(b);
     if (divisor == 0.0) {
         fprintf(stderr, "VM: DoDiv :: Divide by zero\n");
-        // abort();
+        abort();
     }
     GMLReal result = RValue_toReal(a) / divisor;
     RValue_free(&a);
