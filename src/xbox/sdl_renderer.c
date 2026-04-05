@@ -92,6 +92,53 @@ static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], floa
     emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
 }
 
+void print_array(int parray[], int size)
+{
+    int i;
+    // Loop to print the elements of the array
+    for(i = 0; i < size - 1; i++)
+    {
+        printf("%d, ", parray[i]);
+    }
+    // Printing the last element
+    printf("%d ", parray[i]);
+    printf("\n");
+}
+
+static void shiftLRU(SDLRenderer* sdl, uint32_t pageId) {
+    // Declaration and initialization of an integer array 'result'
+    uint32_t* result = safeCalloc(sdl->textureCount, sizeof(uint32_t));
+
+    print_array(sdl->sdlTexturesUsedTracker, sdl->textureCount);
+
+    // Loop to generate the elements of the new array 'result'
+    for (int i = 0; i < sdl->textureCount; i++)
+    {
+        result[i] = sdl->sdlTexturesUsedTracker[(i + 1) % sdl->textureCount];
+    }
+
+    // Last element in list is LRU element because it gets shifted to the front
+    if (sdl->sdlTextures[result[sdl->textureCount-1]] != nullptr) {
+        printf("Attempting to destroy SDL_Texture of pageId %u.\n", pageId);
+        SDL_DestroyTexture(sdl->sdlTextures[result[sdl->textureCount-1]]);
+        sdl->sdlTextures[result[sdl->textureCount-1]] = nullptr;
+    }
+    else {
+        printf("SDL_Texture of pageId %u is nullptr\n", pageId);
+    }
+
+    result[sdl->textureCount-1] = pageId;
+
+    // Free previous and set to new
+    free(sdl->sdlTexturesUsedTracker);
+
+    sdl->sdlTexturesUsedTracker = result;
+
+    print_array(sdl->sdlTexturesUsedTracker, sdl->textureCount);
+}
+
+#define ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE 8
+
 // Lazy-load a texture on demand when it's first needed
 static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
     if (pageId >= sdl->textureCount) return;
@@ -115,12 +162,30 @@ static void ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
         return;
     }
     
-    uint8_t* pixels = stbi_load_from_memory(pngData, (int) pngSize, &w, &h, &channels, 4);
-    
-    if (pixels == nullptr) {
-        fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
-        sdl->sdlTextures[pageId] = sdl->whiteTexture;
+    uint8_t* pixels = nullptr;
+
+    unsigned int i = 0;
+    while (i < ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE && pixels == nullptr) {
+        debugPrint("SDL: Trying to load TXTR page %u from memory...\n", pageId);
+        pixels = stbi_load_from_memory(pngData, (int) pngSize, &w, &h, &channels, 4);
+        
+        if (pixels == nullptr) {
+            fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
+            shiftLRU(sdl, pageId);
+            // debugPrint("LRU freed: %s\n", freed ? "true" : "false");
+            XBMemStat();
+        }
+
+        i++;
+    }
+
+    if (i == ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE) {
+        fprintf(stderr, "Loading retries for TXTR page %u hit max of %u, giving up.\n", pageId, ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE);
         return;
+    }
+
+    if (i == 1) {
+        shiftLRU(sdl, pageId);
     }
 
     sdl->textureWidths[pageId] = w;
@@ -143,6 +208,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     sdl->sdlTextures = safeCalloc(sdl->textureCount, sizeof(SDL_Texture*));
     sdl->textureWidths = safeCalloc(sdl->textureCount, sizeof(int32_t));
     sdl->textureHeights = safeCalloc(sdl->textureCount, sizeof(int32_t));
+    sdl->sdlTexturesUsedTracker = safeCalloc(sdl->textureCount, sizeof(uint32_t));
 
     // Don't load textures here - they will be loaded on-demand when first used
 
@@ -169,6 +235,7 @@ static void sdlDestroy(Renderer* renderer) {
     free(sdl->sdlTextures);
     free(sdl->textureWidths);
     free(sdl->textureHeights);
+    free(sdl->sdlTexturesUsedTracker);
     free(sdl);
 }
 

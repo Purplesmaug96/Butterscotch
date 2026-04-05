@@ -14,7 +14,9 @@ typedef struct {
     SDL_Texture** sdlTextures;
     int32_t* textureWidths;
     int32_t* textureHeights;
+    uint32_t* sdlTexturesUsedTracker;
     uint32_t textureCount;
+
 
     SDL_Texture* whiteTexture;
 
