@@ -96,19 +96,6 @@ static void emitColoredQuad(MainRenderer* sdl, SDL_Texture* tex, float x[4], flo
     emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
 }
 
-void print_array(int parray[], int size)
-{
-    int i;
-    // Loop to print the elements of the array
-    for(i = 0; i < size - 1; i++)
-    {
-        printf("%d, ", parray[i]);
-    }
-    // Printing the last element
-    printf("%d ", parray[i]);
-    printf("\n");
-}
-
 static void evictOldest(MainRenderer* sdl) {
     // The oldest texture is always at index 0
     uint32_t oldestId = sdl->sdlTexturesUsedTracker[0];
