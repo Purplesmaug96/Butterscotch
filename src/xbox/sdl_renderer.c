@@ -190,7 +190,9 @@ static void ensureTextureLoaded(MainRenderer* sdl, DataWin* dw, uint32_t pageId)
 
     if (i == ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE) {
         fprintf(stderr, "Loading retries for TXTR page %u hit max of %u, giving up and loading whiteTexture.\n", pageId, ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE);
+        #ifdef XBOX_SDL_WHITETEX_ON_GIVEUP
         sdl->sdlTextures[pageId] = sdl->whiteTexture;
+        #endif
         updateLRU(sdl, pageId);
         return;
     }

@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <windows.h>
+#include <hal/debug.h>
+#include <hal/xbox.h>
+#include <hal/video.h>
 
 // ===[ Helpers ]===
 
@@ -20,7 +25,7 @@ char* str_replace(char *target, const char *needle, const char *replacement)
         const char *p = strstr(tmp, needle);
 
         // walked past last occurrence of needle; copy remaining part
-        if (p == NULL) {
+        if (p == nullptr) {
             strcpy(insert_point, tmp);
             break;
         }
@@ -53,22 +58,19 @@ size_t strlen_s(char* p, size_t s) {
 }
 
 static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
-    // if(strncmp(relativePath, fs->basePath, strlen_s(fs->basePath, 1024)) == 0) {
-    //     return safeStrdup(relativePath);
-    // }
+    if (strstr(relativePath, fs->basePath) == relativePath) {
+        return (char*)relativePath;
+    }
 
-    // size_t baseLen = strlen(fs->basePath);
-    // size_t relLen = strlen(relativePath);
-    // char* fullPath = safeMalloc(baseLen + relLen + 1);
+    const char* fullPath = safeMalloc((sizeof(char) * strlen(fs->basePath)) + (sizeof(char) * strlen(relativePath)) + 1);
+    strcpy((char*)fullPath, fs->basePath);
+    strcat((char*)fullPath, relativePath);
 
-    // memcpy(fullPath, fs->basePath, baseLen);
-    // memcpy(fullPath + baseLen, relativePath, relLen);
-    // fullPath[baseLen + relLen] = '\0';
+    char* windowsFullPath = str_replace((char*)fullPath, "/", "\\");
 
-    // str_replace(fullPath, "/", "\\");
+    free((char*)fullPath);
 
-    // return fullPath;
-    return str_replace((char*)relativePath, "/", "\\");
+    return windowsFullPath;
 }
 
 // ===[ Vtable Implementations ]===
@@ -77,31 +79,61 @@ static char* glfwResolvePath(FileSystem* fs, const char* relativePath) {
     return buildFullPath((GlfwFileSystem*) fs, relativePath);
 }
 
-static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
-    // char* fullPath = buildFullPath((GlfwFileSystem*)fs, fullPath);
-    char* fullPath = str_replace(relativePath, "/", "\\");
-    printf("Trying to open %s...\n", fullPath);
-    FILE *file = fopen(fullPath, "r");
+static bool fileExists(FileSystem* fs, const char* path) {
+    char* windowsPath = str_replace(path, "/", "\\");
+    printf("Trying to open %s...\n", windowsPath);
+    
+    FILE *file = fopen(windowsPath, "r");
     bool exists = false;
-    if (file != nullptr)
-    {
+    
+    if (file != nullptr) {
         fclose(file);
         exists = true;
     }
+    
     if (exists) {
-        printf("File %s found.\n", fullPath);
+        printf("File %s found.\n", windowsPath);
+    } else {
+        printf("File %s not found.\n", windowsPath);
     }
-    else {
-        printf("File %s not found.\n", fullPath);
-    }
-    free(fullPath);
+    
+    free(windowsPath);
     return exists;
 }
 
+#define TITLE_ID 0x12345678
+#define SAVE_DIR "E:\\UDATA\\0x12345678\\000000000000"
+
+static bool glfwFileExists(FileSystem* fs, const char* path) {
+    bool d_exists = fileExists(fs, path);
+
+    if (d_exists) return true;
+
+    char* savePath = str_replace(path, "D:", SAVE_DIR);
+    bool e_exists = fileExists(fs, savePath);
+
+    free(savePath);
+
+    return e_exists;
+}
+
 static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    char* savePath = str_replace(relativePath, "D:", SAVE_DIR);
+    char* fullPath;
+    
+    if (fileExists(fs, savePath)) {
+        fullPath = savePath;
+        printf("Reading override file %s...\n", fullPath);
+    } else {
+        fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+        printf("Reading base file %s...\n", fullPath);
+        free(savePath); // FIXED: Prevent memory leak
+    }
+
+    Sleep(10);
+
     FILE* f = fopen(fullPath, "rb");
-    free(fullPath);
+    free(fullPath); // Safely frees whichever string fullPath ended up pointing to
 
     if (f == nullptr) return nullptr;
 
@@ -109,7 +141,7 @@ static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char* content = safeMalloc((size_t) size + 1);
+    char* content = (char*)safeMalloc((size_t) size + 1);
     size_t bytesRead = fread(content, 1, (size_t) size, f);
     content[bytesRead] = '\0';
     fclose(f);
@@ -118,7 +150,20 @@ static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
 }
 
 static bool glfwWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    char* fullPath;
+    
+    // Check if the path actually contained D: and needs redirecting
+    if (strstr(relativePath, "D:") != nullptr) {
+        fullPath = str_replace(relativePath, "D:", SAVE_DIR);
+    } else {
+        // If it's a standard relative write, build the full path normally
+        fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    }
+
+    printf("Writing file %s...\n", fullPath);
+
+    Sleep(10);
+    
     FILE* f = fopen(fullPath, "wb");
     free(fullPath);
 
@@ -132,9 +177,23 @@ static bool glfwWriteFileText(FileSystem* fs, const char* relativePath, const ch
 }
 
 static bool glfwDeleteFile(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+    char* savePath = str_replace(relativePath, "D:", SAVE_DIR);
+    char* fullPath;
+    
+    if (glfwFileExists(fs, savePath)) {
+        fullPath = savePath;
+        printf("Deleting override file %s...\n", savePath);
+    } else {
+        fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+        printf("Deleting base file %s...\n", fullPath);
+        free(savePath);
+    }
+
+    Sleep(10);
+    
     int result = remove(fullPath);
     free(fullPath);
+    
     return result == 0;
 }
 
