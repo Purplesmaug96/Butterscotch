@@ -502,10 +502,7 @@ int main(int argc, char* argv[]) {
 
     #ifndef XBOX_PB_RENDERER
 
-    uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
-    if (args.headless) {
-        windowFlags |= SDL_WINDOW_HIDDEN;
-    }
+    uint32_t windowFlags = SDL_WINDOW_SHOWN;
 
     debugPrint("Attempting to create window with dimensions %dx%d (max is %dx%d)...\n", gen8->defaultWindowWidth, gen8->defaultWindowHeight, XBOX_MAX_FB_WIDTH, XBOX_MAX_FB_HEIGHT);
 
@@ -532,9 +529,9 @@ int main(int argc, char* argv[]) {
     debugPrint("Window created.\n");
 
     #ifdef XBOX_SDL_HW
-    uint32_t rendererFlags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE;
+    uint32_t rendererFlags = SDL_RENDERER_ACCELERATED;
     #else
-    uint32_t rendererFlags = SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE;
+    uint32_t rendererFlags = SDL_RENDERER_SOFTWARE;
     #endif
 
     SDL_Renderer* sdlRenderer = SDL_CreateRenderer(window, -1, rendererFlags);

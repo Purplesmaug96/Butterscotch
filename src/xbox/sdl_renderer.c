@@ -218,8 +218,13 @@ static void ensureTextureLoaded(MainRenderer* sdl, DataWin* dw, uint32_t pageId)
     sdl->textureWidths[pageId] = w;
     sdl->textureHeights[pageId] = h;
 
-    SDL_Texture* tex = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-    SDL_UpdateTexture(tex, nullptr, pixels, w * 4);
+    void* converted_pixels = safeMalloc(h * XBOX_SDL_PIXEL_PITCH);
+    requireMessage(SDL_ConvertPixels(w, h, SDL_PIXELFORMAT_ABGR8888, pixels, w * 4, XBOX_SDL_PIXELFORMAT, converted_pixels, XBOX_SDL_PIXEL_PITCH) == 0, "SDL_ConvertPixels failed!\n");
+    free(pixels);
+    pixels = converted_pixels;
+    
+    SDL_Texture* tex = SDL_CreateTexture(sdl->sdlRenderer, XBOX_SDL_PIXELFORMAT, SDL_TEXTUREACCESS_STATIC, w, h);
+    SDL_UpdateTexture(tex, nullptr, pixels, XBOX_SDL_PIXEL_PITCH);
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     
     sdl->sdlTextures[pageId] = tex;
@@ -239,7 +244,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
 
     // Don't load textures here - they will be loaded on-demand when first used
 
-    sdl->whiteTexture = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, 1, 1);
+    sdl->whiteTexture = SDL_CreateTexture(sdl->sdlRenderer, XBOX_SDL_PIXELFORMAT, SDL_TEXTUREACCESS_STATIC, 1, 1);
     uint8_t whitePixel[4] = {255, 255, 255, 255};
     SDL_UpdateTexture(sdl->whiteTexture, nullptr, whitePixel, 4);
     SDL_SetTextureBlendMode(sdl->whiteTexture, SDL_BLENDMODE_BLEND);
@@ -624,13 +629,20 @@ static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t
     uint8_t* pixels = safeMalloc((size_t) w * (size_t) h * 4);
     
     SDL_Rect rect = { x, y, w, h };
+
     if (SDL_RenderReadPixels(sdl->sdlRenderer, &rect, SDL_PIXELFORMAT_ABGR8888, pixels, w * 4) != 0) {
         free(pixels);
         return -1;
     }
 
-    SDL_Texture* newTex = SDL_CreateTexture(sdl->sdlRenderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-    SDL_UpdateTexture(newTex, nullptr, pixels, w * 4);
+    void* converted_pixels = safeMalloc(h * XBOX_SDL_PIXEL_PITCH);
+    SDL_ConvertPixels(w, h, SDL_PIXELFORMAT_ABGR8888, pixels, w * 4, XBOX_SDL_PIXELFORMAT, converted_pixels, XBOX_SDL_PIXEL_PITCH);
+    requireMessage(converted_pixels != nullptr, "SDL_ConvertPixels failed!\n");
+    free(pixels);
+    pixels = converted_pixels;
+
+    SDL_Texture* newTex = SDL_CreateTexture(sdl->sdlRenderer, XBOX_SDL_PIXELFORMAT, SDL_TEXTUREACCESS_STATIC, w, h);
+    SDL_UpdateTexture(newTex, nullptr, pixels, XBOX_SDL_PIXEL_PITCH);
     SDL_SetTextureBlendMode(newTex, SDL_BLENDMODE_BLEND);
     
     // SDL_SetTextureScaleMode(newTex, smooth ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);

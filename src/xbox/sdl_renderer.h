@@ -7,6 +7,9 @@
 #undef XBOX_SDL_USE_RENDERGEOMETRY
 #endif
 
+#define XBOX_SDL_PIXELFORMAT SDL_PIXELFORMAT_ABGR4444
+#define XBOX_SDL_PIXEL_PITCH (w * 2)
+
 typedef struct AssetCache_ AssetCache;
 
 typedef struct {
