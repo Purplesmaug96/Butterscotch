@@ -3,6 +3,10 @@
 #include "renderer.h"
 #include <SDL.h>
 
+#if defined(XBOX_SDL_USE_RENDERGEOMETRY) && !defined(XBOX_SDL_HAS_RENDERGEOMETRY)
+#undef XBOX_SDL_USE_RENDERGEOMETRY
+#endif
+
 typedef struct AssetCache_ AssetCache;
 
 typedef struct {

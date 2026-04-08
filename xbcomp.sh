@@ -1,3 +1,5 @@
+set -e
+
 rm -rf build-xbox
 
 export NXDK_DIR=$(pwd)/nxdk

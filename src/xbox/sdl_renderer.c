@@ -44,13 +44,40 @@ static void transformWorldToView(MainRenderer* sdl, float wx, float wy, float* v
     *vy = ly * (sdl->currentPortH / sdl->currentViewH);
 }
 
+#ifndef XBOX_SDL_HAS_RENDERGEOMETRY
 typedef struct SDL_Vertex
 {
     SDL_FPoint position;        /**< Vertex position, in SDL_Renderer coordinates  */
     SDL_Color  color;           /**< Vertex color */
     SDL_FPoint tex_coord;       /**< Normalized texture coordinates, if needed */
 } SDL_Vertex;
+#endif
 
+#ifdef XBOX_SDL_USE_RENDERGEOMETRY
+static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
+                     float x[4], float y[4], float u[4], float v[4], 
+                     float r[4], float g[4], float b[4], float a[4]) {
+    SDL_Vertex verts[4];
+    
+    for (int i = 0; i < 4; i++) {
+        float vx, vy;
+        transformWorldToView(sdl, x[i], y[i], &vx, &vy);
+        
+        verts[i].position.x = vx;
+        verts[i].position.y = vy;
+        verts[i].tex_coord.x = u[i];
+        verts[i].tex_coord.y = v[i];
+        
+        verts[i].color.r = (uint8_t)(r[i] * 255.0f);
+        verts[i].color.g = (uint8_t)(g[i] * 255.0f);
+        verts[i].color.b = (uint8_t)(b[i] * 255.0f);
+        verts[i].color.a = (uint8_t)(a[i] * 255.0f);
+    }
+
+    int indices[6] = {0, 1, 2, 2, 3, 0};
+    SDL_RenderGeometry(sdl->sdlRenderer, tex, verts, 4, indices, 6);
+}
+#else
 static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
@@ -88,6 +115,8 @@ static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
     // 5. Finally, RenderCopy with BOTH rects
     SDL_RenderCopy(sdl->sdlRenderer, tex, &srcrect, &dstrect);
 }
+#endif
+
 static void emitColoredQuad(MainRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
     float rc[4] = {r, r, r, r};
     float gc[4] = {g, g, g, g};

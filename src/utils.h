@@ -36,8 +36,8 @@
 #define fprintf(stream, ...) \
     ((stream == stderr) ? debugPrint(__VA_ARGS__) : 0)
 
-#define exit(errcode) debugPrint("exit(%d) called at %s:%d! Rebooting in 10s...\n", errcode, __FILE__, __LINE__); XBMemStat(); Sleep(10000); XReboot()
-#define abort() debugPrint("abort() called at %s:%d! Rebooting in 10s...\n", __FILE__, __LINE__); XBMemStat(); Sleep(10000); XReboot()
+#define exit(errcode) debugPrint("exit(%d) called at %s:%d!", errcode, __FILE__, __LINE__); XBMemStat(); Sleep(99999999); XReboot();
+#define abort() debugPrint("abort() called at %s:%d!\n", __FILE__, __LINE__); XBMemStat(); Sleep(99999999); XReboot();
 
 float _strtof(const char* s, __attribute__((unused)) char** endptr);
 float _strtod(const char* s, __attribute__((unused)) char** endptr);

@@ -526,23 +526,42 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         DataWin_free(dataWin);
         freeCommandLineArgs(&args);
-        return 1;
+        abort();
     }
 
     debugPrint("Window created.\n");
 
-    uint32_t rendererFlags = 0;
-    if (!args.headless && args.speedMultiplier == 1.0) {
-        // rendererFlags |= SDL_RENDERER_PRESENTVSYNC;
-    }
+    #ifdef XBOX_SDL_HW
+    uint32_t rendererFlags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE;
+    #else
+    uint32_t rendererFlags = SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE;
+    #endif
 
     SDL_Renderer* sdlRenderer = SDL_CreateRenderer(window, -1, rendererFlags);
     if (sdlRenderer == nullptr) {
         fprintf(stderr, "Failed to create SDL renderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
-        return 1;
+        abort();
     }
+
+    SDL_RendererInfo info;
+
+    SDL_GetRendererInfo(sdlRenderer, &info);
+
+    char* errmsg = safeMalloc(128);
+
+    #ifdef XBOX_SDL_HW
+    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is not xbox_pbkit. This is unacceptable.\n", info.name);
+
+    requireMessage(info.name == "xbox_pbkit", errmsg);
+    #else
+    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is not software. This is unacceptable.\n", info.name);
+
+    requireMessage(info.name == "software", errmsg);
+    #endif
+
+    free(errmsg);
 
     debugPrint("SDL Renderer created.\n");
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
