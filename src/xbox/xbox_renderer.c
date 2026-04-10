@@ -6,6 +6,16 @@
 #include "text_utils.h"
 #include <hal/video.h>
 #include <pbkit/pbkit.h>
+#include <hal/xbox.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <xboxkrnl/xboxkrnl.h>
+#include <hal/debug.h>
+#include <windows.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -205,55 +215,152 @@ static inline uint32_t f2u(float f) {
     return val.u;
 }
 
-void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices) {
-    if (!vertices || num_vertices == 0) return;
+typedef struct {
+    float pos[3];
+    float color[3];
+} __attribute__((packed)) ColoredVertex;
 
+static uint32_t *alloc_vertices;
+static uint32_t  num_vertices;
+static float     m_viewport[4][4];
+
+static const ColoredVertex verts[] = {
+    //  X     Y     Z       R     G     B
+    {{-1.0, -1.0,  1.0}, { 1.0,  0.0,  0.0}}, /* Foreground triangle */
+    {{ 0.0,  1.0,  1.0}, { 0.0,  1.0,  0.0}},
+    {{ 1.0, -1.0,  1.0}, { 0.0,  0.0,  1.0}},
+};
+
+#define MASK(mask, val) (((val) << (ffs(mask)-1)) & (mask))
+
+/* Construct a viewport transformation matrix */
+static void matrix_viewport(float out[4][4], float x, float y, float width, float height, float z_min, float z_max)
+{
+    memset(out, 0, 4*4*sizeof(float));
+    out[0][0] = width/2.0f;
+    out[1][1] = height/-2.0f;
+    out[2][2] = z_max - z_min;
+    out[3][3] = 1.0f;
+    out[3][0] = x + width/2.0f;
+    out[3][1] = y + height/2.0f;
+    out[3][2] = z_min;
+}
+
+/* Load the shader we will render with */
+static void init_shader(void)
+{
     uint32_t *p;
+    int       i;
 
-    // 1. Tell the GPU we are about to start drawing Triangles
+    /* Setup vertex shader */
+    uint32_t vs_program[] = {
+        #include "vs.inl"
+    };
+
     p = pb_begin();
-    pb_push(p++, NV097_SET_BEGIN_END, 1);
-    *(p++) = NV097_SET_BEGIN_END_OP_TRIANGLES;
+
+    /* Set run address of shader */
+    p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_START, 0);
+
+    /* Set execution mode */
+    p = pb_push1(p, NV097_SET_TRANSFORM_EXECUTION_MODE,
+                 MASK(NV097_SET_TRANSFORM_EXECUTION_MODE_MODE, NV097_SET_TRANSFORM_EXECUTION_MODE_MODE_PROGRAM)
+                 | MASK(NV097_SET_TRANSFORM_EXECUTION_MODE_RANGE_MODE, NV097_SET_TRANSFORM_EXECUTION_MODE_RANGE_MODE_PRIV));
+
+    p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_CXT_WRITE_EN, 0);
+
     pb_end(p);
 
-    // 2. Push the geometry inline
-    int count = indices ? num_indices : num_vertices;
+    /* Set cursor for program upload */
+    p = pb_begin();
+    p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_LOAD, 0);
+    pb_end(p);
 
-    for (int i = 0; i < count; i++) {
-        int v_idx = indices ? indices[i] : i;
-        const pb_Vertex2D *v = &vertices[v_idx];
-
+    /* Copy program instructions (16-bytes each) */
+    for (i=0; i<sizeof(vs_program)/16; i++) {
         p = pb_begin();
-
-        // -- WRITE ATTRIBUTES --
-        // Note: Writing to Attribute 0 (Position) tells the GPU to assemble the vertex.
-        // Therefore, we MUST write UVs and Colors FIRST, and Position LAST.
-
-        // Attribute 9: Texture Coordinates (2 floats)
-        pb_push(p++, NV097_INLINE_ARRAY + 9*4, 2);
-        *(p++) = f2u(v->u);
-        *(p++) = f2u(v->v);
-
-        // Attribute 3: Diffuse Color (1 DWORD)
-        pb_push(p++, NV097_INLINE_ARRAY + 3*4, 1);
-        *(p++) = v->color;
-
-        // Attribute 0: Position (4 floats: X, Y, Z, RHW) -> THIS TRIGGERS THE VERTEX
-        // Setting Z=0.0f and RHW=1.0f tells the GPU this is pre-transformed 2D screen space.
-        pb_push(p++, NV097_INLINE_ARRAY + 0*4, 4);
-        *(p++) = f2u(v->x);
-        *(p++) = f2u(v->y);
-        *(p++) = f2u(0.0f); // Z
-        *(p++) = f2u(1.0f); // RHW (1.0 = screen space)
-
+        pb_push(p++, NV097_SET_TRANSFORM_PROGRAM, 4);
+        memcpy(p, &vs_program[i*4], 4*4);
+        p+=4;
         pb_end(p);
     }
 
-    // 3. End primitive drawing
+    /* Setup fragment shader */
     p = pb_begin();
-    pb_push(p++, NV097_SET_BEGIN_END, 1);
-    *(p++) = NV097_SET_BEGIN_END_OP_END;
+    #include "ps.inl"
     pb_end(p);
+}
+
+/* Set an attribute pointer */
+static void set_attrib_pointer(unsigned int index, unsigned int format, unsigned int size, unsigned int stride, const void* data)
+{
+    uint32_t *p = pb_begin();
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + index*4,
+                 MASK(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE, format) | \
+                 MASK(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, size) |  \
+                 MASK(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + index*4, (uint32_t)data & 0x03ffffff);
+    pb_end(p);
+}
+
+/* Send draw commands for the triangles */
+static void draw_arrays(unsigned int mode, int start, int count)
+{
+    uint32_t *p = pb_begin();
+    p = pb_push1(p, NV097_SET_BEGIN_END, mode);
+
+    p = pb_push1(p, 0x40000000|NV097_DRAW_ARRAYS, //bit 30 means all params go to same register 0x1810
+                 MASK(NV097_DRAW_ARRAYS_COUNT, (count-1)) | MASK(NV097_DRAW_ARRAYS_START_INDEX, start));
+
+    p = pb_push1(p, NV097_SET_BEGIN_END, NV097_SET_BEGIN_END_OP_END);
+    pb_end(p);
+}
+
+void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices) {
+    uint32_t *p;
+    
+    p = pb_begin();
+
+    /* Set shader constants cursor at C0 */
+    p = pb_push1(p, NV097_SET_TRANSFORM_CONSTANT_LOAD, 96);
+
+    /* Send the transformation matrix */
+    pb_push(p++, NV097_SET_TRANSFORM_CONSTANT, 16);
+    memcpy(p, m_viewport, 16*4); p+=16;
+
+    pb_end(p);
+    p = pb_begin();
+
+    /* Clear all attributes */
+    pb_push(p++, NV097_SET_VERTEX_DATA_ARRAY_FORMAT,16);
+    for(int i = 0; i < 16; i++) {
+        *(p++) = NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F;
+    }
+    pb_end(p);
+
+    /* Set vertex position attribute */
+    set_attrib_pointer(0, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                        3, sizeof(ColoredVertex), &alloc_vertices[0]);
+
+    /* Set vertex diffuse color attribute */
+    set_attrib_pointer(3, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                        3, sizeof(ColoredVertex), &alloc_vertices[3]);
+
+    /* Begin drawing triangles */
+    draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_vertices);
+
+    /* Draw some text on the screen */
+    pb_print("Hello world!\n");
+    pb_draw_text_screen();
+
+    while(pb_busy()) {
+        /* Wait for completion... */
+    }
+
+    /* Swap buffers (if we can) */
+    while (pb_finished()) {
+        /* Not ready to swap yet */
+    }
 }
 
 static void emitQuad(MainRenderer* render, PbTexture* tex,
@@ -432,6 +539,12 @@ static void renderInit(Renderer* renderer, DataWin* dataWin) {
     PbTexture_Update(render->whiteTexture, whitePixel);
     PbTexture_SetBlendMode(render->whiteTexture, BLENDMODE_BLEND);
 
+    init_shader();
+    alloc_vertices = MmAllocateContiguousMemoryEx(sizeof(verts), 0, 0x3ffb000, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
+    memcpy(alloc_vertices, verts, sizeof(verts));
+    num_vertices = sizeof(verts)/sizeof(verts[0]);
+    matrix_viewport(m_viewport, 0, 0, 640, 480, 0, 65536.0f);
+
     render->originalTexturePageCount = render->textureCount;
     render->originalTpagCount = dataWin->tpag.count;
     render->originalSpriteCount = dataWin->sprt.count;
@@ -446,6 +559,10 @@ static void renderDestroy(Renderer* renderer) {
     for (uint32_t i = 0; render->textureCount > i; i++) {
         if (render->renderTextures[i]) PbTexture_Destroy(render->renderTextures[i]);
     }
+
+    MmFreeContiguousMemory(alloc_vertices);
+    pb_show_debug_screen();
+    pb_kill();
 
     free(render->renderTextures);
     free(render->textureWidths);
@@ -471,14 +588,21 @@ static void renderBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, i
     }
 
     pb_wait_for_vbl();
-    pb_target_back_buffer(); // Basic setup
+    pb_reset();
+    pb_target_back_buffer();
 
-    // If you want to render to your FBO texture instead of the screen:
-    // pb_set_color_buffer(render->fboTexture->pixels, render->fboWidth, render->fboHeight, render->fboTexture->pitch);
+    /* Clear depth & stencil buffers */
+    pb_erase_depth_stencil_buffer(0, 0, windowW, windowH);
+    pb_fill(0, 0, windowW, windowH, 0x00000000);
+    pb_erase_text_screen();
     
     // Reset Viewport and Scissor (Clips) to full screen
     pb_set_viewport(0, 0, windowW, windowH, 0, 65535); 
     xbox_set_scissor(0, 0, windowW, windowH);
+
+    while(pb_busy()) {
+        /* Wait for completion... */
+    }
 }
 
 static void renderBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle) {
