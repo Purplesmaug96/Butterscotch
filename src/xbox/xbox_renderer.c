@@ -1,4 +1,5 @@
-﻿#ifdef XBOX_PB_RENDERER
+﻿#define XBOX_PB_RENDERER
+#ifdef XBOX_PB_RENDERER
 
 #include "xbox_renderer.h"
 #include "asset_cache.h"
@@ -195,6 +196,10 @@ static void transformWorldToView(MainRenderer* render, float wx, float wy, float
 
     *vx = lx * (render->currentPortW / render->currentViewW);
     *vy = ly * (render->currentPortH / render->currentViewH);
+
+    // Convert screen-space coordinates to whatever the renderer uses, seems to be -1,-1 = 0,0 and 1,1 = 640,480
+    *vx = (*vx / 320.0f) - 1.0f;
+    *vy = (*vy / 240.0f) - 1.0f;
 }
 
 static inline uint32_t pack_u32(uint8_t b3, uint8_t b2, uint8_t b1, uint8_t b0) {
@@ -220,7 +225,7 @@ typedef struct {
     float color[3];
 } __attribute__((packed)) ColoredVertex;
 
-static uint32_t *alloc_vertices;
+static ColoredVertex* alloc_vertices;
 static uint32_t  num_vertices;
 static float     m_viewport[4][4];
 
@@ -316,9 +321,32 @@ static void draw_arrays(unsigned int mode, int start, int count)
     pb_end(p);
 }
 
+// typedef struct {
+//     float pos[3];
+//     float color[3];
+// } __attribute__((packed)) ColoredVertex;
+
+// typedef struct {
+//     float x, y;
+//     DWORD color; // A8R8G8B8 format
+//     float u, v;  // Texture coordinates
+// } pb_Vertex2D;
+
 void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices) {
+    alloc_vertices[0].pos[0] = vertices[indices[0]].x;
+    alloc_vertices[0].pos[1] = vertices[indices[0]].y;
+    alloc_vertices[0].pos[2] = 1;
+
+    alloc_vertices[1].pos[0] = vertices[indices[1]].x;
+    alloc_vertices[1].pos[1] = vertices[indices[1]].y;
+    alloc_vertices[1].pos[2] = 1;
+
+    alloc_vertices[2].pos[0] = vertices[indices[2]].x;
+    alloc_vertices[2].pos[1] = vertices[indices[2]].y;
+    alloc_vertices[2].pos[2] = 1;
+
     uint32_t *p;
-    
+
     p = pb_begin();
 
     /* Set shader constants cursor at C0 */
@@ -350,7 +378,8 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_vertices);
 
     /* Draw some text on the screen */
-    pb_print("Hello world!\n");
+    pb_erase_text_screen();
+    pb_print("Hello world! X0:%d Y0:%d X1:%d Y1:%d X2:%d Y2:%d\n", (int)(alloc_vertices[0].pos[0] * 320), (int)(alloc_vertices[0].pos[1] * 240), (int)(alloc_vertices[1].pos[0] * 320), (int)(alloc_vertices[1].pos[1] * 240), (int)(alloc_vertices[2].pos[0] * 320), (int)(alloc_vertices[2].pos[1] * 240));
     pb_draw_text_screen();
 
     while(pb_busy()) {
@@ -364,11 +393,12 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
 }
 
 static void emitQuad(MainRenderer* render, PbTexture* tex,
-                     float x[4], float y[4], float u[4], float v[4], 
-                     float r[4], float g[4], float b[4], float a[4]) {
+                          float x[4], float y[4], float u[4], float v[4], 
+                          float r[4], float g[4], float b[4], float a[4]) {
     
     pb_Vertex2D verts[4];
     
+    // 1. Process all 4 vertices once to save on transformation math
     for (int i = 0; i < 4; i++) {
         float vx, vy;
         transformWorldToView(render, x[i], y[i], &vx, &vy);
@@ -378,16 +408,29 @@ static void emitQuad(MainRenderer* render, PbTexture* tex,
         verts[i].u = u[i];
         verts[i].v = v[i];
 
-        uint8_t rr = r[0] * 255.0f;
-        uint8_t gg = g[0] * 255.0f;
-        uint8_t bb = b[0] * 255.0f;
-        uint8_t aa = a[0] * 255.0f;
+        // Using [i] instead of [0] allows for vertex gradients
+        uint8_t rr = (uint8_t)(r[i] * 255.0f);
+        uint8_t gg = (uint8_t)(g[i] * 255.0f);
+        uint8_t bb = (uint8_t)(b[i] * 255.0f);
+        uint8_t aa = (uint8_t)(a[i] * 255.0f);
         
         verts[i].color = pack_u32(aa, rr, gg, bb);
     }
 
-    int indices[6] = {0, 1, 2, 2, 3, 0};
-    pb_render_geometry(verts, 4, indices, 6);
+    // verts[0].x = -0.1;
+    // verts[0].y = -0.1;
+    // verts[1].x = 0;
+    // verts[1].y = 0.1;
+    // verts[2].x = 0.1;
+    // verts[2].y = -0.1;
+
+    // 2. Emit the first triangle (Vertices 0, 1, 2)
+    int tri1_indices[3] = {0, 2, 1};
+    pb_render_geometry(verts, 4, tri1_indices, 3);
+
+    // 3. Emit the second triangle (Vertices 0, 2, 3)
+    // int tri2_indices[3] = {0, 2, 3};
+    // pb_render_geometry(verts, 4, tri2_indices, 3);
 }
 
 static void emitColoredQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
