@@ -549,11 +549,11 @@ int main(int argc, char* argv[]) {
     char* errmsg = safeMalloc(128);
 
     #ifdef XBOX_SDL_HW
-    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is not xbox_pbkit. This is unacceptable.\n", info.name);
+    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is NOT xbox_pbkit. This is UNACCEPTABLE.\n", info.name);
 
     requireMessage(info.name == "xbox_pbkit", errmsg);
     #else
-    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is not software. This is unacceptable.\n", info.name);
+    snprintf(errmsg, 128, "SDL_Renderer driver '%s' is NOT software. This is UNACCEPTABLE.\n", info.name);
 
     requireMessage(info.name == "software", errmsg);
     #endif

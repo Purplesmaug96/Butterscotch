@@ -106,6 +106,14 @@ elseif(PLATFORM STREQUAL "sdl2")
         target_link_options(butterscotch PRIVATE -fsanitize=address)
     endif()
 elseif(PLATFORM STREQUAL "xbox")
+    # The PS2 EE has a single-precision FPU only, so double is software-emulated
+    add_compile_definitions(USE_FLOAT_REALS)
+    # By disabling Int64 support, we can fit the entire RValue struct in 8 bytes, improving performance and memory usage
+    add_compile_definitions(NO_RVALUE_INT64)
+    # Treat unsuffixed float constants as single-precision to avoid accidental
+    # float->double promotions on platforms with no hardware double
+    add_compile_options(-fsingle-precision-constant)
+
     set(XBE_TITLE "Butterscotch")
     set(XBOX_ISO_DIR ${CMAKE_CURRENT_BINARY_DIR}/xiso)
 
