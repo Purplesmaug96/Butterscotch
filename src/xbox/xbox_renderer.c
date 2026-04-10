@@ -4,6 +4,7 @@
 #include "asset_cache.h"
 #include "matrix_math.h"
 #include "text_utils.h"
+#include <hal/video.h>
 #include <pbkit/pbkit.h>
 
 #include <stdint.h>
@@ -190,43 +191,96 @@ static inline uint32_t pack_u32(uint8_t b3, uint8_t b2, uint8_t b1, uint8_t b0) 
     return ((uint32_t)b3 << 24) | ((uint32_t)b2 << 16) | ((uint32_t)b1 << 8) | (uint32_t)b0;
 }
 
+// Matches the layout of standard 2D vertices (similar to SDL_Vertex)
 typedef struct {
-    float x;
-    float y;
-    float w;
-    float h;
-} Rect;
+    float x, y;
+    DWORD color; // A8R8G8B8 format
+    float u, v;  // Texture coordinates
+} pb_Vertex2D;
+
+// Helper to safely bypass C strict aliasing when pushing floats to the push buffer
+static inline uint32_t f2u(float f) {
+    union { float f; uint32_t u; } val;
+    val.f = f;
+    return val.u;
+}
+
+void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices) {
+    if (!vertices || num_vertices == 0) return;
+
+    uint32_t *p;
+
+    // 1. Tell the GPU we are about to start drawing Triangles
+    p = pb_begin();
+    pb_push(p++, NV097_SET_BEGIN_END, 1);
+    *(p++) = NV097_SET_BEGIN_END_OP_TRIANGLES;
+    pb_end(p);
+
+    // 2. Push the geometry inline
+    int count = indices ? num_indices : num_vertices;
+
+    for (int i = 0; i < count; i++) {
+        int v_idx = indices ? indices[i] : i;
+        const pb_Vertex2D *v = &vertices[v_idx];
+
+        p = pb_begin();
+
+        // -- WRITE ATTRIBUTES --
+        // Note: Writing to Attribute 0 (Position) tells the GPU to assemble the vertex.
+        // Therefore, we MUST write UVs and Colors FIRST, and Position LAST.
+
+        // Attribute 9: Texture Coordinates (2 floats)
+        pb_push(p++, NV097_INLINE_ARRAY + 9*4, 2);
+        *(p++) = f2u(v->u);
+        *(p++) = f2u(v->v);
+
+        // Attribute 3: Diffuse Color (1 DWORD)
+        pb_push(p++, NV097_INLINE_ARRAY + 3*4, 1);
+        *(p++) = v->color;
+
+        // Attribute 0: Position (4 floats: X, Y, Z, RHW) -> THIS TRIGGERS THE VERTEX
+        // Setting Z=0.0f and RHW=1.0f tells the GPU this is pre-transformed 2D screen space.
+        pb_push(p++, NV097_INLINE_ARRAY + 0*4, 4);
+        *(p++) = f2u(v->x);
+        *(p++) = f2u(v->y);
+        *(p++) = f2u(0.0f); // Z
+        *(p++) = f2u(1.0f); // RHW (1.0 = screen space)
+
+        pb_end(p);
+    }
+
+    // 3. End primitive drawing
+    p = pb_begin();
+    pb_push(p++, NV097_SET_BEGIN_END, 1);
+    *(p++) = NV097_SET_BEGIN_END_OP_END;
+    pb_end(p);
+}
 
 static void emitQuad(MainRenderer* render, PbTexture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
     
-    uint8_t rr = r[0] * 255;
-    uint8_t gg = g[0] * 255;
-    uint8_t bb = b[0] * 255;
-    uint8_t aa = a[0] * 255;
-
-    // 2. Define the Source Rect (What part of the atlas to grab)
-    // We assume u[0]/v[0] is Top-Left and u[2]/v[2] is Bottom-Right
-    Rect srcrect;
-    srcrect.x = (int)(u[0] * tex->width);
-    srcrect.y = (int)(v[0] * tex->height);
-    srcrect.w = (int)((u[2] - u[0]) * tex->width);
-    srcrect.h = (int)((v[2] - v[0]) * tex->height);
-
-    // 3. Define the Destination Rect (Where to draw it on screen)
-    // We'll use your WorldToView logic here
-    float vx0, vy0, vx2, vy2;
-    transformWorldToView(render, x[0], y[0], &vx0, &vy0);
-    transformWorldToView(render, x[0] + 10, y[0] + 10, &vx2, &vy2);
-
-    // Rect dstrect;
-    // dstrect.x = (int)vx0;
-    // dstrect.y = (int)vy0;
-    // dstrect.w = (int)(vx2 - vx0);
-    // dstrect.h = (int)(vy2 - vy0);
+    pb_Vertex2D verts[4];
     
-    pb_fill(vx0, vy0, vx2, vy2, pack_u32(aa, rr, gg, bb)); 
+    for (int i = 0; i < 4; i++) {
+        float vx, vy;
+        transformWorldToView(render, x[i], y[i], &vx, &vy);
+        
+        verts[i].x = vx;
+        verts[i].y = vy;
+        verts[i].u = u[i];
+        verts[i].v = v[i];
+
+        uint8_t rr = r[0] * 255.0f;
+        uint8_t gg = g[0] * 255.0f;
+        uint8_t bb = b[0] * 255.0f;
+        uint8_t aa = a[0] * 255.0f;
+        
+        verts[i].color = pack_u32(aa, rr, gg, bb);
+    }
+
+    int indices[6] = {0, 1, 2, 2, 3, 0};
+    pb_render_geometry(verts, 4, indices, 6);
 }
 
 static void emitColoredQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
