@@ -209,7 +209,7 @@ static inline uint32_t pack_u32(uint8_t b3, uint8_t b2, uint8_t b1, uint8_t b0) 
 // Matches the layout of standard 2D vertices (similar to SDL_Vertex)
 typedef struct {
     float x, y;
-    DWORD color; // A8R8G8B8 format
+    float color[3]; // A8R8G8B8 format
     float u, v;  // Texture coordinates
 } pb_Vertex2D;
 
@@ -345,6 +345,18 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     alloc_vertices[2].pos[1] = vertices[indices[2]].y;
     alloc_vertices[2].pos[2] = 1;
 
+    // alloc_vertices[0].color[0] = vertices[indices[0]].color[0];
+    // alloc_vertices[0].color[1] = vertices[indices[0]].color[1];
+    // alloc_vertices[0].color[2] = vertices[indices[0]].color[2];
+
+    // alloc_vertices[1].color[0] = vertices[indices[1]].color[0];
+    // alloc_vertices[1].color[1] = vertices[indices[1]].color[1];
+    // alloc_vertices[1].color[2] = vertices[indices[1]].color[2];
+
+    // alloc_vertices[2].color[0] = vertices[indices[2]].color[0];
+    // alloc_vertices[2].color[1] = vertices[indices[2]].color[1];
+    // alloc_vertices[2].color[2] = vertices[indices[2]].color[2];
+
     uint32_t *p;
 
     p = pb_begin();
@@ -378,9 +390,9 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_vertices);
 
     /* Draw some text on the screen */
-    pb_erase_text_screen();
-    pb_print("Hello world! X0:%d Y0:%d X1:%d Y1:%d X2:%d Y2:%d\n", (int)(alloc_vertices[0].pos[0] * 320), (int)(alloc_vertices[0].pos[1] * 240), (int)(alloc_vertices[1].pos[0] * 320), (int)(alloc_vertices[1].pos[1] * 240), (int)(alloc_vertices[2].pos[0] * 320), (int)(alloc_vertices[2].pos[1] * 240));
-    pb_draw_text_screen();
+    // pb_erase_text_screen();
+    // pb_print("Hello world! X0:%d Y0:%d X1:%d Y1:%d X2:%d Y2:%d\n", (int)(alloc_vertices[0].pos[0] * 320), (int)(alloc_vertices[0].pos[1] * 240), (int)(alloc_vertices[1].pos[0] * 320), (int)(alloc_vertices[1].pos[1] * 240), (int)(alloc_vertices[2].pos[0] * 320), (int)(alloc_vertices[2].pos[1] * 240));
+    // pb_draw_text_screen();
 
     while(pb_busy()) {
         /* Wait for completion... */
@@ -407,14 +419,10 @@ static void emitQuad(MainRenderer* render, PbTexture* tex,
         verts[i].y = vy;
         verts[i].u = u[i];
         verts[i].v = v[i];
-
-        // Using [i] instead of [0] allows for vertex gradients
-        uint8_t rr = (uint8_t)(r[i] * 255.0f);
-        uint8_t gg = (uint8_t)(g[i] * 255.0f);
-        uint8_t bb = (uint8_t)(b[i] * 255.0f);
-        uint8_t aa = (uint8_t)(a[i] * 255.0f);
         
-        verts[i].color = pack_u32(aa, rr, gg, bb);
+        verts[i].color[0] = r[i];
+        verts[i].color[1] = g[i];
+        verts[i].color[2] = b[i];
     }
 
     // verts[0].x = -0.1;
@@ -429,8 +437,8 @@ static void emitQuad(MainRenderer* render, PbTexture* tex,
     pb_render_geometry(verts, 4, tri1_indices, 3);
 
     // 3. Emit the second triangle (Vertices 0, 2, 3)
-    // int tri2_indices[3] = {0, 2, 3};
-    // pb_render_geometry(verts, 4, tri2_indices, 3);
+    int tri2_indices[3] = {0, 3, 2};
+    pb_render_geometry(verts, 4, tri2_indices, 3);
 }
 
 static void emitColoredQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
