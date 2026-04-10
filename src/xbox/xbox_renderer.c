@@ -186,27 +186,47 @@ static void transformWorldToView(MainRenderer* render, float wx, float wy, float
     *vy = ly * (render->currentPortH / render->currentViewH);
 }
 
+static inline uint32_t pack_u32(uint8_t b3, uint8_t b2, uint8_t b1, uint8_t b0) {
+    return ((uint32_t)b3 << 24) | ((uint32_t)b2 << 16) | ((uint32_t)b1 << 8) | (uint32_t)b0;
+}
+
+typedef struct {
+    float x;
+    float y;
+    float w;
+    float h;
+} Rect;
+
 static void emitQuad(MainRenderer* render, PbTexture* tex,
                      float x[4], float y[4], float u[4], float v[4], 
                      float r[4], float g[4], float b[4], float a[4]) {
     
-    // 1. NO POINTER ACCESS. Just raw pbkit commands.
-    // uint32_t *p = pb_begin();
-    // if (!p) ret  urn;
+    uint8_t rr = r[0] * 255;
+    uint8_t gg = g[0] * 255;
+    uint8_t bb = b[0] * 255;
+    uint8_t aa = a[0] * 255;
 
-    // Just fill a small red square using the high-level pbkit function
-    // This uses pbkit's internal logic instead of our manual p[n] writes.
-    pb_fill(100, 100, 200, 200, 0xFFFF0000); 
+    // 2. Define the Source Rect (What part of the atlas to grab)
+    // We assume u[0]/v[0] is Top-Left and u[2]/v[2] is Bottom-Right
+    Rect srcrect;
+    srcrect.x = (int)(u[0] * tex->width);
+    srcrect.y = (int)(v[0] * tex->height);
+    srcrect.w = (int)((u[2] - u[0]) * tex->width);
+    srcrect.h = (int)((v[2] - v[0]) * tex->height);
+
+    // 3. Define the Destination Rect (Where to draw it on screen)
+    // We'll use your WorldToView logic here
+    float vx0, vy0, vx2, vy2;
+    transformWorldToView(render, x[0], y[0], &vx0, &vy0);
+    transformWorldToView(render, x[0] + 10, y[0] + 10, &vx2, &vy2);
+
+    // Rect dstrect;
+    // dstrect.x = (int)vx0;
+    // dstrect.y = (int)vy0;
+    // dstrect.w = (int)(vx2 - vx0);
+    // dstrect.h = (int)(vy2 - vy0);
     
-    // We don't even call pb_end(p) here because pb_fill does its own begin/end
-    // BUT we need to make sure we didn't leave a pb_begin hanging.
-    // Actually, let's try the most basic possible manual push:
-    
-    /* p[0] = (1 << 18) | 0x000017fc; 
-    p[1] = 0x00000008; 
-    p += 2;
-    pb_end(p); 
-    */
+    pb_fill(vx0, vy0, vx2, vy2, pack_u32(aa, rr, gg, bb)); 
 }
 
 static void emitColoredQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
