@@ -199,7 +199,7 @@ static void transformWorldToView(MainRenderer* render, float wx, float wy, float
 
     // Convert screen-space coordinates to whatever the renderer uses, seems to be -1,-1 = 0,0 and 1,1 = 640,480
     *vx = (*vx / 320.0f) - 1.0f;
-    *vy = (*vy / 240.0f) - 1.0f;
+    *vy = -(*vy / 240.0f) + 1.0f;
 }
 
 static inline uint32_t pack_u32(uint8_t b3, uint8_t b2, uint8_t b1, uint8_t b0) {
@@ -393,15 +393,6 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     // pb_erase_text_screen();
     // pb_print("Hello world! X0:%d Y0:%d X1:%d Y1:%d X2:%d Y2:%d\n", (int)(alloc_vertices[0].pos[0] * 320), (int)(alloc_vertices[0].pos[1] * 240), (int)(alloc_vertices[1].pos[0] * 320), (int)(alloc_vertices[1].pos[1] * 240), (int)(alloc_vertices[2].pos[0] * 320), (int)(alloc_vertices[2].pos[1] * 240));
     // pb_draw_text_screen();
-
-    while(pb_busy()) {
-        /* Wait for completion... */
-    }
-
-    /* Swap buffers (if we can) */
-    while (pb_finished()) {
-        /* Not ready to swap yet */
-    }
 }
 
 static void emitQuad(MainRenderer* render, PbTexture* tex,
@@ -433,11 +424,11 @@ static void emitQuad(MainRenderer* render, PbTexture* tex,
     // verts[2].y = -0.1;
 
     // 2. Emit the first triangle (Vertices 0, 1, 2)
-    int tri1_indices[3] = {0, 2, 1};
+    int tri1_indices[3] = {0, 1, 2};
     pb_render_geometry(verts, 4, tri1_indices, 3);
 
     // 3. Emit the second triangle (Vertices 0, 2, 3)
-    int tri2_indices[3] = {0, 3, 2};
+    int tri2_indices[3] = {0, 2, 3};
     pb_render_geometry(verts, 4, tri2_indices, 3);
 }
 
@@ -700,9 +691,14 @@ static void renderEndFrame(Renderer* renderer) {
     // Custom blit:
     // emitQuad(render, render->fboTexture, x, y, u, v, c, c, c, c);
 
-    // 3. Finalize and Flip
-    while (pb_busy());    // Ensure all commands are processed
-    pb_finished();   // The actual SwapBuffers/Present
+    while(pb_busy()) {
+        /* Wait for completion... */
+    }
+
+    /* Swap buffers (if we can) */
+    while (pb_finished()) {
+        /* Not ready to swap yet */
+    }
 }
 
 static void renderRendererFlush(Renderer* renderer) {
