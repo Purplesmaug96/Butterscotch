@@ -219,12 +219,45 @@ static inline uint32_t f2u(float f) {
     return val.u;
 }
 
+static void pb_bind_texture(PbTexture* tex) {
+    if (!tex || !tex->pixels) return;
+
+    uint32_t phys_addr = (uint32_t)tex->pixels & 0x03FFFFFFu; 
+    uint32_t format = tex->format | 0x020000 | 0x2 | 0x8; // DIM_2D, WRAP_S_CLAMP, WRAP_T_CLAMP
+
+    uint32_t *p = pb_begin();
+
+    // Offset
+    p[0] = (1 << 18) | NV097_SET_TEXTURE_OFFSET_0;
+    p[1] = phys_addr;
+    p += 2;
+
+    // Format
+    p[0] = (1 << 18) | NV097_SET_TEXTURE_FORMAT_0;
+    p[1] = format;
+    p += 2;
+
+    // Control enable
+    p[0] = (1 << 18) | 0x1b1c;
+    p[1] = 1;
+    p += 2;
+
+    pb_end(p);
+}
+
 typedef struct {
     float pos[3];
     float color[3];
 } __attribute__((packed)) ColoredVertex;
 
+typedef struct {
+    float pos[3];
+    float color[3];
+    float uv[2];
+} __attribute__((packed)) TexturedVertex;
+
 static ColoredVertex* alloc_vertices;
+static TexturedVertex* alloc_textured_vertices;
 static uint32_t  num_vertices;
 static float     m_viewport[4][4];
 
@@ -291,7 +324,7 @@ static void init_shader(void)
 
     /* Setup fragment shader */
     p = pb_begin();
-    #include "ps.inl"
+#include "ps_original.inl"
     pb_end(p);
 }
 
@@ -331,23 +364,29 @@ static void draw_arrays(unsigned int mode, int start, int count)
 //     float u, v;  // Texture coordinates
 // } pb_Vertex2D;
 
-void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices) {
-    alloc_vertices[0].pos[0] = vertices[indices[0]].x;
-    alloc_vertices[0].pos[1] = vertices[indices[0]].y;
-    alloc_vertices[0].pos[2] = 1;
-
-    alloc_vertices[1].pos[0] = vertices[indices[1]].x;
-    alloc_vertices[1].pos[1] = vertices[indices[1]].y;
-    alloc_vertices[1].pos[2] = 1;
-
-    alloc_vertices[2].pos[0] = vertices[indices[2]].x;
-    alloc_vertices[2].pos[1] = vertices[indices[2]].y;
-    alloc_vertices[2].pos[2] = 1;
-
-    for(int i = 0; i < 3; i++) {
-        alloc_vertices[i].color[0] = vertices[indices[i]].color[0];
-        alloc_vertices[i].color[1] = vertices[indices[i]].color[1];
-        alloc_vertices[i].color[2] = vertices[indices[i]].color[2];
+void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int *indices, int num_indices, bool textured) {
+    if (textured) {
+        for (int j = 0; j < num_indices; j++) {
+            int i = indices[j];
+            alloc_textured_vertices[j].pos[0] = vertices[i].x;
+            alloc_textured_vertices[j].pos[1] = vertices[i].y;
+            alloc_textured_vertices[j].pos[2] = 1.0f;
+            alloc_textured_vertices[j].color[0] = vertices[i].color[0];
+            alloc_textured_vertices[j].color[1] = vertices[i].color[1];
+            alloc_textured_vertices[j].color[2] = vertices[i].color[2];
+            alloc_textured_vertices[j].uv[0] = vertices[i].u;
+            alloc_textured_vertices[j].uv[1] = vertices[i].v;
+        }
+    } else {
+        for (int j = 0; j < num_indices; j++) {
+            int i = indices[j];
+            alloc_vertices[j].pos[0] = vertices[i].x;
+            alloc_vertices[j].pos[1] = vertices[i].y;
+            alloc_vertices[j].pos[2] = 1.0f;
+            alloc_vertices[j].color[0] = vertices[i].color[0];
+            alloc_vertices[j].color[1] = vertices[i].color[1];
+            alloc_vertices[j].color[2] = vertices[i].color[2];
+        }
     }
 
     uint32_t *p;
@@ -371,16 +410,34 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     }
     pb_end(p);
 
-    /* Set vertex position attribute */
-    set_attrib_pointer(0, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
-                        3, sizeof(ColoredVertex), &alloc_vertices[0]);
+    if (textured) {
+        /* Set vertex position attribute */
+        set_attrib_pointer(0, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                            3, sizeof(TexturedVertex), &alloc_textured_vertices[0]);
+
+        /* Set vertex diffuse color attribute */
+        set_attrib_pointer(3, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                            3, sizeof(TexturedVertex), ((uint8_t*)alloc_textured_vertices) + 12);
+
+        /* Set vertex texcoord0 attribute */
+        set_attrib_pointer(8, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                            2, sizeof(TexturedVertex), ((uint8_t*)alloc_textured_vertices) + 24);
+    } else {
+        /* Set vertex position attribute */
+        set_attrib_pointer(0, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                            3, sizeof(ColoredVertex), &alloc_vertices[0]);
+
+        /* Set vertex diffuse color attribute */
+        set_attrib_pointer(3, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
+                            3, sizeof(ColoredVertex), ((uint8_t*)alloc_vertices) + 12);
+    }
 
     /* Set vertex diffuse color attribute */
     set_attrib_pointer(3, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
                         3, sizeof(ColoredVertex), ((uint8_t*)alloc_vertices) + 3 * sizeof(float));
 
     /* Begin drawing triangles */
-    draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_vertices);
+    draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_indices);
 
     /* Draw some text on the screen */
     // pb_erase_text_screen();
@@ -390,9 +447,9 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     while (pb_busy());
 }
 
-static void emitQuad(MainRenderer* render, PbTexture* tex,
+static void _emitQuad(MainRenderer* render, PbTexture* tex,
                           float x[4], float y[4], float u[4], float v[4], 
-                          float r[4], float g[4], float b[4], float a[4]) {
+                          float r[4], float g[4], float b[4], float a[4], bool textured) {
     
     pb_Vertex2D verts[4];
     
@@ -418,13 +475,19 @@ static void emitQuad(MainRenderer* render, PbTexture* tex,
     // verts[2].x = 0.1;
     // verts[2].y = -0.1;
 
+    if (tex) pb_bind_texture(tex);
+    bool use_tex = (tex != NULL);
     // 2. Emit the first triangle (Vertices 0, 1, 2)
     int tri1_indices[3] = {0, 1, 2};
-    pb_render_geometry(verts, 4, tri1_indices, 3);
+    pb_render_geometry(verts, 4, tri1_indices, 3, use_tex);
 
     // 3. Emit the second triangle (Vertices 0, 2, 3)
     int tri2_indices[3] = {0, 2, 3};
-    pb_render_geometry(verts, 4, tri2_indices, 3);
+    pb_render_geometry(verts, 4, tri2_indices, 3, use_tex);
+}
+
+static void emitQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r[4], float g[4], float b[4], float a[4]) {
+    _emitQuad(render, tex, x, y, u, v, r, g, b, a, true);
 }
 
 static void emitColoredQuad(MainRenderer* render, PbTexture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
@@ -578,6 +641,7 @@ static void renderInit(Renderer* renderer, DataWin* dataWin) {
 
     init_shader();
     alloc_vertices = MmAllocateContiguousMemoryEx(16 * sizeof(ColoredVertex), 0, 0x3ffb000, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
+    alloc_textured_vertices = MmAllocateContiguousMemoryEx(16 * sizeof(TexturedVertex), 0, 0x3ffb000, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
     memcpy(alloc_vertices, verts, sizeof(verts));
     num_vertices = 3;
     matrix_viewport(m_viewport, 0, 0, 640, 480, 0, 65536.0f);
@@ -598,6 +662,7 @@ static void renderDestroy(Renderer* renderer) {
     }
 
     MmFreeContiguousMemory(alloc_vertices);
+    MmFreeContiguousMemory(alloc_textured_vertices);
     pb_show_debug_screen();
     pb_kill();
 
