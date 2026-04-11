@@ -3060,6 +3060,48 @@ static RValue builtin_drawTextTransformed(VMContext* ctx, RValue* args, [[maybe_
 }
 STUB_RETURN_UNDEFINED(draw_text_ext)
 STUB_RETURN_UNDEFINED(draw_text_ext_transformed)
+
+static RValue builtin_drawTextColor(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    int32_t c1 = (float) RValue_toInt32(args[3]);
+    int32_t c2 = (float) RValue_toInt32(args[4]);
+    int32_t c3 = (float) RValue_toInt32(args[5]);
+    int32_t c4 = (float) RValue_toInt32(args[6]);
+    float alpha = (float) RValue_toReal(args[7]);
+
+    runner->renderer->vtable->drawTextColor(runner->renderer, str, x, y, 1.0f, 1.0f, 0.0f, c1, c2, c3, c4, alpha);
+    free(str);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_drawTextColorTransformed(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    float xscale = (float) RValue_toReal(args[3]);
+    float yscale = (float) RValue_toReal(args[4]);
+    float angle = (float) RValue_toReal(args[5]);
+    int32_t c1 = (float) RValue_toInt32(args[6]);
+    int32_t c2 = (float) RValue_toInt32(args[7]);
+    int32_t c3 = (float) RValue_toInt32(args[8]);
+    int32_t c4 = (float) RValue_toInt32(args[9]);
+    float alpha = (float) RValue_toReal(args[10]);
+
+    runner->renderer->vtable->drawTextColor(runner->renderer, str, x, y, xscale, yscale, angle, c1, c2, c3, c4, alpha);
+    free(str);
+    return RValue_makeUndefined();
+}
+STUB_RETURN_UNDEFINED(draw_text_color_ext)
+STUB_RETURN_UNDEFINED(draw_text_color_ext_transformed)
+
 STUB_RETURN_UNDEFINED(draw_surface)
 STUB_RETURN_UNDEFINED(draw_surface_ext)
 static RValue builtin_drawBackground(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
@@ -3204,6 +3246,22 @@ static RValue builtin_draw_line_width_colour(VMContext* ctx, RValue* args, [[may
         uint32_t col1 = (uint32_t) RValue_toInt32(args[5]);
         uint32_t col2 = (uint32_t) RValue_toInt32(args[6]);
         runner->renderer->vtable->drawLineColor(runner->renderer, x1, y1, x2, y2, w, col1, col2, runner->renderer->drawAlpha);
+    }
+    return RValue_makeUndefined();
+}
+
+// draw_triangle(x1, y1, x2, y2, x3, y3, outline)
+static RValue builtin_draw_triangle(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer != nullptr) {
+        float x1 = (float) RValue_toReal(args[0]);
+        float y1 = (float) RValue_toReal(args[1]);
+        float x2 = (float) RValue_toReal(args[2]);
+        float y2 = (float) RValue_toReal(args[3]);
+        float x3 = (float) RValue_toReal(args[4]);
+        float y3 = (float) RValue_toReal(args[5]);
+        bool outline = (float) RValue_toBool(args[6]);
+        runner->renderer->vtable->drawTriangle(runner->renderer, x1, y1, x2, y2, x3, y3, outline);
     }
     return RValue_makeUndefined();
 }
@@ -3986,16 +4044,12 @@ static RValue builtinAssetGetIndex(VMContext* ctx, RValue* args, int32_t argCoun
 
     const char* name = RValue_toString(args[0]);
 
-    repeat(ctx->dataWin->objt.count, i)
-    {
-        if(strcmp(ctx->dataWin->objt.objects[i].name, name) == 0)
-        {
+    repeat(ctx->dataWin->objt.count, i) {
+        if (strcmp(ctx->dataWin->objt.objects[i].name, name) == 0)
             return RValue_makeReal((double) i);
-            break;
-        }
     }
 
-    return RValue_makeReal((double) 0);
+    return RValue_makeReal((double) -1);
 }
 
 // ===[ REGISTRATION ]===
@@ -4281,6 +4335,14 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("draw_text_transformed", builtin_drawTextTransformed);
     registerBuiltin("draw_text_ext", builtin_draw_text_ext);
     registerBuiltin("draw_text_ext_transformed", builtin_draw_text_ext_transformed);
+    registerBuiltin("draw_text_color", builtin_drawTextColor);
+    registerBuiltin("draw_text_color_transformed", builtin_drawTextColorTransformed);
+    registerBuiltin("draw_text_color_ext", builtin_draw_text_color_ext);
+    registerBuiltin("draw_text_color_ext_transformed", builtin_draw_text_color_ext_transformed);
+    registerBuiltin("draw_text_colour", builtin_drawTextColor);
+    registerBuiltin("draw_text_colour_transformed", builtin_drawTextColorTransformed);
+    registerBuiltin("draw_text_colour_ext", builtin_draw_text_color_ext);
+    registerBuiltin("draw_text_colour_ext_transformed", builtin_draw_text_color_ext_transformed);
     registerBuiltin("draw_surface", builtin_draw_surface);
     registerBuiltin("draw_surface_ext", builtin_draw_surface_ext);
     if(!isGMS2) {
@@ -4296,6 +4358,7 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("draw_line_width", builtin_draw_line_width);
     registerBuiltin("draw_line_width_colour", builtin_draw_line_width_colour);
     registerBuiltin("draw_line_width_color", builtin_draw_line_width_colour);
+    registerBuiltin("draw_triangle", builtin_draw_triangle);
     registerBuiltin("draw_set_colour", builtin_draw_set_colour);
     registerBuiltin("draw_get_colour", builtin_draw_get_colour);
     registerBuiltin("draw_get_color", builtin_draw_get_color);
