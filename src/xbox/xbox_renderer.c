@@ -344,17 +344,11 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     alloc_vertices[2].pos[1] = vertices[indices[2]].y;
     alloc_vertices[2].pos[2] = 1;
 
-    // alloc_vertices[0].color[0] = vertices[indices[0]].color[0];
-    // alloc_vertices[0].color[1] = vertices[indices[0]].color[1];
-    // alloc_vertices[0].color[2] = vertices[indices[0]].color[2];
-
-    // alloc_vertices[1].color[0] = vertices[indices[1]].color[0];
-    // alloc_vertices[1].color[1] = vertices[indices[1]].color[1];
-    // alloc_vertices[1].color[2] = vertices[indices[1]].color[2];
-
-    // alloc_vertices[2].color[0] = vertices[indices[2]].color[0];
-    // alloc_vertices[2].color[1] = vertices[indices[2]].color[1];
-    // alloc_vertices[2].color[2] = vertices[indices[2]].color[2];
+    for(int i = 0; i < 3; i++) {
+        alloc_vertices[i].color[0] = vertices[indices[i]].color[0];
+        alloc_vertices[i].color[1] = vertices[indices[i]].color[1];
+        alloc_vertices[i].color[2] = vertices[indices[i]].color[2];
+    }
 
     uint32_t *p;
 
@@ -383,7 +377,7 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
 
     /* Set vertex diffuse color attribute */
     set_attrib_pointer(3, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F,
-                        3, sizeof(ColoredVertex), &alloc_vertices[3]);
+                        3, sizeof(ColoredVertex), ((uint8_t*)alloc_vertices) + 3 * sizeof(float));
 
     /* Begin drawing triangles */
     draw_arrays(NV097_SET_BEGIN_END_OP_TRIANGLES, 0, num_vertices);
@@ -392,6 +386,8 @@ void pb_render_geometry(const pb_Vertex2D *vertices, int num_vertices, const int
     // pb_erase_text_screen();
     // pb_print("Hello world! X0:%d Y0:%d X1:%d Y1:%d X2:%d Y2:%d\n", (int)(alloc_vertices[0].pos[0] * 320), (int)(alloc_vertices[0].pos[1] * 240), (int)(alloc_vertices[1].pos[0] * 320), (int)(alloc_vertices[1].pos[1] * 240), (int)(alloc_vertices[2].pos[0] * 320), (int)(alloc_vertices[2].pos[1] * 240));
     // pb_draw_text_screen();
+
+    while (pb_busy());
 }
 
 static void emitQuad(MainRenderer* render, PbTexture* tex,
@@ -453,41 +449,41 @@ void print_array(int parray[], int size)
 }
 
 static void evictOldest(MainRenderer* render) {
-    // // The oldest texture is always at index 0
-    // uint32_t oldestId = render->renderTexturesUsedTracker[0];
+    // The oldest texture is always at index 0
+    uint32_t oldestId = render->renderTexturesUsedTracker[0];
 
-    // if (render->renderTextures[oldestId] != nullptr) {
-    //     PbTexture_Destroy(render->renderTextures[oldestId]);
-    //     render->renderTextures[oldestId] = nullptr; 
-    // }
+    if (render->renderTextures[oldestId] != nullptr) {
+        PbTexture_Destroy(render->renderTextures[oldestId]);
+        render->renderTextures[oldestId] = nullptr; 
+    }
 
-    // // Shift everything left to remove the hole at index 0
-    // for (int i = 0; i < render->textureCount - 1; i++) {
-    //     render->renderTexturesUsedTracker[i] = render->renderTexturesUsedTracker[i + 1];
-    // }
-    // // Set the last slot to a placeholder (e.g., a dummy value) 
-    // // so it doesn't look like a valid pageId until updated
-    // render->renderTexturesUsedTracker[render->textureCount - 1] = 0xFFFFFFFF; 
+    // Shift everything left to remove the hole at index 0
+    for (int i = 0; i < render->textureCount - 1; i++) {
+        render->renderTexturesUsedTracker[i] = render->renderTexturesUsedTracker[i + 1];
+    }
+    // Set the last slot to a placeholder (e.g., a dummy value) 
+    // so it doesn't look like a valid pageId until updated
+    render->renderTexturesUsedTracker[render->textureCount - 1] = 0xFFFFFFFF; 
 }
 
 static void updateLRU(MainRenderer* render, uint32_t pageId) {
-    // // 1. Find if pageId is already in the tracker and remove it
-    // int foundIdx = -1;
-    // for (int i = 0; i < render->textureCount; i++) {
-    //     if (render->renderTexturesUsedTracker[i] == pageId) {
-    //         foundIdx = i;
-    //         break;
-    //     }
-    // }
+    // 1. Find if pageId is already in the tracker and remove it
+    int foundIdx = -1;
+    for (int i = 0; i < render->textureCount; i++) {
+        if (render->renderTexturesUsedTracker[i] == pageId) {
+            foundIdx = i;
+            break;
+        }
+    }
 
-    // // 2. Shift items left to close the gap if it was found
-    // int startIdx = (foundIdx != -1) ? foundIdx : 0;
-    // for (int i = startIdx; i < render->textureCount - 1; i++) {
-    //     render->renderTexturesUsedTracker[i] = render->renderTexturesUsedTracker[i + 1];
-    // }
+    // 2. Shift items left to close the gap if it was found
+    int startIdx = (foundIdx != -1) ? foundIdx : 0;
+    for (int i = startIdx; i < render->textureCount - 1; i++) {
+        render->renderTexturesUsedTracker[i] = render->renderTexturesUsedTracker[i + 1];
+    }
 
-    // // 3. Put the current page at the very end (Most Recently Used)
-    // render->renderTexturesUsedTracker[render->textureCount - 1] = pageId;
+    // 3. Put the current page at the very end (Most Recently Used)
+    render->renderTexturesUsedTracker[render->textureCount - 1] = pageId;
 }
 #define ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE 8
 
@@ -581,9 +577,9 @@ static void renderInit(Renderer* renderer, DataWin* dataWin) {
     PbTexture_SetBlendMode(render->whiteTexture, BLENDMODE_BLEND);
 
     init_shader();
-    alloc_vertices = MmAllocateContiguousMemoryEx(sizeof(verts), 0, 0x3ffb000, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
+    alloc_vertices = MmAllocateContiguousMemoryEx(16 * sizeof(ColoredVertex), 0, 0x3ffb000, 0, PAGE_READWRITE | PAGE_WRITECOMBINE);
     memcpy(alloc_vertices, verts, sizeof(verts));
-    num_vertices = sizeof(verts)/sizeof(verts[0]);
+    num_vertices = 3;
     matrix_viewport(m_viewport, 0, 0, 640, 480, 0, 65536.0f);
 
     render->originalTexturePageCount = render->textureCount;
