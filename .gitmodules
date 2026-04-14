@@ -1,3 +1,7 @@
 [submodule "nxdk"]
 	path = vendor/nxdk
 	url = https://github.com/Purplesmaug96/nxdk.git
+[submodule "vendor/pbgl"]
+	path = vendor/pbgl
+	url = https://github.com/fgsfdsfgs/pbgl.git
+	branch = master
