@@ -17,8 +17,10 @@
 #include "runner.h"
 #include "input_recording.h"
 
-#ifndef XBOX_PB_RENDERER
+#if !defined(XBOX_PB_RENDERER) && !defined(XBOX_GL_RENDERER)
 #include "sdl_renderer.h"
+#elif defined(XBOX_GL_RENDERER)
+#include "gl_legacy_renderer.h"
 #else
 #include "xbox_renderer.h"
 #include <pbkit/pbkit.h>
@@ -339,7 +341,7 @@ int main(int argc, char* argv[]) {
     
     char* my_argv[] = {
         "D:\\default.xbe",
-        "D:\\assets\\game.unx"
+        "D:\\data.win"
     };
     int my_argc = 2;
     
@@ -485,7 +487,7 @@ int main(int argc, char* argv[]) {
     ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
-    #ifndef XBOX_PB_RENDERER
+    #ifdef XBOX_SDL_RENDERER
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
     #else
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -500,7 +502,7 @@ int main(int argc, char* argv[]) {
 
     SDL_GameController *pad = NULL;
 
-    #ifndef XBOX_PB_RENDERER
+    #ifdef XBOX_SDL_RENDERER
 
     uint32_t windowFlags = SDL_WINDOW_SHOWN;
 
@@ -563,6 +565,38 @@ int main(int argc, char* argv[]) {
     debugPrint("SDL Renderer created.\n");
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
     
+    #elif defined(XBOX_GL_RENDERER)
+
+    pbgl_init(GL_TRUE);
+
+    uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL;
+
+    debugPrint("Attempting to create window with dimensions %dx%d (max is %dx%d)...\n", gen8->defaultWindowWidth, gen8->defaultWindowHeight, XBOX_MAX_FB_WIDTH, XBOX_MAX_FB_HEIGHT);
+
+    requireMessage(gen8->defaultWindowWidth <= XBOX_MAX_FB_WIDTH, "gen8->defaultWindowWidth exeeded XBOX_MAX_FB_WIDTH.\n");
+    requireMessage(gen8->defaultWindowHeight <= XBOX_MAX_FB_HEIGHT, "gen8->defaultWindowHeight exeeded XBOX_MAX_FB_Height.\n");
+
+    SDL_Window* window = SDL_CreateWindow(
+        windowTitle, 
+        SDL_WINDOWPOS_CENTERED, 
+        SDL_WINDOWPOS_CENTERED, 
+        (int) gen8->defaultWindowWidth, 
+        (int) gen8->defaultWindowHeight, 
+        windowFlags
+    );
+
+    if (window == nullptr) {
+        fprintf(stderr, "Failed to create SDL window: %s\n", SDL_GetError());
+        SDL_Quit();
+        DataWin_free(dataWin);
+        freeCommandLineArgs(&args);
+        abort();
+    }
+
+    debugPrint("Window created.\n");
+
+    Renderer* renderer = MainRenderer_create(window, sdlRenderer);
+
     #else
     
     bool pbk_init = pb_init() == 0;
@@ -762,7 +796,7 @@ int main(int argc, char* argv[]) {
         int32_t gameW = (int32_t) gen8->defaultWindowWidth;
         int32_t gameH = (int32_t) gen8->defaultWindowHeight;
 
-        #ifndef XBOX_PB_RENDERER
+        #ifdef XBOX_SDL_RENDERER
 
         int fbWidth, fbHeight;
         SDL_GetWindowSize(window, &fbWidth, &fbHeight);
@@ -783,6 +817,8 @@ int main(int argc, char* argv[]) {
         }
         SDL_RenderClear(sdlRenderer);
 
+        #elif defined(XBOX_GL_RENDERER)
+
         #else
 
         pb_wait_for_vbl();
@@ -800,7 +836,7 @@ int main(int argc, char* argv[]) {
         bool viewsEnabled = (activeRoom->flags & 1) != 0;
         bool anyViewRendered = false;
 
-        #ifndef XBOX_PB_RENDERER
+        #ifdef XBOX_SDL_RENDERER
 
         if (viewsEnabled) {
             repeat(8, vi) {
@@ -838,6 +874,43 @@ int main(int argc, char* argv[]) {
         renderer->vtable->endFrame(renderer);
         
         SDL_RenderPresent(sdlRenderer);
+
+        #elif defined(XBOX_GL_RENDERER)
+
+        if (viewsEnabled) {
+            repeat(8, vi) {
+                if (!activeRoom->views[vi].enabled) continue;
+
+                int32_t viewX = activeRoom->views[vi].viewX;
+                int32_t viewY = activeRoom->views[vi].viewY;
+                int32_t viewW = activeRoom->views[vi].viewWidth;
+                int32_t viewH = activeRoom->views[vi].viewHeight;
+                int32_t portX = activeRoom->views[vi].portX;
+                int32_t portY = activeRoom->views[vi].portY;
+                int32_t portW = activeRoom->views[vi].portWidth;
+                int32_t portH = activeRoom->views[vi].portHeight;
+                float viewAngle = runner->viewAngles[vi];
+
+                runner->viewCurrent = vi;
+                renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
+
+                Runner_draw(runner);
+
+                renderer->vtable->endView(renderer);
+                anyViewRendered = true;
+            }
+        }
+
+        if (!anyViewRendered) {
+            runner->viewCurrent = 0;
+            renderer->vtable->beginView(renderer, 0, 0, gameW, gameH, 0, 0, gameW, gameH, 0.0f);
+            Runner_draw(runner);
+            renderer->vtable->endView(renderer);
+        }
+
+        runner->viewCurrent = 0;
+
+        renderer->vtable->endFrame(renderer);
 
         #else
 
@@ -911,7 +984,7 @@ int main(int argc, char* argv[]) {
     }
 
     renderer->vtable->destroy(renderer);
-    #ifndef XBOX_PB_RENDERER
+    #ifdef XBOX_SDL_RENDERER
     SDL_DestroyRenderer(sdlRenderer);
     SDL_DestroyWindow(window);
     #endif

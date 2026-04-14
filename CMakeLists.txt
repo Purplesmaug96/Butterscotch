@@ -30,7 +30,14 @@ file(GLOB SOURCES src/*.c)
 # Platform specific files builds
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
 
-add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES})
+if(PLATFORM STREQUAL "xbox")
+    file(GLOB PBGL_SOURCES vendor/pbgl/src/*.c)
+    include_directories(vendor/pbgl/src)
+    add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${PBGL_SOURCES})
+else()
+    add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES})
+endif()
+
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 add_definitions(-w)
@@ -118,7 +125,7 @@ elseif(PLATFORM STREQUAL "xbox")
     set(XBOX_ISO_DIR ${CMAKE_CURRENT_BINARY_DIR}/xiso)
 
     # Set Xbox specific definitions needed for SDL and the system
-    target_compile_definitions(butterscotch PRIVATE _XBOX NXDK XBOX SDL_DISABLE_JOYSTICK_INIT_DELAY DEBUG_CONSOLE XBOX_SDL_HAS_RENDERGEOMETRY XBOX_SDL_USE_RENDERGEOMETRY XBOX_PB_RENDERER)
+    target_compile_definitions(butterscotch PRIVATE _XBOX NXDK XBOX SDL_DISABLE_JOYSTICK_INIT_DELAY DEBUG_CONSOLE XBOX_SDL_HAS_RENDERGEOMETRY XBOX_SDL_USE_RENDERGEOMETRY XBOX_SDL_RENDERER)
 
     # stb_image
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
@@ -128,6 +135,9 @@ elseif(PLATFORM STREQUAL "xbox")
 
     # miniaudio
     target_include_directories(butterscotch PUBLIC vendor/miniaudio)
+
+    # pbgl
+    target_include_directories(butterscotch PUBLIC vendor/pbgl/include)
 
     # Bring in SDL2 from NXDK
     # Bring in pbkit support (Xbox hardware access, often required for SDL on NXDK)

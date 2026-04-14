@@ -1,4 +1,4 @@
-﻿#ifndef XBOX_PB_RENDERER
+﻿#if !defined(XBOX_PB_RENDERER) && !defined(XBOX_GL_RENDERER)
 
 #include "sdl_renderer.h"
 #include "asset_cache.h"
