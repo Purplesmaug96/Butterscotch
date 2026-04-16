@@ -566,13 +566,11 @@ int main(int argc, char* argv[]) {
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
     
     #elif defined(XBOX_GL_RENDERER)
-
-    pbgl_init(GL_TRUE);
-
-    uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL;
-
+    
+    uint32_t windowFlags = SDL_WINDOW_SHOWN;
+    
     debugPrint("Attempting to create window with dimensions %dx%d (max is %dx%d)...\n", gen8->defaultWindowWidth, gen8->defaultWindowHeight, XBOX_MAX_FB_WIDTH, XBOX_MAX_FB_HEIGHT);
-
+    
     requireMessage(gen8->defaultWindowWidth <= XBOX_MAX_FB_WIDTH, "gen8->defaultWindowWidth exeeded XBOX_MAX_FB_WIDTH.\n");
     requireMessage(gen8->defaultWindowHeight <= XBOX_MAX_FB_HEIGHT, "gen8->defaultWindowHeight exeeded XBOX_MAX_FB_Height.\n");
 
@@ -584,7 +582,7 @@ int main(int argc, char* argv[]) {
         (int) gen8->defaultWindowHeight, 
         windowFlags
     );
-
+    
     if (window == nullptr) {
         fprintf(stderr, "Failed to create SDL window: %s\n", SDL_GetError());
         SDL_Quit();
@@ -592,8 +590,10 @@ int main(int argc, char* argv[]) {
         freeCommandLineArgs(&args);
         abort();
     }
-
+    
     debugPrint("Window created.\n");
+
+    pbgl_init(GL_TRUE);
 
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
 

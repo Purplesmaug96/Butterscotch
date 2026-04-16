@@ -106,6 +106,8 @@ static void glBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int32
     gl->gameW = gameW;
     gl->gameH = gameH;
 
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle) {
@@ -117,14 +119,14 @@ static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_
     // FBO uses game resolution, port coordinates are in game space
     // OpenGL viewport Y is bottom-up, game Y is top-down
     int32_t glPortY = gl->gameH - portY - portH;
-    glViewport(portX, glPortY, gl->windowW, gl->windowH);
+    glViewport(portX, glPortY, portW, portH);
     glEnable(GL_SCISSOR_TEST);
-    glScissor(portX, glPortY, gl->windowW, gl->windowH);
+    glScissor(portX, glPortY, portW, portH);
 
     // Build orthographic projection (Y-down for GML coordinate system)
     Matrix4f projection;
     Matrix4f_identity(&projection);
-    Matrix4f_ortho(&projection, (float) viewX, (float) (viewX + viewW), (float) (viewY + viewH), (float) viewY, -1.0f, 1.0f);
+    Matrix4f_ortho(&projection, (float) viewX, (float) (viewX + viewW), (float) viewY, (float) (viewY + viewH), -1.0f, 1.0f);
 
     if (viewAngle != 0.0f) {
         // GML view_angle: rotate camera by this angle (degrees, counter-clockwise)
@@ -153,7 +155,13 @@ static void glEndView(MAYBE_UNUSED Renderer* renderer) {
     glDisable(GL_SCISSOR_TEST);
 }
 
-static void glEndFrame(MAYBE_UNUSED Renderer* renderer) {pbgl_swap_buffers();}
+static void glEndFrame(MAYBE_UNUSED Renderer* renderer) {
+    GLenum err;
+    while ((err = glGetError()) != GL_NO_ERROR) {
+        fprintf(stderr, "GL error 0x%04x before swap\n", err);
+    }
+    pbgl_swap_buffers();
+}
 
 static void glRendererFlush(MAYBE_UNUSED Renderer* renderer) {}
 
