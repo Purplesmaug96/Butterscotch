@@ -338,13 +338,13 @@ int main(int argc, char* argv[]) {
     }
 
     CommandLineArgs args;
-    
+
     char* my_argv[] = {
         "D:\\default.xbe",
-        "D:\\data.win"
+        "D:\\assets\\game.unx"
     };
     int my_argc = 2;
-    
+
     argc = my_argc;
     argv = my_argv;
 
@@ -397,7 +397,7 @@ int main(int argc, char* argv[]) {
     }
     printf("Asset cache created (16MB max)\n");
 
-    //{  
+    //{
     //    struct mallinfo2 mi = mallinfo2();
     //    printf("Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
     //}
@@ -512,11 +512,11 @@ int main(int argc, char* argv[]) {
     requireMessage(gen8->defaultWindowHeight <= XBOX_MAX_FB_HEIGHT, "gen8->defaultWindowHeight exeeded XBOX_MAX_FB_Height.\n");
 
     SDL_Window* window = SDL_CreateWindow(
-        windowTitle, 
-        SDL_WINDOWPOS_CENTERED, 
-        SDL_WINDOWPOS_CENTERED, 
-        (int) gen8->defaultWindowWidth, 
-        (int) gen8->defaultWindowHeight, 
+        windowTitle,
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        (int) gen8->defaultWindowWidth,
+        (int) gen8->defaultWindowHeight,
         windowFlags
     );
 
@@ -529,6 +529,28 @@ int main(int argc, char* argv[]) {
     }
 
     debugPrint("Window created.\n");
+
+	// Get the total number of built-in drivers available
+    int numDrivers = SDL_GetNumRenderDrivers();
+    printf("Available SDL2 Render Drivers: %d\n", numDrivers);
+
+    for (int i = 0; i < numDrivers; i++) {
+        SDL_RendererInfo info;
+
+        // Fetch information for each specific driver index
+        if (SDL_GetRenderDriverInfo(i, &info) == 0) {
+            printf("Driver %d: {\n", i);
+            printf("    Name:     %s\n", info.name);
+            printf("    Flags:    0x%X ", info.flags);
+
+            // Decode basic flags
+            if (info.flags & SDL_RENDERER_SOFTWARE) printf("[Software] ");
+            if (info.flags & SDL_RENDERER_ACCELERATED) printf("[Accelerated] ");
+            if (info.flags & SDL_RENDERER_PRESENTVSYNC) printf("[VSync] ");
+            if (info.flags & SDL_RENDERER_TARGETTEXTURE) printf("[TargetTexture] ");
+            printf("\n}\n");
+        }
+    }
 
     #ifdef XBOX_SDL_HW
     uint32_t rendererFlags = SDL_RENDERER_ACCELERATED;
@@ -564,25 +586,25 @@ int main(int argc, char* argv[]) {
 
     debugPrint("SDL Renderer created.\n");
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
-    
+
     #elif defined(XBOX_GL_RENDERER)
-    
+
     uint32_t windowFlags = SDL_WINDOW_SHOWN;
-    
+
     debugPrint("Attempting to create window with dimensions %dx%d (max is %dx%d)...\n", gen8->defaultWindowWidth, gen8->defaultWindowHeight, XBOX_MAX_FB_WIDTH, XBOX_MAX_FB_HEIGHT);
-    
+
     requireMessage(gen8->defaultWindowWidth <= XBOX_MAX_FB_WIDTH, "gen8->defaultWindowWidth exeeded XBOX_MAX_FB_WIDTH.\n");
     requireMessage(gen8->defaultWindowHeight <= XBOX_MAX_FB_HEIGHT, "gen8->defaultWindowHeight exeeded XBOX_MAX_FB_Height.\n");
 
     SDL_Window* window = SDL_CreateWindow(
-        windowTitle, 
-        SDL_WINDOWPOS_CENTERED, 
-        SDL_WINDOWPOS_CENTERED, 
-        (int) gen8->defaultWindowWidth, 
-        (int) gen8->defaultWindowHeight, 
+        windowTitle,
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        (int) gen8->defaultWindowWidth,
+        (int) gen8->defaultWindowHeight,
         windowFlags
     );
-    
+
     if (window == nullptr) {
         fprintf(stderr, "Failed to create SDL window: %s\n", SDL_GetError());
         SDL_Quit();
@@ -590,7 +612,7 @@ int main(int argc, char* argv[]) {
         freeCommandLineArgs(&args);
         abort();
     }
-    
+
     debugPrint("Window created.\n");
 
     pbgl_init(GL_TRUE);
@@ -598,7 +620,7 @@ int main(int argc, char* argv[]) {
     Renderer* renderer = MainRenderer_create(window, sdlRenderer);
 
     #else
-    
+
     bool pbk_init = pb_init() == 0;
     if (!pbk_init) {
         debugPrint("pbkit init failed\n");
@@ -609,7 +631,7 @@ int main(int argc, char* argv[]) {
     Renderer* renderer = MainRenderer_create();
 
     #endif
-    
+
     MainRenderer_setAssetCache((MainRenderer*) renderer, assetCache);
     renderer->vtable->init(renderer, dataWin);
     runner->renderer = renderer;
@@ -637,12 +659,12 @@ int main(int argc, char* argv[]) {
     // MAIN LOOP
     while (!runner->shouldExit) {
         RunnerKeyboard_beginFrame(runner->keyboard);
-        
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 runner->shouldExit = true;
-            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) { 
+            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
                 if (!InputRecording_isPlaybackActive(globalInputRecording)) {
                     int32_t gmlKey = sdlKeyToGml(event.key.keysym.sym);
                     if (gmlKey >= 0) {
@@ -825,7 +847,7 @@ int main(int argc, char* argv[]) {
         pb_target_back_buffer();
 
         pb_erase_depth_stencil_buffer(0, 0, 640, 480);
-        pb_fill(0, 0, 640, 480, 0xFF000000); 
+        pb_fill(0, 0, 640, 480, 0xFF000000);
 
         renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 480);
 
@@ -872,7 +894,7 @@ int main(int argc, char* argv[]) {
         runner->viewCurrent = 0;
 
         renderer->vtable->endFrame(renderer);
-        
+
         SDL_RenderPresent(sdlRenderer);
 
         #elif defined(XBOX_GL_RENDERER)
@@ -950,7 +972,7 @@ int main(int argc, char* argv[]) {
         while (pb_busy());
 
         renderer->vtable->endFrame(renderer);
-        
+
         #endif
 
         // Frame rate limiting
