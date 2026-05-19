@@ -37,6 +37,32 @@ Of course, there are exceptions that break game compatibility altogether:
 * ...and maybe more in the future!
 
 ## Building Butterscotch
+xbox
+set up
+```bash
+git submodule init
+git submodule update --recursive
+
+cd vendor/nxdk
+# probably unnecesary
+git submodule init
+git submodule update --recursive
+cd tools/extract-xiso
+cmake .
+make -j$(nproc)
+cd ../cxbe
+make -j$(nproc)
+cd ../..
+bin/activate
+make clean
+NXDK_ONLY=y NXDK_SDL=y make -j$(nproc)
+cd ../..
+```
+your undertale also needs to be symlinked or copied to /path/to/butterscotch/undertale
+once set up
+```bash
+./xbcomp.sh
+```
 
 ```bash
 mkdir build && cd build
