@@ -25,17 +25,17 @@ static void transformWorldToView(MainRenderer* sdl, float wx, float wy, float* v
     if (sdl->currentViewAngle != 0.0f) {
         float cx = sdl->currentViewW / 2.0f;
         float cy = sdl->currentViewH / 2.0f;
-        
+
         lx -= cx;
         ly -= cy;
-        
+
         float angleRad = -sdl->currentViewAngle * ((float) M_PI / 180.0f);
         float cosA = cosf(angleRad);
         float sinA = sinf(angleRad);
-        
+
         float nx = lx * cosA - ly * sinA;
         float ny = lx * sinA + ly * cosA;
-        
+
         lx = nx + cx;
         ly = ny + cy;
     }
@@ -55,19 +55,19 @@ typedef struct SDL_Vertex
 
 #ifdef XBOX_SDL_USE_RENDERGEOMETRY
 static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
-                     float x[4], float y[4], float u[4], float v[4], 
+                     float x[4], float y[4], float u[4], float v[4],
                      float r[4], float g[4], float b[4], float a[4]) {
     SDL_Vertex verts[4];
-    
+
     for (int i = 0; i < 4; i++) {
         float vx, vy;
         transformWorldToView(sdl, x[i], y[i], &vx, &vy);
-        
+
         verts[i].position.x = vx;
         verts[i].position.y = vy;
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
-        
+
         verts[i].color.r = (uint8_t)(r[i] * 255.0f);
         verts[i].color.g = (uint8_t)(g[i] * 255.0f);
         verts[i].color.b = (uint8_t)(b[i] * 255.0f);
@@ -79,11 +79,11 @@ static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
 }
 #else
 static void emitQuad(MainRenderer* sdl, SDL_Texture* tex,
-                     float x[4], float y[4], float u[4], float v[4], 
+                     float x[4], float y[4], float u[4], float v[4],
                      float r[4], float g[4], float b[4], float a[4]) {
 
     if (tex == nullptr) return;
-    
+
     // 1. Get the texture's actual dimensions in pixels
     int texW, texH;
     SDL_QueryTexture(tex, NULL, NULL, &texW, &texH);
@@ -131,16 +131,16 @@ static void evictOldest(MainRenderer* sdl) {
 
     if (sdl->sdlTextures[oldestId] != nullptr) {
         SDL_DestroyTexture(sdl->sdlTextures[oldestId]);
-        sdl->sdlTextures[oldestId] = nullptr; 
+        sdl->sdlTextures[oldestId] = nullptr;
     }
 
     // Shift everything left to remove the hole at index 0
     for (int i = 0; i < sdl->textureCount - 1; i++) {
         sdl->sdlTexturesUsedTracker[i] = sdl->sdlTexturesUsedTracker[i + 1];
     }
-    // Set the last slot to a placeholder (e.g., a dummy value) 
+    // Set the last slot to a placeholder (e.g., a dummy value)
     // so it doesn't look like a valid pageId until updated
-    sdl->sdlTexturesUsedTracker[sdl->textureCount - 1] = 0xFFFFFFFF; 
+    sdl->sdlTexturesUsedTracker[sdl->textureCount - 1] = 0xFFFFFFFF;
 }
 
 static void updateLRU(MainRenderer* sdl, uint32_t pageId) {
@@ -168,32 +168,32 @@ static void updateLRU(MainRenderer* sdl, uint32_t pageId) {
 static void ensureTextureLoaded(MainRenderer* sdl, DataWin* dw, uint32_t pageId) {
     if (pageId >= sdl->textureCount) return;
     if (sdl->sdlTextures[pageId] != nullptr) return;  // Already loaded
-    
+
     Texture* txtr = &dw->txtr.textures[pageId];
     int w, h, channels;
-    
+
     uint8_t* pngData = txtr->blobData;
     uint32_t pngSize = txtr->blobSize;
-    
+
     // If blob data wasn't preloaded, try to load from asset cache
     if (pngData == nullptr && sdl->assetCache != nullptr) {
         AssetCacheEntry entry = AssetCache_getTextureBlobData(sdl->assetCache, txtr->blobOffset, txtr->blobSize);
         pngData = (uint8_t*) entry.data;
         pngSize = (uint32_t) entry.size;
     }
-    
+
     if (pngData == nullptr) {
         fprintf(stderr, "SDL: TXTR page %u has no data and no cache available\n", pageId);
         return;
     }
-    
+
     uint8_t* pixels = nullptr;
 
     unsigned int i = 0;
     while (i < ENSURE_TEXTURE_LOADED_MAX_LRU_REMOVE && pixels == nullptr) {
         debugPrint("SDL: Trying to load TXTR page %u from memory...\n", pageId);
         pixels = stbi_load_from_memory(pngData, (int) pngSize, &w, &h, &channels, 4);
-        
+
         if (pixels == nullptr) {
             fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
             evictOldest(sdl);
@@ -222,11 +222,11 @@ static void ensureTextureLoaded(MainRenderer* sdl, DataWin* dw, uint32_t pageId)
     requireMessage(SDL_ConvertPixels(w, h, SDL_PIXELFORMAT_ABGR8888, pixels, w * 4, XBOX_SDL_PIXELFORMAT, converted_pixels, XBOX_SDL_PIXEL_PITCH) == 0, "SDL_ConvertPixels failed!\n");
     free(pixels);
     pixels = converted_pixels;
-    
+
     SDL_Texture* tex = SDL_CreateTexture(sdl->sdlRenderer, XBOX_SDL_PIXELFORMAT, SDL_TEXTUREACCESS_STATIC, w, h);
     SDL_UpdateTexture(tex, nullptr, pixels, XBOX_SDL_PIXEL_PITCH);
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-    
+
     sdl->sdlTextures[pageId] = tex;
     stbi_image_free(pixels);
     fprintf(stderr, "SDL: Lazy-loaded TXTR page %u (%dx%d)\n", pageId, w, h);
@@ -315,7 +315,18 @@ static void sdlEndView(Renderer* renderer) {
     SDL_RenderSetClipRect(sdl->sdlRenderer, nullptr);
 }
 
-static void sdlEndFrame(Renderer* renderer) {
+static void sdlEndFrameInit(Renderer* renderer) {
+    // MainRenderer* sdl = (MainRenderer*) renderer;
+
+    // SDL_SetRenderTarget(sdl->sdlRenderer, nullptr);
+    // SDL_RenderSetViewport(sdl->sdlRenderer, nullptr);
+    // SDL_RenderSetClipRect(sdl->sdlRenderer, nullptr);
+
+    // SDL_Rect dstRect = {0, 0, sdl->windowW, sdl->windowH};
+    // SDL_RenderCopy(sdl->sdlRenderer, sdl->fboTexture, nullptr, &dstRect);
+}
+
+static void sdlEndFrameEnd(Renderer* renderer) {
     MainRenderer* sdl = (MainRenderer*) renderer;
 
     SDL_SetRenderTarget(sdl->sdlRenderer, nullptr);
@@ -341,7 +352,7 @@ static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float 
 
     // Lazy-load texture on demand
     ensureTextureLoaded(sdl, dw, pageId);
-    
+
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -378,7 +389,7 @@ static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float 
     emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
-static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
+static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float f1, float f2, float f3, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
     MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
@@ -389,7 +400,7 @@ static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t src
 
     // Lazy-load texture on demand
     ensureTextureLoaded(sdl, dw, pageId);
-    
+
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -468,7 +479,7 @@ static void sdlDrawLineColor(Renderer* renderer, float x1, float y1, float x2, f
     float r1 = (float) BGR_R(color1) / 255.0f;
     float g1 = (float) BGR_G(color1) / 255.0f;
     float b1 = (float) BGR_B(color1) / 255.0f;
-    
+
     float r2 = (float) BGR_R(color2) / 255.0f;
     float g2 = (float) BGR_G(color2) / 255.0f;
     float b2 = (float) BGR_B(color2) / 255.0f;
@@ -489,7 +500,8 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
     if (0 > fontIndex || dw->font.count <= (uint32_t) fontIndex) return;
 
     Font* font = &dw->font.fonts[fontIndex];
-    int32_t fontTpagIndex = DataWin_resolveTPAG(dw, font->textureOffset);
+    // int32_t fontTpagIndex = DataWin_resolveTPAG(dw, font->textureOffset);
+	int32_t fontTpagIndex = 0;
     if (0 > fontTpagIndex) return;
 
     TexturePageItem* fontTpag = &dw->tpag.items[fontTpagIndex];
@@ -498,7 +510,7 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
 
     // Lazy-load texture on demand
     ensureTextureLoaded(sdl, dw, pageId);
-    
+
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
@@ -510,7 +522,7 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
     float g = (float) BGR_G(color) / 255.0f;
     float b = (float) BGR_B(color) / 255.0f;
 
-    char* processed = TextUtils_preprocessGmlText(text);
+    char* processed = /*TextUtils_preprocessGmlText(text)*/text;
     int32_t textLen = (int32_t) strlen(processed);
     int32_t lineCount = TextUtils_countLines(processed, textLen);
 
@@ -543,7 +555,7 @@ static void sdlDrawText(Renderer* renderer, const char* text, float x, float y, 
             uint16_t ch = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
             FontGlyph* glyph = TextUtils_findGlyph(font, ch);
             if (glyph == nullptr) continue;
-            
+
             if (glyph->sourceWidth == 0 || glyph->sourceHeight == 0) {
                 cursorX += glyph->shift;
                 continue;
@@ -620,14 +632,14 @@ static uint32_t findOrAllocSpriteSlot(DataWin* dw, uint32_t originalSpriteCount)
     return newIndex;
 }
 
-static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig) {
+static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t y, int32_t w, int32_t h, int32_t unk, bool removeback, bool smooth, int32_t xorig, int32_t yorig) {
     MainRenderer* sdl = (MainRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
     if (0 >= w || 0 >= h || !sdl->fboTexture) return -1;
 
     uint8_t* pixels = safeMalloc((size_t) w * (size_t) h * 4);
-    
+
     SDL_Rect rect = { x, y, w, h };
 
     if (SDL_RenderReadPixels(sdl->sdlRenderer, &rect, SDL_PIXELFORMAT_ABGR8888, pixels, w * 4) != 0) {
@@ -644,7 +656,7 @@ static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t
     SDL_Texture* newTex = SDL_CreateTexture(sdl->sdlRenderer, XBOX_SDL_PIXELFORMAT, SDL_TEXTUREACCESS_STATIC, w, h);
     SDL_UpdateTexture(newTex, nullptr, pixels, XBOX_SDL_PIXEL_PITCH);
     SDL_SetTextureBlendMode(newTex, SDL_BLENDMODE_BLEND);
-    
+
     // SDL_SetTextureScaleMode(newTex, smooth ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
 
     free(pixels);
@@ -664,7 +676,7 @@ static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t
     tpag->texturePageId = (int16_t) pageId;
 
     uint32_t fakeOffset = DYNAMIC_TPAG_OFFSET_BASE + tpagIndex;
-    hmput(dw->tpagOffsetMap, fakeOffset, (int32_t) tpagIndex);
+    // hmput(dw->tpagOffsetMapNULL, fakeOffset, (int32_t)tpagIndex);
 
     uint32_t spriteIndex = findOrAllocSpriteSlot(dw, sdl->originalSpriteCount);
     Sprite* sprite = &dw->sprt.sprites[spriteIndex];
@@ -674,8 +686,8 @@ static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t
     sprite->originX = xorig;
     sprite->originY = yorig;
     sprite->textureCount = 1;
-    sprite->textureOffsets = safeMalloc(sizeof(uint32_t));
-    sprite->textureOffsets[0] = fakeOffset;
+    // sprite->textureOffsets = safeMalloc(sizeof(uint32_t));
+    // sprite->textureOffsets[0] = fakeOffset;
     sprite->maskCount = 0;
     sprite->masks = nullptr;
 
@@ -697,9 +709,9 @@ static void sdlDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     if (sprite->textureCount == 0) return;
 
     repeat(sprite->textureCount, i) {
-        uint32_t offset = sprite->textureOffsets[i];
+        uint32_t offset = /*sprite->textureOffsets[i]*/0;
         if (offset >= DYNAMIC_TPAG_OFFSET_BASE) {
-            int32_t tpagIdx = DataWin_resolveTPAG(dw, offset);
+            int32_t tpagIdx = /*DataWin_resolveTPAG(dw, offset)*/0;
             if (tpagIdx >= 0) {
                 TexturePageItem* tpag = &dw->tpag.items[tpagIdx];
                 int16_t pageId = tpag->texturePageId;
@@ -711,11 +723,11 @@ static void sdlDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
                 }
                 tpag->texturePageId = -1;
             }
-            hmdel(dw->tpagOffsetMap, offset);
+            // hmdel(dw->tpagOffsetMap, offset);
         }
     }
 
-    free(sprite->textureOffsets);
+    // free(sprite->textureOffsets);
     memset(sprite, 0, sizeof(Sprite));
     fprintf(stderr, "SDL: Deleted sprite %d\n", spriteIndex);
 }
@@ -726,7 +738,8 @@ static RendererVtable sdlVtable = {
     .init = sdlInit,
     .destroy = sdlDestroy,
     .beginFrame = sdlBeginFrame,
-    .endFrame = sdlEndFrame,
+	.endFrameInit = sdlEndFrameInit,
+    .endFrameEnd = sdlEndFrameEnd,
     .beginView = sdlBeginView,
     .endView = sdlEndView,
     .drawSprite = sdlDrawSprite,
@@ -751,7 +764,7 @@ Renderer* MainRenderer_create(SDL_Window* window, SDL_Renderer* renderer) {
     sdl->base.drawFont = -1;
     sdl->base.drawHalign = 0;
     sdl->base.drawValign = 0;
-    
+
     sdl->sdlWindow = window;
     sdl->sdlRenderer = renderer;
     return (Renderer*) sdl;

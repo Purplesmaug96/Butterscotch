@@ -13322,7 +13322,7 @@ This can be reviewed as compatibility issues arise. The preference is to use _wf
 fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
 */
 #if defined(_WIN32) && !defined(MA_XBOX_NXDK)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS)) && !defined(__CRTDLL__)
         #define MA_HAS_WFOPEN
     #endif
 #endif
@@ -17656,7 +17656,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
                 /* I'm not treating a failure of setting the priority as a critical error so not aborting on failure here. */
                 if (pthread_attr_setschedparam(&attr, &sched) == 0) {
-                    #if !defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+                    #if (!defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)) && !defined(MA_BEOS)
                     {
                         pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
                     }

@@ -14,13 +14,24 @@ typedef struct {
 } MemoryFileEntry;
 
 typedef struct {
+    uint8_t* data;
+    int32_t size;
+} MemoryBinaryData;
+
+typedef struct {
+    char* key; // file path
+    MemoryBinaryData value;
+} MemoryBinaryEntry;
+
+typedef struct {
     FileSystem base;
     MemoryFileEntry* files; // stb_ds string hashmap
+    MemoryBinaryEntry* binaryFiles; // stb_ds string hashmap
 } NoopFileSystem;
 
 // ===[ Vtable Implementations ]===
 
-static char* noopResolvePath([[maybe_unused]] FileSystem* fs, [[maybe_unused]] const char* relativePath) {
+static char* noopResolvePath(MAYBE_UNUSED FileSystem* fs, MAYBE_UNUSED const char* relativePath) {
     return safeStrdup("./");
 }
 
@@ -63,6 +74,161 @@ static bool noopDeleteFile(FileSystem* fs, const char* relativePath) {
     return true;
 }
 
+static bool noopReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t** outData, int32_t* outSize) {
+    NoopFileSystem* nfs = (NoopFileSystem*) fs;
+    ptrdiff_t idx = shgeti(nfs->binaryFiles, relativePath);
+    if (0 > idx)
+        return false;
+
+    MemoryBinaryData* entry = &nfs->binaryFiles[idx].value;
+    uint8_t* copy = safeMalloc((size_t) entry->size);
+    memcpy(copy, entry->data, (size_t) entry->size);
+    *outData = copy;
+    *outSize = entry->size;
+    return true;
+}
+
+static bool noopWriteFileBinary(FileSystem* fs, const char* relativePath, const uint8_t* data, int32_t size) {
+    NoopFileSystem* nfs = (NoopFileSystem*) fs;
+
+    ptrdiff_t idx = shgeti(nfs->binaryFiles, relativePath);
+    if (idx >= 0) {
+        free(nfs->binaryFiles[idx].value.data);
+        uint8_t* copy = safeMalloc((size_t) size);
+        memcpy(copy, data, (size_t) size);
+        nfs->binaryFiles[idx].value.data = copy;
+        nfs->binaryFiles[idx].value.size = size;
+    } else {
+        uint8_t* copy = safeMalloc((size_t) size);
+        memcpy(copy, data, (size_t) size);
+        MemoryBinaryData binaryData = { .data = copy, .size = size };
+        shput(nfs->binaryFiles, relativePath, binaryData);
+    }
+
+    return true;
+}
+
+// ===[ Streaming Binary I/O ]===
+
+typedef struct {
+    NoopFileSystem* owner;
+    char* path; // strdup of relative path (so we know where to flush)
+    uint8_t* buffer; // working copy (mutable for write modes)
+    int32_t size;
+    int32_t capacity;
+    int32_t position;
+    bool writable;
+    bool dirty;
+} NoopBinaryHandle;
+
+static void* noopBinaryOpen(FileSystem* fs, const char* relativePath, int32_t mode) {
+    NoopFileSystem* nfs = (NoopFileSystem*) fs;
+    NoopBinaryHandle* h = safeCalloc(1, sizeof(NoopBinaryHandle));
+    h->owner = nfs;
+    h->path = safeStrdup(relativePath);
+    h->writable = (mode != GML_FILE_BIN_READ);
+
+    if (mode == GML_FILE_BIN_WRITE) {
+        // Truncate: empty buffer, dirty so close() always writes (even if no bytes added)
+        h->dirty = true;
+    } else {
+        ptrdiff_t idx = shgeti(nfs->binaryFiles, relativePath);
+        if (idx >= 0) {
+            MemoryBinaryData* entry = &nfs->binaryFiles[idx].value;
+            h->buffer = safeMalloc((size_t) entry->size);
+            memcpy(h->buffer, entry->data, (size_t) entry->size);
+            h->size = entry->size;
+            h->capacity = entry->size;
+        } else if (mode == GML_FILE_BIN_READ) {
+            // Pure read of a missing file: fail
+            free(h->path);
+            free(h);
+            return nullptr;
+        }
+    }
+    return h;
+}
+
+static void noopBinaryClose(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (handle == nullptr) return;
+    NoopBinaryHandle* h = (NoopBinaryHandle*) handle;
+    if (h->dirty) {
+        ptrdiff_t idx = shgeti(h->owner->binaryFiles, h->path);
+        if (idx >= 0) {
+            free(h->owner->binaryFiles[idx].value.data);
+            h->owner->binaryFiles[idx].value.data = h->buffer;
+            h->owner->binaryFiles[idx].value.size = h->size;
+        } else {
+            MemoryBinaryData data = { .data = h->buffer, .size = h->size };
+            shput(h->owner->binaryFiles, h->path, data);
+        }
+        // Map now owns the buffer
+    } else {
+        free(h->buffer);
+    }
+    free(h->path);
+    free(h);
+}
+
+static int32_t noopBinaryRead(MAYBE_UNUSED FileSystem* fs, void* handle, void* dst, int32_t n) {
+    if (handle == nullptr || 0 >= n) return 0;
+    NoopBinaryHandle* h = (NoopBinaryHandle*) handle;
+    int32_t avail = h->size - h->position;
+    if (0 >= avail) return 0;
+    if (n > avail) n = avail;
+    memcpy(dst, h->buffer + h->position, (size_t) n);
+    h->position += n;
+    return n;
+}
+
+static int32_t noopBinaryWrite(MAYBE_UNUSED FileSystem* fs, void* handle, const void* src, int32_t n) {
+    if (handle == nullptr || 0 >= n) return 0;
+    NoopBinaryHandle* h = (NoopBinaryHandle*) handle;
+    if (!h->writable) return 0;
+    int32_t needed = h->position + n;
+    if (needed > h->capacity) {
+        int32_t newCap = h->capacity > 0 ? h->capacity : 64;
+        while (newCap < needed) newCap *= 2;
+        h->buffer = safeRealloc(h->buffer, (size_t) newCap);
+        h->capacity = newCap;
+    }
+    if (h->position > h->size) {
+        memset(h->buffer + h->size, 0, (size_t) (h->position - h->size));
+    }
+    memcpy(h->buffer + h->position, src, (size_t) n);
+    h->position += n;
+    if (h->position > h->size) h->size = h->position;
+    h->dirty = true;
+    return n;
+}
+
+static int32_t noopBinaryTell(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    return handle != nullptr ? ((NoopBinaryHandle*) handle)->position : 0;
+}
+
+static bool noopBinarySeek(MAYBE_UNUSED FileSystem* fs, void* handle, int32_t pos) {
+    if (handle == nullptr) return false;
+    if (0 > pos) pos = 0;
+    ((NoopBinaryHandle*) handle)->position = pos;
+    return true;
+}
+
+static int32_t noopBinarySize(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    return handle != nullptr ? ((NoopBinaryHandle*) handle)->size : 0;
+}
+
+static void noopBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (handle == nullptr) return;
+    NoopBinaryHandle* h = (NoopBinaryHandle*) handle;
+    free(h->buffer);
+    h->buffer = nullptr;
+    h->size = 0;
+    h->capacity = 0;
+    h->position = 0;
+    h->writable = true;
+    h->dirty = true; // matches the native runner, which reopens "wb+" and so always touches the file
+}
+
 // ===[ Vtable ]===
 
 static FileSystemVtable noopFileSystemVtable = {
@@ -71,6 +237,16 @@ static FileSystemVtable noopFileSystemVtable = {
     .readFileText = noopReadFileText,
     .writeFileText = noopWriteFileText,
     .deleteFile = noopDeleteFile,
+    .readFileBinary = noopReadFileBinary,
+    .writeFileBinary = noopWriteFileBinary,
+    .binaryOpen = noopBinaryOpen,
+    .binaryClose = noopBinaryClose,
+    .binaryRead = noopBinaryRead,
+    .binaryWrite = noopBinaryWrite,
+    .binaryTell = noopBinaryTell,
+    .binarySeek = noopBinarySeek,
+    .binarySize = noopBinarySize,
+    .binaryRewrite = noopBinaryRewrite,
 };
 
 // ===[ Lifecycle ]===
@@ -80,6 +256,8 @@ FileSystem* NoopFileSystem_create(void) {
     nfs->base.vtable = &noopFileSystemVtable;
     nfs->files = nullptr;
     sh_new_strdup(nfs->files);
+    nfs->binaryFiles = nullptr;
+    sh_new_strdup(nfs->binaryFiles);
     return (FileSystem*) nfs;
 }
 
@@ -89,5 +267,9 @@ void NoopFileSystem_destroy(FileSystem* fs) {
         free(nfs->files[i].value);
     }
     shfree(nfs->files);
+    repeat(shlen(nfs->binaryFiles), i) {
+        free(nfs->binaryFiles[i].value.data);
+    }
+    shfree(nfs->binaryFiles);
     free(nfs);
 }

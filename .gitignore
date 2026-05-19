@@ -6,3 +6,9 @@ undertale
 survey_program
 deltarune
 TODO.md
+build_ps2/
+build_ps3/
+.gitignore
+.cache
+CMakeUserPresets.json
+.devcontainer/

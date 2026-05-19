@@ -4,7 +4,7 @@ rm -rf build-xbox
 
 export NXDK_DIR=$(pwd)/vendor/nxdk
 
-cmake -DCMAKE_TOOLCHAIN_FILE=$NXDK_DIR/share/toolchain-nxdk.cmake -DPLATFORM=xbox -B build-xbox -DNXDK_DIR=$NXDK_DIR .
+cmake -DCMAKE_TOOLCHAIN_FILE=$NXDK_DIR/share/toolchain-nxdk.cmake -DPLATFORM=xbox -DAUDIO_BACKEND=xbox -B build-xbox -DNXDK_DIR=$NXDK_DIR .
 
 cd build-xbox
 

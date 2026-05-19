@@ -432,42 +432,38 @@ int main(int argc, char* argv[]) {
     }
 
     if (args.printDeclaredFunctions) {
-        repeat(hmlen(vm->funcMap), i) {
-            printf("[%d] %s\n", vm->funcMap[i].value, vm->funcMap[i].key);
-        }
+        // repeat(hmlen(vm->funcMap), i) {
+        //     printf("[%d] %s\n", vm->funcMap[i].value, vm->funcMap[i].key);
+        // }
         VM_free(vm);
         DataWin_free(dataWin);
         return 0;
     }
 
-    if (shlen(args.disassemble) > 0) {
-        VM_buildCrossReferences(vm);
-        if (shgeti(args.disassemble, "*") >= 0) {
-            repeat(dataWin->code.count, i) {
-                VM_disassemble(vm, (int32_t) i);
-            }
-        } else {
-            for (ptrdiff_t i = 0; shlen(args.disassemble) > i; i++) {
-                const char* name = args.disassemble[i].key;
-                ptrdiff_t idx = shgeti(vm->funcMap, (char*) name);
-                if (idx >= 0) {
-                    VM_disassemble(vm, vm->funcMap[idx].value);
-                } else {
-                    fprintf(stderr, "Error: Script '%s' not found in funcMap\n", name);
-                }
-            }
-        }
-        VM_free(vm);
-        DataWin_free(dataWin);
-        freeCommandLineArgs(&args);
-        return 0;
-    }
+    // if (shlen(args.disassemble) > 0) {
+    //     VM_buildCrossReferences(vm);
+    //     if (shgeti(args.disassemble, "*") >= 0) {
+    //         repeat(dataWin->code.count, i) {
+    //             VM_disassemble(vm, (int32_t) i);
+    //         }
+    //     } else {
+    //         for (ptrdiff_t i = 0; shlen(args.disassemble) > i; i++) {
+    //             const char* name = args.disassemble[i].key;
+    //             ptrdiff_t idx = shgeti(vm->funcMap, (char*) name);
+    //             if (idx >= 0) {
+    //                 VM_disassemble(vm, vm->funcMap[idx].value);
+    //             } else {
+    //                 fprintf(stderr, "Error: Script '%s' not found in funcMap\n", name);
+    //             }
+    //         }
+    //     }
+    //     VM_free(vm);
+    //     DataWin_free(dataWin);
+    //     freeCommandLineArgs(&args);
+    //     return 0;
+    // }
 
     GlfwFileSystem* fileSystem = GlfwFileSystem_create(args.dataWinPath);
-
-    Runner* runner = Runner_create(dataWin, vm, (FileSystem*) fileSystem);
-    VMContext* ctx = runner->vmContext;
-    runner->debugMode = args.debug;
 
     if (args.playbackInputsPath != nullptr) {
         globalInputRecording = InputRecording_createPlayer(args.playbackInputsPath, args.recordInputsPath);
@@ -475,16 +471,16 @@ int main(int argc, char* argv[]) {
         globalInputRecording = InputRecording_createRecorder(args.recordInputsPath);
     }
 
-    shcopyFromTo(args.varReadsToBeTraced, ctx->varReadsToBeTraced);
-    shcopyFromTo(args.varWritesToBeTraced, ctx->varWritesToBeTraced);
-    shcopyFromTo(args.functionCallsToBeTraced, ctx->functionCallsToBeTraced);
-    shcopyFromTo(args.alarmsToBeTraced, ctx->alarmsToBeTraced);
-    shcopyFromTo(args.instanceLifecyclesToBeTraced, ctx->instanceLifecyclesToBeTraced);
-    shcopyFromTo(args.eventsToBeTraced, ctx->eventsToBeTraced);
-    shcopyFromTo(args.opcodesToBeTraced, ctx->opcodesToBeTraced);
-    shcopyFromTo(args.stackToBeTraced, ctx->stackToBeTraced);
-    shcopyFromTo(args.tilesToBeTraced, ctx->tilesToBeTraced);
-    ctx->traceEventInherited = args.traceEventInherited;
+    // shcopyFromTo(args.varReadsToBeTraced, ctx->varReadsToBeTraced);
+    // shcopyFromTo(args.varWritesToBeTraced, ctx->varWritesToBeTraced);
+    // shcopyFromTo(args.functionCallsToBeTraced, ctx->functionCallsToBeTraced);
+    // shcopyFromTo(args.alarmsToBeTraced, ctx->alarmsToBeTraced);
+    // shcopyFromTo(args.instanceLifecyclesToBeTraced, ctx->instanceLifecyclesToBeTraced);
+    // shcopyFromTo(args.eventsToBeTraced, ctx->eventsToBeTraced);
+    // shcopyFromTo(args.opcodesToBeTraced, ctx->opcodesToBeTraced);
+    // shcopyFromTo(args.stackToBeTraced, ctx->stackToBeTraced);
+    // shcopyFromTo(args.tilesToBeTraced, ctx->tilesToBeTraced);
+    // ctx->traceEventInherited = args.traceEventInherited;
 
     // ===[ INIT SDL2 ]===
     #ifdef XBOX_SDL_RENDERER
@@ -634,7 +630,7 @@ int main(int argc, char* argv[]) {
 
     MainRenderer_setAssetCache((MainRenderer*) renderer, assetCache);
     renderer->vtable->init(renderer, dataWin);
-    runner->renderer = renderer;
+    // runner->renderer = renderer;
 
     debugPrint("Renderer created...\n");
 
@@ -644,10 +640,17 @@ int main(int argc, char* argv[]) {
         MaAudioSystem_setAssetCache(maAudio, assetCache);
         AudioSystem* audioSystem = (AudioSystem*) maAudio;
         audioSystem->vtable->init(audioSystem, dataWin, (FileSystem*) fileSystem);
-        runner->audioSystem = audioSystem;
+        // runner->audioSystem = audioSystem;
     }
 
     debugPrint("Audio system created...\n");
+
+	// Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem);
+    Runner* runner = Runner_create(dataWin, vm, (Renderer*)renderer, (FileSystem*)fileSystem, (AudioSystem*)maAudio);
+    VMContext* ctx = runner->vmContext;
+    runner->debugMode = args.debug;
+
+	printf("Runner created...\n");
 
     Runner_initFirstRoom(runner);
 
@@ -872,7 +875,8 @@ int main(int argc, char* argv[]) {
                 int32_t portY = activeRoom->views[vi].portY;
                 int32_t portW = activeRoom->views[vi].portWidth;
                 int32_t portH = activeRoom->views[vi].portHeight;
-                float viewAngle = runner->viewAngles[vi];
+                // float viewAngle = runner->viewAngles[vi];
+				float viewAngle = 0.0f;
 
                 runner->viewCurrent = vi;
                 renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
@@ -893,7 +897,7 @@ int main(int argc, char* argv[]) {
 
         runner->viewCurrent = 0;
 
-        renderer->vtable->endFrame(renderer);
+        renderer->vtable->endFrameEnd(renderer);
 
         SDL_RenderPresent(sdlRenderer);
 
