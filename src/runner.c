@@ -1626,6 +1626,10 @@ static void populateObjectsWithAnyEventOfType(Runner* runner) {
 
 // Validates if all required renderer functions are not null
 static void validateRendererVtable(Renderer* renderer) {
+	#ifdef NXDK
+	return;
+	#endif
+
     RendererVtable* v = requireNotNull(renderer->vtable);
 
     #define requireNotNullFunction(fn) requireMessage(v->fn != nullptr, "Renderer " #fn " does not have a implementation!")
@@ -2561,10 +2565,10 @@ void Runner_step(Runner* runner) {
                     inst->imageIndex += inst->imageSpeed * sprite->gms2PlaybackSpeed;
                 } else {
                     inst->imageIndex += (1.0/runner->currentRoom->speed) * sprite->gms2PlaybackSpeed * inst->imageSpeed;
-                }   
+                }
             }
         } else {
-            inst->imageIndex += inst->imageSpeed;    
+            inst->imageIndex += inst->imageSpeed;
         }
         float frameCount = (float) sprite->textureCount;
         bool wrapped = false;
@@ -3203,7 +3207,7 @@ void Runner_free(Runner* runner) {
         free(runner->flattenedCollisionEvents);
         runner->flattenedCollisionEvents = nullptr;
     }
-    
+
     arrfree(runner->cachedDrawables);
     runner->cachedDrawables = nullptr;
     arrfree(runner->instanceSnapshots);
