@@ -4,6 +4,10 @@ if(PLATFORM STREQUAL "ps3")
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/ppu.cmake)
 endif()
 
+if(PLATFORM STREQUAL "xbox360")
+set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/xenon.cmake)
+endif()
+
 project(butterscotch C)
 
 set(CMAKE_C_STANDARD 99)
@@ -32,6 +36,8 @@ if(AUDIO_BACKEND STREQUAL "")
         set(AUDIO_BACKEND "openal")
     elseif(PLATFORM STREQUAL "ps2")
         set(AUDIO_BACKEND "ps2")
+	elseif(PLATFORM STREQUAL "xbox360")
+        set(AUDIO_BACKEND "none")
     else()
         set(AUDIO_BACKEND "miniaudio")
     endif()
@@ -586,6 +592,98 @@ elseif(PLATFORM STREQUAL "ps3")
     find_package(SDL2 REQUIRED)
     target_include_directories(butterscotch PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(butterscotch PRIVATE ${SDL2_LIBRARIES} m gcm_sys rsx sysutil io audio rt lv2 io audio bzip2)
+
+elseif(PLATFORM STREQUAL "xbox360")
+    file(GLOB GL_SOURCES src/image/*.c)
+    file(GLOB DEBUG_FONT_SOURCES src/debug_font/*.c)
+	file(GLOB SDL_SOURCES
+		"vendor/libSDLXenon/src/*.c"
+		"vendor/libSDLXenon/src/audio/*.c"
+		"vendor/libSDLXenon/src/audio/xenon/*.c"
+		"vendor/libSDLXenon/src/cdrom/*.c"
+		"vendor/libSDLXenon/src/cdrom/dummy/*.c"
+		"vendor/libSDLXenon/src/cpuinfo/*.c"
+		"vendor/libSDLXenon/src/events/*.c"
+		"vendor/libSDLXenon/src/file/*.c"
+		"vendor/libSDLXenon/src/joystick/*.c"
+		"vendor/libSDLXenon/src/joystick/xenon/*.c"
+		"vendor/libSDLXenon/src/stdlib/*.c"
+		"vendor/libSDLXenon/src/thread/*.c"
+		"vendor/libSDLXenon/src/thread/xenon/*.c"
+		"vendor/libSDLXenon/src/timer/*.c"
+		"vendor/libSDLXenon/src/timer/xenon/*.c"
+		"vendor/libSDLXenon/src/video/*.c"
+		"vendor/libSDLXenon/src/video/xenon/*.c"
+		"vendor/libSDLXenon/src/video/xenon/*.s"
+		"vendor/libSDLXenon/src/loadso/dummy/*.c"
+	)
+    target_sources(butterscotch PRIVATE ${GL_SOURCES} ${SDL_SOURCES} ${DEBUG_FONT_SOURCES})
+	target_include_directories(butterscotch PRIVATE
+		"vendor/libSDLXenon/src"
+		"vendor/libSDLXenon/src/audio"
+		"vendor/libSDLXenon/src/audio/xenon"
+		"vendor/libSDLXenon/src/cdrom"
+		"vendor/libSDLXenon/src/cdrom/dummy"
+		"vendor/libSDLXenon/src/cpuinfo"
+		"vendor/libSDLXenon/src/events"
+		"vendor/libSDLXenon/src/file"
+		"vendor/libSDLXenon/src/joystick"
+		"vendor/libSDLXenon/src/joystick/xenon"
+		"vendor/libSDLXenon/src/stdlib"
+		"vendor/libSDLXenon/src/thread"
+		"vendor/libSDLXenon/src/thread/xenon"
+		"vendor/libSDLXenon/src/timer"
+		"vendor/libSDLXenon/src/timer/xenon"
+		"vendor/libSDLXenon/src/video"
+		"vendor/libSDLXenon/src/video/xenon"
+		"vendor/libSDLXenon/src/loadso/dummy"
+	)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/image)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360)
+
+    # Butterscotch VM/interpreter profiler
+    option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
+    if(ENABLE_VM_GML_PROFILER)
+        add_compile_definitions(ENABLE_VM_GML_PROFILER)
+    endif()
+
+    # Butterscotch VM/interpreter tracing
+    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" OFF)
+    if(ENABLE_VM_TRACING)
+        add_compile_definitions(ENABLE_VM_TRACING)
+    endif()
+
+    # Butterscotch VM opcode count profiler
+    option(ENABLE_VM_OPCODE_PROFILER "Enable Butterscotch VM opcode count profiler" OFF)
+    if(ENABLE_VM_OPCODE_PROFILER)
+        add_compile_definitions(ENABLE_VM_OPCODE_PROFILER)
+    endif()
+
+    # Spatial grid logs
+    option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
+    if(ENABLE_SPATIAL_GRID_LOGS)
+        add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
+    endif()
+
+    # VM unknown/stubbed function logs
+    option(ENABLE_VM_STUB_LOGS "Enable VM unknown/stubbed function logs" OFF)
+    if(ENABLE_VM_STUB_LOGS)
+        add_compile_definitions(ENABLE_VM_STUB_LOGS)
+    endif()
+
+    # stb_image
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # stb_vorbis
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
+
+    # Platform identifier for X360-specific code paths
+    add_compile_definitions(PLATFORM_XBOX360)
+    add_compile_definitions(IS_BIG_ENDIAN)
+    add_compile_definitions(AL_LIBTYPE_STATIC)
+
+    target_link_libraries(butterscotch PRIVATE m bzip2)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()

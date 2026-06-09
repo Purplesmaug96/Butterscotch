@@ -15,7 +15,9 @@
 #define overlayRmdir(path) _rmdir(path)
 #else
 #include <unistd.h>
+#ifndef PLATFORM_XBOX360
 #include <dirent.h>
+#endif
 #define overlayMkdir(path) mkdir((path), 0777)
 #define overlayRmdir(path) rmdir(path)
 #endif
@@ -351,7 +353,7 @@ static void listSingleDir(FileSystemDirEntry** list, const char* fullDir) {
         dirListPush(list, name, isDir);
     } while (FindNextFileA(h, &findData));
     FindClose(h);
-#else
+#elif !defined(PLATFORM_XBOX360)
     DIR* dir = opendir(fullDir);
     if (dir == nullptr) return;
     struct dirent* ent;
