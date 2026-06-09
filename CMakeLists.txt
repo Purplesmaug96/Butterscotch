@@ -597,6 +597,7 @@ elseif(PLATFORM STREQUAL "xbox360")
     file(GLOB GL_SOURCES src/image/*.c)
     file(GLOB DEBUG_FONT_SOURCES src/debug_font/*.c)
 	file(GLOB SDL_SOURCES
+		"src/sw/*.c"
 		"vendor/libSDLXenon/src/*.c"
 		"vendor/libSDLXenon/src/audio/*.c"
 		"vendor/libSDLXenon/src/audio/xenon/*.c"
@@ -619,6 +620,9 @@ elseif(PLATFORM STREQUAL "xbox360")
 	)
     target_sources(butterscotch PRIVATE ${GL_SOURCES} ${SDL_SOURCES} ${DEBUG_FONT_SOURCES})
 	target_include_directories(butterscotch PRIVATE
+		"src/sw"
+		$ENV{DEVKITXENON}/usr/include
+		"vendor/libSDLXenon/include"
 		"vendor/libSDLXenon/src"
 		"vendor/libSDLXenon/src/audio"
 		"vendor/libSDLXenon/src/audio/xenon"
@@ -642,20 +646,21 @@ elseif(PLATFORM STREQUAL "xbox360")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360)
 
+	# enabled because i dont wanna update the file
     # Butterscotch VM/interpreter profiler
-    option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
+    option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" ON)
     if(ENABLE_VM_GML_PROFILER)
         add_compile_definitions(ENABLE_VM_GML_PROFILER)
     endif()
 
     # Butterscotch VM/interpreter tracing
-    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" OFF)
+    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" ON)
     if(ENABLE_VM_TRACING)
         add_compile_definitions(ENABLE_VM_TRACING)
     endif()
 
     # Butterscotch VM opcode count profiler
-    option(ENABLE_VM_OPCODE_PROFILER "Enable Butterscotch VM opcode count profiler" OFF)
+    option(ENABLE_VM_OPCODE_PROFILER "Enable Butterscotch VM opcode count profiler" ON)
     if(ENABLE_VM_OPCODE_PROFILER)
         add_compile_definitions(ENABLE_VM_OPCODE_PROFILER)
     endif()
@@ -667,7 +672,7 @@ elseif(PLATFORM STREQUAL "xbox360")
     endif()
 
     # VM unknown/stubbed function logs
-    option(ENABLE_VM_STUB_LOGS "Enable VM unknown/stubbed function logs" OFF)
+    option(ENABLE_VM_STUB_LOGS "Enable VM unknown/stubbed function logs" ON)
     if(ENABLE_VM_STUB_LOGS)
         add_compile_definitions(ENABLE_VM_STUB_LOGS)
     endif()
@@ -682,6 +687,8 @@ elseif(PLATFORM STREQUAL "xbox360")
     add_compile_definitions(PLATFORM_XBOX360)
     add_compile_definitions(IS_BIG_ENDIAN)
     add_compile_definitions(AL_LIBTYPE_STATIC)
+
+	add_compile_definitions(ENABLE_SW_RENDERER)
 
     target_link_libraries(butterscotch PRIVATE m bzip2)
 else()
