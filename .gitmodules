@@ -1,0 +1,3 @@
+[submodule "vendor/libSDLXenon"]
+	path = vendor/libSDLXenon
+	url = https://github.com/LibXenonProject/libSDLXenon.git
