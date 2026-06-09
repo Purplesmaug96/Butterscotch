@@ -50,7 +50,7 @@ static uint64_t nowNanos(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
-#else
+#elif !defined(PLATFORM_XBOX360)
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (uint64_t) tv.tv_sec * 1000000000ull + (uint64_t) tv.tv_usec * 1000;

@@ -875,6 +875,8 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
             GMLReal ms = (GMLReal) counter.QuadPart / (GMLReal) freq.QuadPart * 1000.0;
             #elif defined(PLATFORM_PS3)
             GMLReal ms = (GMLReal) (__builtin_ppc_get_timebase() / sysGetTimebaseFrequency()) / 1000000.0;
+			#elif defined(PLATFORM_XBOX360)
+			GMLReal ms = (GMLReal) 0;
             #elif defined(CLOCK_MONOTONIC)
             struct timespec ts;
             clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -6220,7 +6222,7 @@ static RValue builtin_keyboard_unset_map(VMContext* ctx, MAYBE_UNUSED RValue* ar
 }
 
 // Mouse functions
-static RValue builtinDeviceMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {   
+static RValue builtinDeviceMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeBool(false);
     Runner* runner = (Runner*) ctx->runner;
 
@@ -13154,7 +13156,7 @@ static RValue builtin_sprite_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     int32_t subimg = RValue_toInt32(args[1]);
     if (0 > subimg && ctx->currentInstance != nullptr) {
         subimg = (int32_t) ctx->currentInstance->imageIndex;
-    }  
+    }
     int32_t TpagIndex = Renderer_resolveTPAGIndex(ctx->dataWin, spriteIndex, subimg);
     //I think default texture page size is 2048x2048?
     float DivW = 0.00048828125; //1.0/2048.0
@@ -13162,7 +13164,7 @@ static RValue builtin_sprite_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, 
 
     DivW = ctx->runner->renderer->vtable->textureGetTexelWidth(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
     DivH = ctx->runner->renderer->vtable->textureGetTexelHeight(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
-    
+
     float left = (float) ctx->dataWin->tpag.items[TpagIndex].sourceX * DivW;
     float top = (float) ctx->dataWin->tpag.items[TpagIndex].sourceY * DivH;
     float right = (float)  left + (ctx->dataWin->tpag.items[TpagIndex].sourceWidth * DivW);
@@ -13191,7 +13193,7 @@ static RValue builtin_sprite_get_texture(VMContext* ctx, MAYBE_UNUSED RValue* ar
     int32_t subimg = RValue_toInt32(args[1]);
     if (0 > subimg && ctx->currentInstance != nullptr) {
         subimg = (int32_t) ctx->currentInstance->imageIndex;
-    }  
+    }
     int32_t TpagIndex = Renderer_resolveTPAGIndex(ctx->dataWin, spriteIndex, subimg);
 
     return RValue_makeInt32(ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
@@ -13203,16 +13205,16 @@ static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MA
     //if (0 > fontIndex || ctx->dataWin->font.count <= (uint32_t) fontIndex) return;
 
     Font* font = &ctx->runner->dataWin->font.fonts[fontIndex];
-    
+
 
     int32_t TpagIndex = font->tpagIndex;
     //I think default texture page size is 2048x2048?
     float DivW = 0.00048828125; //1.0/2048.0
     float DivH = 0.00048828125; //1.0/2048.0
-    
+
     DivW = ctx->runner->renderer->vtable->textureGetTexelWidth(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
     DivH = ctx->runner->renderer->vtable->textureGetTexelHeight(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
-    
+
     float left = (float) ctx->dataWin->tpag.items[TpagIndex].sourceX * DivW;
     float top = (float) ctx->dataWin->tpag.items[TpagIndex].sourceY * DivH;
     float right = (float)  left + (ctx->dataWin->tpag.items[TpagIndex].sourceWidth * DivW);
@@ -14133,16 +14135,16 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "shader_set", builtin_shader_set);
     VM_registerBuiltin(ctx, "shader_reset", builtin_shader_reset);
     VM_registerBuiltin(ctx, "shader_current", builtin_shader_current);
-    VM_registerBuiltin(ctx, "shader_is_compiled", builtin_shader_is_compiled); 
+    VM_registerBuiltin(ctx, "shader_is_compiled", builtin_shader_is_compiled);
     VM_registerBuiltin(ctx, "shader_get_name", builtin_shader_get_name);
-    VM_registerBuiltin(ctx, "shaders_are_supported", builtin_shaders_are_supported);  
+    VM_registerBuiltin(ctx, "shaders_are_supported", builtin_shaders_are_supported);
     VM_registerBuiltin(ctx, "shader_get_uniform", builtin_shader_get_uniform);
     VM_registerBuiltin(ctx, "shader_get_sampler_index", builtin_shader_get_sampler_index);
     VM_registerBuiltin(ctx, "shader_set_uniform_f", builtin_shader_set_uniformF);
     VM_registerBuiltin(ctx, "shader_set_uniform_i", builtin_shader_set_uniformI);
     VM_registerBuiltin(ctx, "sprite_get_uvs", builtin_sprite_get_uvs);
     VM_registerBuiltin(ctx, "sprite_get_texture", builtin_sprite_get_texture);
-    VM_registerBuiltin(ctx, "font_get_uvs", builtin_font_get_uvs);   
+    VM_registerBuiltin(ctx, "font_get_uvs", builtin_font_get_uvs);
     VM_registerBuiltin(ctx, "texture_get_texel_width", builtin_texture_get_texel_width);
     VM_registerBuiltin(ctx, "texture_get_texel_height", builtin_texture_get_texel_height);
     VM_registerBuiltin(ctx, "texture_get_uvs", builtin_texture_get_uvs);

@@ -18,8 +18,15 @@
 #ifndef PLATFORM_XBOX360
 #include <dirent.h>
 #endif
+
+#ifndef PLATFORM_XBOX360
 #define overlayMkdir(path) mkdir((path), 0777)
 #define overlayRmdir(path) rmdir(path)
+#else
+#define overlayMkdir(path) -1
+#define overlayRmdir(path) -1
+#endif
+
 #endif
 
 // ===[ Helpers ]===
@@ -57,8 +64,12 @@ static char* joinPath(const char* basePath, const char* normalizedPath) {
 }
 
 static bool pathExists(const char* fullPath) {
+	#ifndef PLATFORM_XBOX360
     struct stat st;
     return stat(fullPath, &st) == 0;
+	#else
+	return false;
+	#endif
 }
 
 // Returns a heap-allocated full path for reads. Absolute inputs pass through as-is.
@@ -298,11 +309,15 @@ static void overlayBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
 }
 
 static bool overlayDirectoryExists(FileSystem* fs, const char* relativePath) {
+	#ifndef PLATFORM_XBOX360
     char* fullPath = resolveForRead((OverlayFileSystem*) fs, relativePath);
     struct stat st;
     bool exists = (stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode));
     free(fullPath);
     return exists;
+	#else
+	return false;
+	#endif
 }
 
 static bool overlayCreateDirectory(FileSystem* fs, const char* relativePath) {
