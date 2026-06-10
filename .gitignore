@@ -1,6 +1,10 @@
 build/
 build_ps2/
 build_ps3/
+build*/
+undertale*
+deltarune*
+survey_program*
 .gitignore
 .cache
 CMakeUserPresets.json
