@@ -23,5 +23,8 @@ set(XENON_FLAGS "-m32 -fno-pic -mpowerpc64 -mhard-float -mcpu=cell -mno-altivec"
 set(CMAKE_C_FLAGS "${XENON_FLAGS}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${XENON_FLAGS} -fno-exceptions -fno-rtti" CACHE STRING "" FORCE)
 
+# Explicitly force the assembler to use the same 32-bit flag as the C compiler
+set(CMAKE_ASM_FLAGS "-m32 -mpowerpc64" CACHE STRING "" FORCE)
+
 # 2. CRUCIAL FIX: Explicitly append the 32-bit toolchain library directories (-L)
 set(CMAKE_EXE_LINKER_FLAGS "-m32 -Wl,-T,${CMAKE_FIND_ROOT_PATH}/app.lds -nostartfiles -L${CMAKE_FIND_ROOT_PATH}/usr/lib -L${CMAKE_FIND_ROOT_PATH}/xenon/lib/32" CACHE STRING "" FORCE)

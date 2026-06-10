@@ -8,7 +8,11 @@ if(PLATFORM STREQUAL "xbox360")
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/xenon.cmake)
 endif()
 
+if(PLATFORM STREQUAL "xbox360")
+project(butterscotch C ASM)
+else()
 project(butterscotch C)
+endif()
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -685,12 +689,18 @@ elseif(PLATFORM STREQUAL "xbox360")
 
     # Platform identifier for X360-specific code paths
     add_compile_definitions(PLATFORM_XBOX360)
+	add_compile_definitions(XENON)
     add_compile_definitions(IS_BIG_ENDIAN)
     add_compile_definitions(AL_LIBTYPE_STATIC)
 
 	add_compile_definitions(ENABLE_SW_RENDERER)
 
-    target_link_libraries(butterscotch PRIVATE m bzip2)
+	# Tell the assembler where to look for relative include files (.shader files)
+	target_compile_options(butterscotch PRIVATE
+		$<$<COMPILE_LANGUAGE:ASM>:-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/libSDLXenon>
+	)
+
+    target_link_libraries(butterscotch PRIVATE m bzip2 xenon)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()

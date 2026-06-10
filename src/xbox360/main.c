@@ -628,7 +628,7 @@ void saveInputRecording() {
     }
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(PLATFORM_XBOX360)
 typedef struct { int key; struct sigaction value; } PreviousSignalActionEntry;
 static PreviousSignalActionEntry* previousSignalActions = nullptr;
 
@@ -938,7 +938,7 @@ int main(int argc, char* argv[]) {
     runner->vmContext->traceEventInherited = args.traceEventInherited;
 
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(PLATFORM_XBOX360)
     struct sigaction sa = { .sa_handler = onCrashSignal };
     sigemptyset(&sa.sa_mask);
     struct sigaction prev;
@@ -1223,14 +1223,17 @@ int main(int argc, char* argv[]) {
             // Sleep for most of the remaining time, then spin-wait for precision
             double remaining = nextFrameTime - (SDL_GetTicks()/1000.0f);
             if (remaining > 0.002) {
-                #ifdef _WIN32
+                #if defined(PLATFORM_XBOX360)
+                // libxenon hardware microsecond delay
+                udelay((unsigned int) ((remaining - 0.001) * 1000000));
+                #elif defined(_WIN32)
                 Sleep((DWORD) ((remaining - 0.001) * 1000));
                 #else
                 struct timespec ts = {
                     .tv_sec = 0,
                     .tv_nsec = (long) ((remaining - 0.001) * 1e9)
                 };
-                nanosleep(&ts, nullptr);
+                nanosleep(&ts, NULL); // Replaced nullptr with NULL for standard C compatibility
                 #endif
             }
             while ((SDL_GetTicks()/1000.0f) < nextFrameTime) {
@@ -1258,5 +1261,7 @@ int main(int argc, char* argv[]) {
     freeCommandLineArgs(&args);
 
     printf("Bye! :3\n");
-    return 0;
+
+	while (1); // Can't return from bare metal main!
+	/*return 0;*/
 }
