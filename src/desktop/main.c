@@ -25,7 +25,7 @@
 #include "runner.h"
 #include "input_recording.h"
 #include "debug_overlay.h"
-#if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL) || ((defined(USE_GLFW3) || defined(USE_GLFW2)) && defined(ENABLE_SW_RENDERER) )
+#if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL) || ((defined(USE_GLFW3) || defined(USE_GLFW2)) && defined(ENABLE_SW_RENDERER))
 #include <glad/glad.h>
 #endif
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
@@ -49,6 +49,7 @@
 
 #include "utils.h"
 #include "profiler.h"
+#include "gettime.h"
 
 /* For SDL_main */
 #if defined(USE_SDL1)
@@ -285,10 +286,69 @@ static char** extractRunnerArguments(char* rawArguments) {
     return array;
 }
 
+static void printUsage(const char *argv0) {
+    fprintf(
+        stderr,
+        "Usage: %s <path to data.win or game.unx>\n"
+        "    --help                                 - Show this message\n"
+        "    --screenshot <filename>                - Specify the filename for screenshots\n"
+        "    --screenshot-at-frame <frame>          - Take a screenshot at the specified frame\n"
+        "    --screenshot-surfaces <filename>       - Take a screenshot of all surfaces at the specified frame\n"
+        "    --screenshot-surfaces-at-frame <frame> - Specify the filename for surface screenshots\n"
+#ifndef USE_GLFW2
+        "    --headless                             - Launch without a window\n"
+#endif
+        "    --print-rooms                          - Print all rooms in the game and exit\n"
+        "    --print-objects                        - Print all objects in the game and exit\n"
+        "    --print-declared-functions             - Print all declared functions in the game and exit\n"
+        "    --print-unknown-functions              - Print all unknown functions used by the game and exit\n"
+        "    --trace-variable-reads                 - Trace variable reads\n"
+        "    --trace-variable-writes                - Trace variable writes\n"
+        "    --trace-function-calls                 - Trace function calls\n"
+        "    --trace-alarms                         - Trace alarms\n"
+        "    --trace-instance-lifecycles            - Trace instance creations and deletions\n"
+        "    --trace-events                         - Trace events\n"
+        "    --trace-collisions                     - Trace collisions between instances\n"
+        "    --trace-event-inherited                - Trace event inherited calls\n"
+        "    --trace-tiles                          - Trace drawn tiles\n"
+        "    --trace-opcodes                        - Trace opcodes\n"
+        "    --trace-stack                          - Trace stack\n"
+        "    --trace-frames                         - Log frametimes\n"
+        "    --always-log-unknown-functions         - Always log unknown function calls instead of once per script\n"
+        "    --always-log-stubbed-functions         - Always log stubbed function calls instead of once per script\n"
+        "    --exit-at-frame <frame>                - Exit at the specified frame\n"
+        "    --trace-bytecode-after-frame <frame>   - Delay stack and opcode tracing until the specified frame\n"
+        "    --dump-frame <frame>                   - Dump the runner state at the specified frame\n"
+        "    --dump-frame-json <frame>              - Dump the runner state in json at the specified frame\n"
+        "    --dump-frame-json-file <file>          - Specify an output file for runner state dumps\n"
+        "    --speed <speed>                        - Set a normal speed multiplier\n"
+        "    --fast-forward-speed <speed>           - Set a fast-forward speed multiplier\n"
+        "    --seed <seed>                          - Seed for the random number generator\n"
+        "    --debug                                - Enable debug mode\n"
+        "    --disassemble <script>                 - Disassemble the specified script and print to console (* disassembles all)\n"
+        "    --record-inputs <file>                 - Record all keyboard inputs to a file\n"
+        "    --playback-inputs <file>               - Playback input from file\n"
+        "    --renderer <renderer>                  - Set the rendering API\n"
+        "    --lazy-rooms                           - Lazily load rooms, increases load times but reduces memory usage\n"
+        "    --eager-room <rooms>                   - When --lazy-rooms is set, keep these rooms always in memory\n"
+        "    --os-type <os>                         - Set the reported OS type\n"
+        "    --window-size <dimentions>             - Set a custom window size\n"
+        "    --widescreen-hack <aspect ratio>       - Set a custom aspect ratio\n"
+        "    --profile-gml-scripts                  - Log which GML scripts are the heaviest in terms of time and executed instructions\n"
+        "    --save-folder <directory>              - Set the directory will save files will be stored\n"
+        "    --game-args <args>                     - Arguments to pass to the game\n"
+#ifdef EABLE_VM_OPCODE_PROFILER
+        "    --profile-opcodes                      - Rank which GML opcodes were executed the most\n"
+#endif
+        , argv0
+    );
+}
+
 static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) {
     memset(args, 0, sizeof(CommandLineArgs));
 
     static struct option longOptions[] = {
+        {"help",          no_argument, nullptr, 'H'},
         {"screenshot",          required_argument, nullptr, 's'},
         {"screenshot-at-frame", required_argument, nullptr, 'f'},
         {"screenshot-surfaces", required_argument, nullptr, 'U'},
@@ -362,6 +422,9 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
     int opt;
     while ((opt = getopt_long(argc, argv, "", longOptions, nullptr)) != -1) {
         switch (opt) {
+            case 'H':
+                printUsage(argv[0]);
+                exit(0);
             case 's':
                 args->screenshotPattern = optarg;
                 break;
@@ -618,7 +681,7 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
                 break;
             }
             default:
-                fprintf(stderr, "Usage: %s <path to data.win or game.unx>\n", argv[0]);
+                printUsage(argv[0]);
                 exit(1);
         }
     }
@@ -687,10 +750,7 @@ static void writeFramebufferAsPng(GLuint fbo, int width, int height, const char*
         repeat(totalPixels, i) pixels[i * 4 + 3] = 255;
     }
 
-    // OpenGL reads bottom-to-top, but PNG is top-to-bottom.
-    // Use stb's negative stride trick: point to the last row and use a negative stride to flip vertically.
-    unsigned char* lastRow = pixels + (height - 1) * stride;
-    stbi_write_png(filename, width, height, 4, lastRow, -stride);
+    stbi_write_png(filename, width, height, 4, pixels, stride);
 
     free(pixels);
     printf("%s: %s (%dx%d)\n", logPrefix, filename, width, height);
@@ -1235,8 +1295,9 @@ int main(int argc, char* argv[]) {
         bool debugShowCollisionMasks = false;
         bool freeCamActive = false;
         bool actuallyShuttingDown = false;
-        double lastFrameTime = platformGetTime();
-        double lastFrameStartTime = platformGetTime(); // for delta_time
+        uint64_t lastFrameTime = nowNanos();
+        uint64_t lastFrameStartTime = lastFrameTime; // for delta_time
+        runner->gameStartTime = lastFrameTime;
         bool shouldWindowClose = false;
         while (true) {
             if (runner->shouldExit || shouldWindowClose) {
@@ -1249,8 +1310,8 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            double frameStartNow = platformGetTime();
-            runner->deltaTime = (frameStartNow - lastFrameStartTime) * 1000000.0;
+            uint64_t frameStartNow = nowNanos();
+            runner->deltaTime = (frameStartNow - lastFrameStartTime) / 1000;
             lastFrameStartTime = frameStartNow;
 
             // Clear last frame's pressed/released state, then poll new input events
@@ -1278,11 +1339,11 @@ int main(int argc, char* argv[]) {
                 if (shouldStep) fprintf(stderr, "Debug: Frame advance (frame %d)\n", runner->frameCount);
             }
 
-            double frameStartTime = 0;
+            uint64_t frameStartTime = 0;
 
             if (shouldStep) {
                 if (args.traceFrames) {
-                    frameStartTime = platformGetTime();
+                    frameStartTime = nowNanos();
                     fprintf(stderr, "Frame %d (Start)\n", runner->frameCount);
                 }
 
@@ -1575,7 +1636,7 @@ int main(int argc, char* argv[]) {
                 // Capture screenshot if this frame matches a requested frame
                 bool shouldScreenshot = hmget(args.screenshotFrames, runner->frameCount);
 
-                if (shouldScreenshot) {
+                if (shouldScreenshot || RunnerKeyboard_checkPressed(runner->keyboard, VK_F5)) {
                     int32_t appId = runner->applicationSurfaceId;
                     GLuint readFbo;
 #ifdef ENABLE_LEGACY_GL
@@ -1593,7 +1654,7 @@ int main(int argc, char* argv[]) {
                 // Dump all surfaces if this frame matches a requested frame
                 bool shouldDumpSurfaces = hmget(args.screenshotSurfacesFrames, runner->frameCount);
 
-                if (shouldDumpSurfaces) {
+                if (shouldDumpSurfaces || RunnerKeyboard_checkPressed(runner->keyboard, VK_F6)) {
                     GLRenderer* gl = (GLRenderer*) renderer;
                     dumpAllSurfaces(gl, args.screenshotSurfacesPattern, runner->frameCount);
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
@@ -1606,7 +1667,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 if (shouldStep && args.traceFrames) {
-                    double frameElapsedMs = (platformGetTime() - frameStartTime) * 1000.0;
+                    double frameElapsedMs = (nowNanos() - frameStartTime) / 1000000.0;
                     fprintf(stderr, "Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
                 }
 
@@ -1623,15 +1684,15 @@ int main(int argc, char* argv[]) {
                 bool fastForwardTabNow = RunnerKeyboard_checkPressed(runner->keyboard, '\t');
                 if (args.fastForwardSpeed > 0.0 && fastForwardTabNow && !fastForwardTabPrev) {
                     fastForwardActive = !fastForwardActive;
-                    lastFrameTime = platformGetTime();
+                    lastFrameTime = nowNanos();
                 }
                 fastForwardTabPrev = fastForwardTabNow;
                 double effectiveSpeed = (args.fastForwardSpeed > 0.0 && fastForwardActive) ? args.fastForwardSpeed : args.speedMultiplier;
-                double targetFrameTime = 1.0 / (runner->currentRoom->speed * effectiveSpeed);
-                double nextFrameTime = lastFrameTime + targetFrameTime;
+                uint64_t targetFrameTime = 1000000000 / (runner->currentRoom->speed * effectiveSpeed);
+                uint64_t nextFrameTime = lastFrameTime + targetFrameTime;
                 platformSleepUntil(nextFrameTime);
             }
-            lastFrameTime = platformGetTime();
+            lastFrameTime = nowNanos();
         }
 
         saveInputRecording();

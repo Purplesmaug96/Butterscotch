@@ -355,14 +355,17 @@ void VM_arraySet(MAYBE_UNUSED VMContext* ctx, RValue* arrayRef, int32_t index, R
     storeIntoArraySlot(GMLArray_slot(arr, index), val);
 }
 
+// Creates a copy of "name"
 int32_t VM_getOrAllocateSelfVarID(VMContext* ctx, const char* name) {
-    ptrdiff_t slot = shgeti(ctx->selfVarNameMap, (char*) name);
+    ptrdiff_t slot = shgeti(ctx->selfVarNameMap, name);
     if (slot >= 0) return ctx->selfVarNameMap[slot].value;
     int32_t id = ctx->nextDynamicSelfVarID++;
-    shput(ctx->selfVarNameMap, (char*) name, id);
+    shput(ctx->selfVarNameMap, safeStrdup(name), id);
     return id;
 }
 
+// Creates a copy of "name"
+// This does NOT resolve builtin variables!
 void VM_structSet(VMContext* ctx, Instance* structInst, const char* name, RValue val) {
     int32_t varID = VM_getOrAllocateSelfVarID(ctx, name);
     Instance_setSelfVar(structInst, varID, val);
@@ -536,7 +539,9 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
             Instance* inst = (Instance*) ctx->currentInstance;
             if (inst == nullptr) return false;
             RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
-            *out = (slot != nullptr) ? *slot : RValue_makeUndefined();
+            if (slot == nullptr)
+                return false;
+            *out = *slot;
             out->ownsReference = false;
             return true;
         }
@@ -558,7 +563,9 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
             Instance* inst = (Instance*) ctx->otherInstance;
             if (inst == nullptr) return false;
             RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
-            *out = (slot != nullptr) ? *slot : RValue_makeUndefined();
+            if (slot == nullptr)
+                return false;
+            *out = *slot;
             out->ownsReference = false;
             return true;
         }
@@ -632,6 +639,31 @@ void VM_copyStatic(VMContext* ctx, RValue* parentRef) {
     }
 }
 #endif
+
+// Tries reading a instance variable (from the selfVars map) and, if it doesn't exist, tries reading from the shared static struct.
+static bool tryReadInstanceVarOrStatic(VMContext* ctx, Instance* instance, int32_t varID, ArrayAccess* access, RValue* out) {
+    RValue* slot = IntRValueHashMap_findSlot(&instance->selfVars, varID);
+    if (slot != nullptr) {
+        if (access->isArray) {
+            *out = VM_arrayReadAt(slot, access->arrayIndex);
+            return true;
+        }
+        RValue val = *slot;
+        val.ownsReference = false;
+        *out = val;
+        return true;
+    }
+
+#if IS_WAD17_OR_HIGHER_ENABLED
+    // Static variables: a struct field declared "static" lives on the constructor's shared static struct, not the instance.
+    RValue staticVal;
+    if (tryReadStaticFallback(ctx, instance, varID, access, &staticVal)) {
+        *out = staticVal;
+        return true;
+    }
+#endif
+    return false;
+}
 
 static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t varRef) {
     Variable* varDef = resolveVarDef(ctx, varRef);
@@ -724,25 +756,18 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
             int32_t peekId = RValue_toInt32(*peek);
             Instance* peekInst = findInstanceByTarget(ctx, peekId);
             if (peekInst != nullptr) {
-                RValue* peekSlot = IntRValueHashMap_findSlot(&peekInst->selfVars, varDef->varID);
-                if (peekSlot != nullptr) {
-                    RValue val = *peekSlot;
-                    val.ownsReference = false;
-                    return val;
-                }
+                RValue value;
+                if (tryReadInstanceVarOrStatic(ctx, peekInst, varDef->varID, &access, &value))
+                    return value;
             }
         }
 
         // GameMaker emits a "push builtin" inside a function for "read this as a self-variable"
         if (varDef->instanceType == INSTANCE_SELF && ctx->currentInstance != nullptr) {
             Instance* self = (Instance*) ctx->currentInstance;
-            RValue* selfSlot = IntRValueHashMap_findSlot(&self->selfVars, varDef->varID);
-            if (selfSlot != nullptr) {
-                if (access.isArray) return VM_arrayReadAt(selfSlot, access.arrayIndex);
-                RValue val = *selfSlot;
-                val.ownsReference = false;
-                return val;
-            }
+            RValue value;
+            if (tryReadInstanceVarOrStatic(ctx, self, varDef->varID, &access, &value))
+                return value;
         }
 
         // Then try user scripts/code entries (funcMap maps both "funcName" and "gml_Script_funcName")
@@ -779,21 +804,13 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
             ptrdiff_t nameSlot = shgeti(ctx->selfVarNameMap, (char*) varDef->name);
             if (nameSlot >= 0) {
                 int32_t structVarID = ctx->selfVarNameMap[nameSlot].value;
-                RValue* slot = IntRValueHashMap_findSlot(&targetInstance->selfVars, structVarID);
-                if (slot != nullptr) {
-                    if (access.isArray) return VM_arrayReadAt(slot, access.arrayIndex);
-                    RValue val = *slot;
-                    val.ownsReference = false;
-                    return val;
-                }
+                RValue value;
+                if (tryReadInstanceVarOrStatic(ctx, targetInstance, structVarID, &access, &value))
+                    return value;
             }
         }
-        // For object/instance references, temporarily swap currentInstance so VMBuiltins reads the correct instance
-        Instance* savedInstance = (Instance*) ctx->currentInstance;
-        bool needsInstanceSwap = (instanceType >= 0) || (instanceType == INSTANCE_OTHER);
-        if (needsInstanceSwap) ctx->currentInstance = targetInstance;
-        RValue result = VMBuiltins_getVariable(ctx, varDef->builtinVarId, varDef->name, access.arrayIndex);
-        if (needsInstanceSwap) ctx->currentInstance = savedInstance;
+
+        RValue result = VMBuiltins_getVariable(ctx, targetInstance, varDef->builtinVarId, varDef->name, access.arrayIndex);
 
 #ifdef ENABLE_VM_TRACING
         if (instanceType == INSTANCE_GLOBAL) {
@@ -882,10 +899,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
 static void writeSingleInstanceVariable(VMContext* ctx, Instance* inst, Variable* varDef, ArrayAccess* access, RValue val) {
     // Built-in variable (varID == -6 sentinel)
     if (varDef->varID == -6) {
-        Instance* savedInstance = (Instance*) ctx->currentInstance;
-        ctx->currentInstance = inst;
-        VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, access->arrayIndex);
-        ctx->currentInstance = savedInstance;
+        VMBuiltins_setVariable(ctx, inst, varDef->builtinVarId, varDef->name, val, access->arrayIndex);
         return;
     }
 
@@ -1085,12 +1099,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
 
     // Check for built-in variable (varID == -6 sentinel)
     if (varDef->varID == -6) {
-        // For object/instance references, temporarily swap currentInstance so VMBuiltins writes the correct instance
-        Instance* savedInstance = (Instance*) ctx->currentInstance;
-        bool needsInstanceSwap = (instanceType >= 0) || (instanceType == INSTANCE_OTHER);
-        if (needsInstanceSwap) ctx->currentInstance = targetInstance;
-        VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, access.arrayIndex);
-        if (needsInstanceSwap) ctx->currentInstance = savedInstance;
+        VMBuiltins_setVariable(ctx, targetInstance, varDef->builtinVarId, varDef->name, val, access.arrayIndex);
 
 #ifdef ENABLE_VM_TRACING
         if (instanceType == INSTANCE_GLOBAL) {
@@ -1480,8 +1489,7 @@ static void handlePop(VMContext* ctx, uint32_t instr, uint8_t type1, uint8_t typ
                 for (int32_t i = snapBase; snapEnd > i; i++) {
                     Instance* inst = runner->instanceSnapshots[i];
                     if (!inst->active) continue;
-                    ctx->currentInstance = inst;
-                    VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, arrayIndex);
+                    VMBuiltins_setVariable(ctx, inst, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
                     VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, inst), "self", varDef->name, val, true, arrayIndex, inst->instanceId, " (builtin, all-instances object write)");
 #endif
@@ -1492,26 +1500,19 @@ static void handlePop(VMContext* ctx, uint32_t instr, uint8_t type1, uint8_t typ
                 // Instance ID reference
                 Instance* target = findInstanceByTarget(ctx, instanceType);
                 if (target != nullptr) {
-                    Instance* savedInstance = (Instance*) ctx->currentInstance;
-                    ctx->currentInstance = target;
-                    VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, arrayIndex);
-                    ctx->currentInstance = savedInstance;
+                    VMBuiltins_setVariable(ctx, target, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
                     VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, target), "self", varDef->name, val, true, arrayIndex, target->instanceId, " (builtin)");
 #endif
                 }
             } else if (instanceType == INSTANCE_OTHER && ctx->otherInstance != nullptr) {
-                Instance* savedInstance = (Instance*) ctx->currentInstance;
-                Instance* otherInst = (Instance*) ctx->otherInstance;
-                ctx->currentInstance = otherInst;
-                VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, arrayIndex);
-                ctx->currentInstance = savedInstance;
+                VMBuiltins_setVariable(ctx, ctx->otherInstance, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
-                VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, otherInst), "self", varDef->name, val, true, arrayIndex, otherInst->instanceId, " (builtin)");
+                VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, ctx->otherInstance), "self", varDef->name, val, true, arrayIndex, ctx->otherInstance->instanceId, " (builtin)");
 #endif
             } else {
                 // INSTANCE_SELF or other special types: use current instance
-                VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, arrayIndex);
+                VMBuiltins_setVariable(ctx, ctx->currentInstance, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
                 Instance* inst = (Instance*) ctx->currentInstance;
                 if (instanceType == INSTANCE_GLOBAL) {
@@ -3592,13 +3593,13 @@ VMContext* VM_create(DataWin* dataWin) {
     // Build selfVarNameMap: varName -> varID for self/instance-scoped variables.
     ctx->selfVarNameMap = nullptr;
     int32_t maxSelfVarID = 0;
-    forEach(Variable, v3, dataWin->vari.variables, dataWin->vari.variableCount) {
-        if (v3->varID >= 0 && (v3->instanceType == INSTANCE_SELF || 0 > v3->instanceType)) {
-            ptrdiff_t existing = shgeti(ctx->selfVarNameMap, (char*) v3->name);
+    forEach(Variable, variable, dataWin->vari.variables, dataWin->vari.variableCount) {
+        if (variable->varID >= 0 && (variable->instanceType == INSTANCE_SELF || 0 > variable->instanceType)) {
+            ptrdiff_t existing = shgeti(ctx->selfVarNameMap, (char*) variable->name);
             if (0 > existing) {
-                shput(ctx->selfVarNameMap, (char*) v3->name, v3->varID);
+                shput(ctx->selfVarNameMap, (char*) safeStrdup(variable->name), variable->varID);
             }
-            if (v3->varID > maxSelfVarID) maxSelfVarID = v3->varID;
+            if (variable->varID > maxSelfVarID) maxSelfVarID = variable->varID;
         }
     }
     ctx->nextDynamicSelfVarID = maxSelfVarID + 1;
@@ -3719,6 +3720,13 @@ void VM_reset(VMContext* ctx) {
     ctx->localVarCount = 0;
     ctx->currentCodeLocalsSlotMap = nullptr;
     ctx->actionRelativeFlag = false;
+
+    if (ctx->dataWin->gen8.wadVersion >= 17) {
+        free(ctx->staticInitialized);
+        free(ctx->staticStructs);
+        ctx->staticInitialized = safeCalloc(ctx->dataWin->code.count, sizeof(bool));
+        ctx->staticStructs = safeCalloc(ctx->dataWin->code.count, sizeof(Instance*));
+    }
 
     fprintf(stderr, "VM: Reset complete (%u global vars cleared)\n", ctx->globalVarCount);
 }
@@ -4481,7 +4489,7 @@ void VM_disassemble(VMContext* ctx, int32_t codeIndex) {
 }
 
 void VM_registerBuiltin(VMContext* ctx, const char* name, BuiltinFunc func) {
-    requireMessage(shgeti(ctx->builtinMap, name) == -1, "Trying to register an already registered builtin function!");
+    requireMessageFormatted(__FILE__, __LINE__, shgeti(ctx->builtinMap, name) == -1, "Trying to register an already registered builtin function! Function Name: %s", name);
     shput(ctx->builtinMap, (char*) name, func);
 }
 
@@ -4515,6 +4523,9 @@ void VM_free(VMContext* ctx) {
     // Free hash maps
     shfree(ctx->codeIndexByName);
     shfree(ctx->globalVarNameMap);
+    repeat(shlen(ctx->selfVarNameMap), i) {
+        free(ctx->selfVarNameMap[i].key);
+    }
     shfree(ctx->selfVarNameMap);
     repeat(shlen(ctx->codeLocalsMap), i) {
         free(ctx->codeLocalsMap[i].key);

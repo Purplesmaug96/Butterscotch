@@ -10,3 +10,4 @@ _android-project
 .cache
 CMakeUserPresets.json
 .devcontainer/
+compat/config.mk

@@ -704,16 +704,29 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
             spr->specialType = true;
             spr->sVersion = BinaryReader_readUint32(reader);
             spr->sSpriteType = BinaryReader_readUint32(reader);
-            if (DataWin_isVersionAtLeast(dw, 2, 0, 0, 0)) {
-                spr->gms2PlaybackSpeed = BinaryReader_readFloat32(reader);
-                spr->gms2PlaybackSpeedType = BinaryReader_readUint32(reader);
-                if (spr->sVersion >= 2) {
-                    BinaryReader_skip(reader, 4); //sequenceOffset;
-                    if (spr->sVersion >= 3) {
-                       nineSliceOffset = BinaryReader_readUint32(reader);
-                    }
+            if (spr->sSpriteType == 0) {
+                // Normal "special" sprite, technically only used for GameMaker: Studio 2+, but some modding tools (like UndertaleModTool) may inject special sprite types,
+                // even though the data.win is NOT GM:S 2+
+                if (DataWin_isVersionAtLeast(dw, 2, 0, 0, 0)) {
+                    spr->gms2PlaybackSpeed = BinaryReader_readFloat32(reader);
+                    spr->gms2PlaybackSpeedType = BinaryReader_readUint32(reader);
+                    if (spr->sVersion >= 2) {
+                        BinaryReader_skip(reader, 4); //sequenceOffset;
+                        if (spr->sVersion >= 3) {
+                            nineSliceOffset = BinaryReader_readUint32(reader);
+                        }
+                    } check = BinaryReader_readUint32(reader);
+                } else {
+                    // Technically should NEVER happen on legit data.wins
+                    check = 0;
                 }
-                check = BinaryReader_readUint32(reader);
+            } else {
+                fprintf(stderr, "DataWin: Detected special sprite type %u (%s), but we don't support it yet!\n", spr->sSpriteType, spr->sSpriteType == 2 ? "Spine" : spr->sSpriteType == 1 ? "SWF" : "Unknown");
+                spr->textureCount = 0;
+                spr->tpagIndices = nullptr;
+                spr->maskCount = 0;
+                spr->masks = nullptr;
+                continue;
             }
         }
 
@@ -920,6 +933,28 @@ static void parseACRV(BinaryReader* reader, DataWin* dw) {
     if (version != 1) {
         fprintf(stderr, "ACRV: unexpected version %u (expected 1)\n", version);
         return;
+    }
+
+    if (!DataWin_isVersionAtLeast(dw, 2, 3, 1, 0)) {
+        size_t saved = BinaryReader_getPosition(reader);
+
+        uint32_t count = BinaryReader_readUint32(reader);
+        if (count == 0) {
+            BinaryReader_seek(reader, saved);
+            return;
+        }
+
+        uint32_t firstPtr = BinaryReader_readUint32(reader);
+        BinaryReader_seek(reader, firstPtr);
+        BinaryReader_skip(reader, 8);
+
+        if (BinaryReader_readUint32(reader) != 0) {
+            DataWin_bumpVersionTo(dw, 2, 3, 1, 0);
+        } else if (BinaryReader_readUint32(reader) == 0) {
+            DataWin_bumpVersionTo(dw, 2, 3, 1, 0);
+        }
+
+        BinaryReader_seek(reader, saved);
     }
 
     uint32_t count;
@@ -2386,14 +2421,15 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
     setvbuf(file, nullptr, _IOFBF, 128 * 1024);
 
     fseek(file, 0, SEEK_END);
-    size_t fileSize = ftell(file);
+    long fileSizeRaw = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    if (fileSize <= 0) {
-        fprintf(stderr, "Invalid file size: %ld\n", fileSize);
+    if (0 >= fileSizeRaw) {
+        fprintf(stderr, "Invalid file size: %ld\n", fileSizeRaw);
         fclose(file);
         exit(1);
     }
+    size_t fileSize = (size_t) fileSizeRaw;
 
     // Allocate and zero-initialize DataWin
     DataWin* dw = safeCalloc(1, sizeof(DataWin));
@@ -2406,7 +2442,7 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
     uint8_t* wholeFileData = nullptr;
     if (options.loadType == DATAWINLOADTYPE_LOAD_IN_MEMORY_AHEAD_OF_TIME) {
         wholeFileData = safeMalloc((size_t) fileSize);
-        fread(wholeFileData, 1, (size_t) fileSize, file);
+        safeFread(wholeFileData, fileSize, file, filePath);
         BinaryReader_setBuffer(&reader, wholeFileData, 0, (size_t) fileSize);
     }
 
