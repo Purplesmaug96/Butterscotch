@@ -6,6 +6,7 @@ undertale*
 deltarune*
 survey_program*
 _android-project
+vendor/nxdk
 .gitignore
 .cache
 CMakeUserPresets.json
