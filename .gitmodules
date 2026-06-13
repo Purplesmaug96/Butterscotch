@@ -1,0 +1,6 @@
+[submodule "cmake-xenon-toolchain"]
+	path = cmake-xenon-toolchain
+	url = https://github.com/billynothingelse/cmake-xenon-toolchain.git
+[submodule "vendor/cmake-xenon-toolchain"]
+	path = vendor/cmake-xenon-toolchain
+	url = https://github.com/billynothingelse/cmake-xenon-toolchain.git
