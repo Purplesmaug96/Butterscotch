@@ -5,6 +5,7 @@ build*/
 undertale*
 deltarune*
 survey_program*
+_android-project
 .gitignore
 .cache
 CMakeUserPresets.json
