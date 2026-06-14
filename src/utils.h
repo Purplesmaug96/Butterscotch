@@ -10,6 +10,8 @@
 
 #include "real_type.h"
 
+#ifndef PLATFORM_XBOX360_XDK
+
 #define forEach(type, item, array, count) \
     for (typeof(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
     for (type* item = &(array)[item##_i_]; item; item = NULL)
@@ -121,6 +123,132 @@ _val; \
     _ptr; \
 })
 
+#else
+
+#ifndef __cplusplus
+#error Things must be compiled as C++ for xbox 360 xdk to avoid C89
+#endif
+
+#define forEach(type, item, array, count) \
+    for (decltype(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
+    for (type* item = &(array)[item##_i_]; item; item = nullptr)
+
+#define forEachIndexed(type, item, index, array, count) \
+    for (decltype(count) index = 0; index < (count); index++) \
+    for (type* item = &(array)[index]; item; item = nullptr)
+
+#define repeat(n, it) for (decltype(n) it = 0; it < (n); ++it)
+
+#define require(condition) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "Requirement failed at %s:%d\n", __FILE__, __LINE__); \
+            abort(); \
+        } \
+    } while (0)
+
+#define requireMessage(condition, message) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "Requirement failed at %s:%d: %s\n", __FILE__, __LINE__, message); \
+            abort(); \
+        } \
+    } while (0)
+
+static inline void requireMessageFormatted(const char *file, int line, bool condition, const char *fmt, ...) {
+    if (condition)
+        return;
+    va_list args;
+    fprintf(stderr, "Requirement failed at %s:%d: ", file, line);
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fputc('\n', stderr);
+    abort();
+}
+
+template <typename T>
+inline T _requireNotNullHelper(T ptr, const char* expr, const char* file, int line) {
+    if (ptr == nullptr) {
+        fprintf(stderr, "%s:%d: requireNotNull failed: '%s'\n", file, line, expr);
+        abort();
+    }
+    return ptr;
+}
+#define requireNotNull(ptr) _requireNotNullHelper((ptr), #ptr, __FILE__, __LINE__)
+
+template <typename T>
+inline T _requireNotNullMessageHelper(T ptr, const char* msg, const char* file, int line) {
+    if (ptr == nullptr) {
+        fprintf(stderr, "%s:%d: requireNotNull failed: %s\n", file, line, msg);
+        abort();
+    }
+    return ptr;
+}
+#define requireNotNullMessage(ptr, msg) _requireNotNullMessageHelper((ptr), (msg), __FILE__, __LINE__)
+
+inline void* _safeMallocHelper(size_t size, const char* file, int line) {
+    void* ptr = malloc(size);
+    if (ptr == nullptr && size > 0) {
+        fprintf(stderr, "FATAL: malloc(%zu) failed at %s:%d\n", size, file, line);
+        abort();
+    }
+    return ptr;
+}
+#define safeMalloc(size) _safeMallocHelper((size), __FILE__, __LINE__)
+
+inline void* _safeCallocHelper(size_t count, size_t size, const char* file, int line) {
+    void* ptr = calloc(count, size);
+    if (ptr == nullptr && count > 0 && size > 0) {
+        fprintf(stderr, "FATAL: calloc(%zu, %zu) failed at %s:%d\n", count, size, file, line);
+        abort();
+    }
+    return ptr;
+}
+#define safeCalloc(count, size) _safeCallocHelper((count), (size), __FILE__, __LINE__)
+
+inline void* _safeReallocHelper(void* ptr, size_t size, const char* file, int line) {
+    void* new_ptr = realloc(ptr, size);
+    if (new_ptr == nullptr && size > 0) {
+        fprintf(stderr, "FATAL: realloc(%zu) failed at %s:%d\n", size, file, line);
+        abort();
+    }
+    return new_ptr;
+}
+#define safeRealloc(ptr, size) _safeReallocHelper((ptr), (size), __FILE__, __LINE__)
+
+inline void* _safeMemalignHelper(size_t alignment, size_t size, const char* file, int line) {
+    // Note: MSVC uses _aligned_malloc, which flips the argument order relative to memalign!
+    void* ptr = _aligned_malloc(size, alignment);
+    if (ptr == nullptr && size > 0) {
+        fprintf(stderr, "FATAL: memalign(%zu, %zu) failed at %s:%d\n", alignment, size, file, line);
+        abort();
+    }
+    return ptr;
+}
+#define safeMemalign(alignment, size) _safeMemalignHelper((alignment), (size), __FILE__, __LINE__)
+
+inline char* _safeStrdupHelper(const char* str, const char* file, int line) {
+    // MSVC standardizes on _strdup to avoid deprecation warnings
+    char* ptr = _strdup(str);
+    if (ptr == nullptr && str != nullptr) {
+        fprintf(stderr, "FATAL: strdup() failed at %s:%d\n", file, line);
+        abort();
+    }
+    return ptr;
+}
+#define safeStrdup(str) _safeStrdupHelper((str), __FILE__, __LINE__)
+
+inline void _safeFreadHelper(void* dst, size_t n, FILE* file, const char* pathForError, const char* srcFile, int srcLine) {
+    if (fread(dst, 1, n, file) != n) {
+        fprintf(stderr, "FATAL: failed to read %zu bytes from %s at %s:%d\n", n, pathForError, srcFile, srcLine);
+        abort();
+    }
+}
+#define safeFread(dst, n, file, pathForError) _safeFreadHelper((dst), (size_t)(n), (file), (pathForError), __FILE__, __LINE__)
+
+#endif
+
 // Truncates to 6 decimal places, matching the HTML5 runner's ClampFloat
 static inline GMLReal clampFloat(GMLReal f) {
     return ((GMLReal) ((int64_t) (f * 1000000.0))) / 1000000.0;
@@ -130,6 +258,10 @@ static inline GMLReal clampFloat(GMLReal f) {
 #define BGR_G(c) (((c) >>  8) & 0xFF)
 #define BGR_R(c) (((c) >>  0) & 0xFF)
 #define BGR_A(c) (((c) >> 24) & 0xFF)
+
+#ifdef PLATFORM_XBOX360_XDK
+#define lrintf(x) (int)(x)
+#endif
 
 // Mixes 2 colors with a blend factor
 static inline int32_t Color_lerp(int32_t color1, int32_t color2, float blending) {
