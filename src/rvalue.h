@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "real_type.h"
 #include "stb_ds.h"
@@ -88,7 +89,7 @@ struct RValue {
     bool ownsReference;
     uint8_t gmlStackType; // GML data type from the instruction that pushed this value
     uint8_t assetRefType; // For RVALUE_ASSETREF: Indicates the asset type (AssetRefType)
-} __attribute__((aligned(8)));
+} ALIGNED(8);
 
 static inline RValue RValue_makeReal(GMLReal val) {
     RValue rv = {0};
@@ -327,7 +328,7 @@ static inline char* RValue_toStringFancy(RValue val) {
 
             // length + quotes (2) + null terminator
             int newLength = strlen(valueAsString) + 3;
-            char* valueWithQuotes = safeCalloc(newLength, sizeof(char));
+            char* valueWithQuotes = (char*)safeCalloc(newLength, sizeof(char));
             snprintf(valueWithQuotes, newLength, "\"%s\"", valueAsString);
 
             free(valueAsString);
@@ -360,7 +361,7 @@ static inline char* RValue_toStringTyped(RValue val) {
         case RVALUE_STRING: {
             const char* str = val.string != nullptr ? val.string : "";
             size_t needed = strlen(str) + 3;
-            char* result = safeCalloc(needed, sizeof(char));
+            char* result = (char*)safeCalloc(needed, sizeof(char));
             snprintf(result, needed, "\"%s\"", str);
             return result;
         }

@@ -2964,11 +2964,7 @@ assignName:
     // A reused slot preserves its name across glDeleteSprite's memset, so we only strdup when the slot is freshly appended (name is still NULL).
     if (!dw->sprt.sprites[newIndex].name) {
         char buf[32];
-		#ifdef PLATFORM_XBOX360_XDK
-		_snprintf(buf, sizeof(buf), "__newsprite%u", newIndex);
-		#else
         snprintf(buf, sizeof(buf), "__newsprite%u", newIndex);
-		#endif
         dw->sprt.sprites[newIndex].name = strdup(buf);
     }
     return newIndex;

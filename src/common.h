@@ -38,3 +38,13 @@
         #define MAYBE_UNUSED
     #endif
 #endif
+
+#ifdef PLATFORM_XBOX360_XDK
+	#include <__compat_math.h>
+	#define snprintf _snprintf
+	#define ALIGNED(x) __declspec(align(x))
+#endif
+
+#ifndef ALIGNED
+	#define ALIGNED(x) __attribute__((aligned(x)))
+#endif
