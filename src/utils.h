@@ -129,15 +129,19 @@ _val; \
 #error Things must be compiled as C++ for xbox 360 xdk to avoid C89
 #endif
 
-#define forEach(type, item, array, count) \
-    for (decltype(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
-    for (type* item = &(array)[item##_i_]; item; item = nullptr)
+#include <type_traits>
 
-#define forEachIndexed(type, item, index, array, count) \
-    for (decltype(count) index = 0; index < (count); index++) \
-    for (type* item = &(array)[index]; item; item = nullptr)
+// Renamed the first parameter from 'type' to 'T' to prevent preprocessor collisions
+#define forEach(T, item, array, count) \
+    for (std::remove_cv<std::remove_reference<decltype(count)>::type>::type item##_i_ = 0; item##_i_ < (count); item##_i_++) \
+    for (T* item = &(array)[item##_i_]; item; item = nullptr)
 
-#define repeat(n, it) for (decltype(n) it = 0; it < (n); ++it)
+#define forEachIndexed(T, item, index, array, count) \
+    for (std::remove_cv<std::remove_reference<decltype(count)>::type>::type index = 0; index < (count); index++) \
+    for (T* item = &(array)[index]; item; item = nullptr)
+
+#define repeat(n, it) \
+    for (std::remove_cv<std::remove_reference<decltype(n)>::type>::type it = 0; it < (n); ++it)
 
 #define require(condition) \
     do { \
