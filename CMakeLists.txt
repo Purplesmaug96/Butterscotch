@@ -8,7 +8,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 set(CMAKE_TOOLCHAIN_FILE vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake)
 endif()
 
-project(butterscotch C)
+project(butterscotch C CXX)
 
 if(PLATFORM STREQUAL "xbox360-xdk")
 include(vendor/cmake-xenon-toolchain/cmake/config.cmake)
@@ -24,7 +24,7 @@ endif()
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 if(PLATFORM STREQUAL "xbox360-xdk")
-    add_compile_options(/nologo /W3 /wd4996 /TP)
+    add_compile_options(/nologo /W3 /wd4996 /TP /Zc:wchar_t)
 else()
     add_compile_options(-Wall -Wextra)
 endif()
@@ -107,7 +107,7 @@ else()
     file(GLOB SOURCES src/*.c)
 endif()
 # Platform specific files builds
-file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
+file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c src/${PLATFORM}/*.cpp)
 
 # OpenGL ES 3.0 / WebGL2 compatibility
 option(ENABLE_GLES "Build the gl_renderer against OpenGL ES 3.0 / WebGL2 instead of desktop GL 4.1 Core" OFF)
@@ -146,7 +146,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
         ${AUDIO_SOURCES}
 		${BZIP2_SOURCES}
     )
-	add_xenon_module(butterscotch cmake/xex-conf.xml ${ALL_XENON_SOURCES})
+	add_xenon_executable(butterscotch cmake/xex-conf.xml ${ALL_XENON_SOURCES})
 	target_sources(butterscotch PRIVATE ${ALL_XENON_SOURCES})
 	target_include_directories(butterscotch PRIVATE vendor/bzip2)
 else()
@@ -690,7 +690,7 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
 	# 	$<$<COMPILE_LANGUAGE:ASM>:-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/libSDLXenon>
 	# )
 
-    # target_link_libraries(butterscotch PRIVATE m)
+    target_link_options(butterscotch PRIVATE)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()
