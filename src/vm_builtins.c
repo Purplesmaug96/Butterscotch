@@ -3862,7 +3862,11 @@ static RValue builtin_environment_get_variable(MAYBE_UNUSED VMContext* ctx, RVal
     char* name = RValue_toString(args[0]);
     if (name == nullptr) return RValue_makeOwnedString(safeStrdup(""));
 
+	#ifdef PLATFORM_XBOX360_XDK
+	const char* value = nullptr;
+	#else
     const char* value = getenv(name);
+	#endif
     free(name);
 
     if (value == nullptr) {
