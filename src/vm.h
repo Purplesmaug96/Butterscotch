@@ -159,7 +159,11 @@ typedef struct VMContext VMContext;
 // ===[ Builtin Functions Manager ]===
 #ifndef BUILTINFUNC_DEFINED
 #define BUILTINFUNC_DEFINED
+#ifdef PLATFORM_XBOX360_XDK
+typedef RValue (__cdecl *BuiltinFunc)(VMContext* ctx, RValue* args, int32_t argCount);
+#else
 typedef RValue (*BuiltinFunc)(VMContext* ctx, RValue* args, int32_t argCount);
+#endif
 #endif
 
 typedef struct {

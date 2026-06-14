@@ -15,8 +15,9 @@
 #include <math.h>
 #include <ctype.h>
 #include <time.h>
+#ifndef _WIN32
 #include <sys/time.h>
-#ifdef _WIN32
+#else
 #include <windows.h>
 #endif
 
@@ -904,7 +905,23 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
             }
             return RValue_makeUndefined();
         }
-        case BUILTIN_VAR_ARGUMENT0 ... BUILTIN_VAR_ARGUMENT15: {
+		// Can't use BUILTIN_VAR_ARGUMENT0 ... BUILTIN_VAR_ARGUMENT15 with Xbox 360 XDK's compiler
+        case BUILTIN_VAR_ARGUMENT0:
+		case BUILTIN_VAR_ARGUMENT1:
+		case BUILTIN_VAR_ARGUMENT2:
+		case BUILTIN_VAR_ARGUMENT3:
+		case BUILTIN_VAR_ARGUMENT4:
+		case BUILTIN_VAR_ARGUMENT5:
+		case BUILTIN_VAR_ARGUMENT6:
+		case BUILTIN_VAR_ARGUMENT7:
+		case BUILTIN_VAR_ARGUMENT8:
+		case BUILTIN_VAR_ARGUMENT9:
+		case BUILTIN_VAR_ARGUMENT10:
+		case BUILTIN_VAR_ARGUMENT11:
+		case BUILTIN_VAR_ARGUMENT12:
+		case BUILTIN_VAR_ARGUMENT13:
+		case BUILTIN_VAR_ARGUMENT14:
+		case BUILTIN_VAR_ARGUMENT15: {
             int argNumber = builtinVarId - BUILTIN_VAR_ARGUMENT0;
             if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > argNumber) {
                 RValue val = ctx->scriptArgs[argNumber];
@@ -1383,11 +1400,11 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             runner->keyboard->lastKey = RValue_toInt32(val);
             return;
         case BUILTIN_VAR_KEYBOARD_STRING: {
-            const char* str = RValue_toString(val); 
-            
+            const char* str = RValue_toString(val);
+
             int32_t len = (int32_t)strlen(str);
             if (len > 1023) len = 1023;
-            
+
             memcpy(runner->keyboard->string, str, len);
             runner->keyboard->string[len] = '\0';
             runner->keyboard->stringLen = len;
@@ -1524,9 +1541,11 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             return;
 
         // Read-only variables (silently ignore with warning)
+		#ifndef PLATFORM_XBOX360_XDK
         case BUILTIN_VAR_OS_TYPE ... BUILTIN_VAR_OS_LLVM_WINPHONE:
         case BUILTIN_VAR_BUFFER_FIXED ... BUILTIN_VAR_BUFFER_SEEK_END:
-        case BUILTIN_VAR_ID:
+        #endif
+		case BUILTIN_VAR_ID:
         case BUILTIN_VAR_OBJECT_INDEX:
         case BUILTIN_VAR_CURRENT_DAY:
         case BUILTIN_VAR_CURRENT_HOUR:
@@ -1541,7 +1560,9 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
         case BUILTIN_VAR_DEBUG_MODE:
         case BUILTIN_VAR_ROOM_FIRST:
         case BUILTIN_VAR_ROOM_LAST:
+		#ifndef PLATFORM_XBOX360_XDK
         case BUILTIN_VAR_GP_FACE1 ... BUILTIN_VAR_GP_AXIS_RV:
+		#endif
             fprintf(stderr, "VM: [%s] Attempted write to read-only built-in '%s'\n", ctx->currentCodeName, name);
             return;
 
@@ -1554,7 +1575,23 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             return;
 
         // Argument variables (argument0..argument15)
-        case BUILTIN_VAR_ARGUMENT0 ... BUILTIN_VAR_ARGUMENT15: {
+        // Can't use BUILTIN_VAR_ARGUMENT0 ... BUILTIN_VAR_ARGUMENT15 with Xbox 360 XDK's compiler
+        case BUILTIN_VAR_ARGUMENT0:
+		case BUILTIN_VAR_ARGUMENT1:
+		case BUILTIN_VAR_ARGUMENT2:
+		case BUILTIN_VAR_ARGUMENT3:
+		case BUILTIN_VAR_ARGUMENT4:
+		case BUILTIN_VAR_ARGUMENT5:
+		case BUILTIN_VAR_ARGUMENT6:
+		case BUILTIN_VAR_ARGUMENT7:
+		case BUILTIN_VAR_ARGUMENT8:
+		case BUILTIN_VAR_ARGUMENT9:
+		case BUILTIN_VAR_ARGUMENT10:
+		case BUILTIN_VAR_ARGUMENT11:
+		case BUILTIN_VAR_ARGUMENT12:
+		case BUILTIN_VAR_ARGUMENT13:
+		case BUILTIN_VAR_ARGUMENT14:
+		case BUILTIN_VAR_ARGUMENT15: {
             int argNumber = builtinVarId - BUILTIN_VAR_ARGUMENT0;
             if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > argNumber) {
                 RValue_free(&ctx->scriptArgs[argNumber]);
@@ -1615,7 +1652,7 @@ static RValue builtin_string_length(MAYBE_UNUSED VMContext* ctx, RValue* args, i
 
 // https://docs.vultr.com/clang/examples/remove-all-characters-in-a-string-except-alphabets
 void filterAlphabets(char *str) {
-    char result[strlen(str) + 1];
+    char* result = (char*)safeMalloc(strlen(str) + 1);
     int j = 0;
     for (int i = 0; str[i] != '\0'; i++) {
         if ((str[i] >= 'a' && str[i] <= 'z') || (str[i] >= 'A' && str[i] <= 'Z')) {
@@ -1624,6 +1661,7 @@ void filterAlphabets(char *str) {
     }
     result[j] = '\0';  // Null-terminate the result string
     strcpy(str, result);  // Optionally copy back to original string
+	free(result);
 }
 
 static RValue builtin_string_letters(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -1745,8 +1783,12 @@ static RValue builtin_sign(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
 
 static RValue builtin_max(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
+	#ifdef PLATFORM_XBOX360_XDK
+	GMLReal result = -((int32_t)((uint32_t)-1));
+	#else
     GMLReal result = -INFINITY;
-    repeat(argCount, i) {
+    #endif
+	repeat(argCount, i) {
         GMLReal val = RValue_toReal(args[i]);
         if (val > result) result = val;
     }
@@ -1755,7 +1797,11 @@ static RValue builtin_max(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t arg
 
 static RValue builtin_min(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
+    #ifdef PLATFORM_XBOX360_XDK
+	GMLReal result = (uint32_t)-1;
+	#else
     GMLReal result = INFINITY;
+    #endif
     repeat(argCount, i) {
         GMLReal val = RValue_toReal(args[i]);
         if (result > val) result = val;
@@ -1918,7 +1964,7 @@ static RValue builtin_string_copy(MAYBE_UNUSED VMContext* ctx, RValue* args, int
         return RValue_makeOwnedString(safeStrdup(""));
     }
 
-    char* str = RValue_toString(args[0]);
+    char* str = (char*)RValue_toString(args[0]);
     int32_t pos = RValue_toInt32(args[1]) - 1; // GMS is 1-based
     int32_t strLen = (int32_t) strlen(str);
 
@@ -1934,7 +1980,7 @@ static RValue builtin_string_copy(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     if (byteEnd > strLen) byteEnd = strLen;
 
     int32_t nbytes = byteEnd - byteStart;
-    char* result = safeMalloc(nbytes + 1);
+    char* result = (char*)safeMalloc(nbytes + 1);
     memcpy(result, str + byteStart, (size_t) nbytes);
     result[nbytes] = '\0';
 
@@ -1963,7 +2009,7 @@ static RValue builtin_string_format(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     int32_t numLen = (int32_t) strlen(numBuf);
     int32_t totalLen = leftPad + numLen;
 
-    char* result = safeMalloc(totalLen + 1);
+    char* result = (char*)safeMalloc(totalLen + 1);
     for (int32_t i = 0; leftPad > i; i++) result[i] = ' ';
     memcpy(result + leftPad, numBuf, (size_t) numLen);
     result[totalLen] = '\0';
@@ -1981,7 +2027,7 @@ static RValue builtin_string_repeat(MAYBE_UNUSED VMContext* ctx, RValue* args, i
 
     size_t strLen = strlen(str);
     size_t totalLen = strLen * (size_t) count;
-    char* result = safeMalloc(totalLen + 1);
+    char* result = (char*)safeMalloc(totalLen + 1);
     repeat(count, i) {
         memcpy(result + i * strLen, str, strLen);
     }
@@ -2053,7 +2099,7 @@ static RValue builtin_string_pos(MAYBE_UNUSED VMContext* ctx, RValue* args, int3
 
 // Appends a copy of [start, start + len) to the array as an owned string, growing it by one slot.
 static void appendSplitSegment(GMLArray* arr, int32_t* count, const char* start, int32_t len) {
-    char* segment = safeMalloc((size_t) len + 1);
+    char* segment = (char*)safeMalloc((size_t) len + 1);
     if (len > 0) memcpy(segment, start, (size_t) len);
     segment[len] = '\0';
     GMLArray_growTo(arr, *count + 1);
@@ -2132,7 +2178,7 @@ static RValue builtin_string_char_at(MAYBE_UNUSED VMContext* ctx, RValue* args, 
     int32_t byteNext = byteStart;
     TextUtils_decodeUtf8(str, strLen, &byteNext);
     int32_t nbytes = byteNext - byteStart;
-    char* out = safeMalloc(nbytes + 1);
+    char* out = (char*)safeMalloc(nbytes + 1);
     memcpy(out, str + byteStart, (size_t) nbytes);
     out[nbytes] = '\0';
     free(str);
@@ -2155,7 +2201,7 @@ static RValue builtin_string_delete(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     if (byteEnd > strLen) byteEnd = strLen;
 
     int32_t removeLen = byteEnd - byteStart;
-    char* result = safeMalloc(strLen - removeLen + 1);
+    char* result = (char*)safeMalloc(strLen - removeLen + 1);
     memcpy(result, str, (size_t) byteStart);
     memcpy(result + byteStart, str + byteEnd, (size_t) (strLen - byteEnd));
     result[strLen - removeLen] = '\0';
@@ -2177,7 +2223,7 @@ static RValue builtin_string_insert(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     int32_t bytePos = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
     if (bytePos > strLen) bytePos = strLen;
 
-    char* result = safeMalloc(strLen + subLen + 1);
+    char* result = (char*)safeMalloc(strLen + subLen + 1);
     memcpy(result, str, (size_t) bytePos);
     memcpy(result + bytePos, substr, (size_t) subLen);
     memcpy(result + bytePos + subLen, str + bytePos, (size_t) (strLen - bytePos));
@@ -2213,7 +2259,7 @@ static RValue builtin_string_replace(MAYBE_UNUSED VMContext* ctx, RValue* args, 
 
     int32_t newLen = strLen - needleLen + replacementLen;
     int32_t before = (int32_t) (appearance - str);
-    char *outputString = safeMalloc(newLen + 1);
+    char *outputString = (char*)safeMalloc(newLen + 1);
 
     memcpy(outputString, str, before);
     memcpy(outputString + before, replacement, replacementLen);
@@ -2246,7 +2292,7 @@ static RValue builtin_string_replace_all(MAYBE_UNUSED VMContext* ctx, RValue* ar
 
     int32_t strLen = (int32_t) strlen(str);
     int32_t resultLen = strLen + count * (replacementLen - needleLen);
-    char* result = safeMalloc(resultLen + 1);
+    char* result = (char*)safeMalloc(resultLen + 1);
     char* out = result;
     p = str;
     const char* match;
@@ -2524,7 +2570,7 @@ static bool rvalueIsMatrix(RValue rv) {
     if (rv.type != RVALUE_ARRAY) return false;
     if (GMLArray_length1D(rv.array) != 16) return false;
     repeat (16, i) {
-        RValueType type = GMLArray_slot(rv.array, i)->type;
+        RValueType type = (RValueType)GMLArray_slot(rv.array, i)->type;
         if (type != RVALUE_REAL && type != RVALUE_INT32 && type != RVALUE_INT64)
             return false;
     }
@@ -4210,7 +4256,7 @@ static RValue dsStreamReadValue(DsReadStream* s, int32_t version) {
         case DS_STREAM_VALUE_STRING: {
             int32_t len = dsStreamReadS32(s);
             if (s->error || 0 > len || s->pos + len > s->size) { s->error = true; return RValue_makeUndefined(); }
-            char* str = safeMalloc((size_t) len + 1);
+            char* str = (char*)safeMalloc((size_t) len + 1);
             if (len > 0) memcpy(str, s->data + s->pos, (size_t) len);
             str[len] = '\0';
             s->pos += len;
@@ -4274,7 +4320,7 @@ static RValue builtin_ds_list_read(VMContext* ctx, RValue* args, MAYBE_UNUSED in
     if (2 > hexLen || (hexLen & 1) != 0) return RValue_makeBool(false);
 
     int32_t byteLen = hexLen / 2;
-    uint8_t* bytes = safeMalloc((size_t) byteLen);
+    uint8_t* bytes = (uint8_t*)safeMalloc((size_t) byteLen);
     repeat(byteLen, i) {
         int hi = dsHexNibble(hex[i * 2]);
         int lo = dsHexNibble(hex[i * 2 + 1]);
@@ -4400,7 +4446,7 @@ static void dsStreamAppendValues(uint8_t** buf, const RValue* items, int32_t len
 // Consumes "buf" (stb_ds array): hex-encodes it, frees it, and returns the hex as an owned-string RValue.
 static RValue dsStreamFinishToHexString(uint8_t* buf) {
     int32_t byteLen = (int32_t) arrlen(buf);
-    char* hex = safeMalloc((size_t) byteLen * 2 + 1);
+    char* hex = (char*)safeMalloc((size_t) byteLen * 2 + 1);
     static const char HEX_CHARS[] = "0123456789ABCDEF";
     repeat(byteLen, i) {
         hex[i * 2] = HEX_CHARS[(buf[i] >> 4) & 0xF];
@@ -4489,7 +4535,7 @@ static RValue builtin_ds_stack_push(VMContext* ctx, RValue* args, int32_t argCou
     int32_t id = RValue_toInt32(args[0]);
     DsStack* s = dsStackGet(ctx->runner, id);
     if (s == nullptr) return RValue_makeUndefined();
-    
+
     for (int32_t i = argCount - 1; i >= 1; --i) {
         arrput(s->items, RValue_makeIndependent(args[i]));
     }
@@ -4499,13 +4545,13 @@ static RValue builtin_ds_stack_push(VMContext* ctx, RValue* args, int32_t argCou
 static RValue builtin_ds_stack_pop(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t id = RValue_toInt32(args[0]);
     DsStack* s = dsStackGet(ctx->runner, id);
-    
+
     if (s == nullptr || arrlen(s->items) == 0) return RValue_makeReal(0.0);
-    
+
     int32_t lastIdx = arrlen(s->items) - 1;
     RValue head = s->items[lastIdx];
-    arrdel(s->items, lastIdx); 
-    
+    arrdel(s->items, lastIdx);
+
     return head;
 }
 
@@ -4532,11 +4578,11 @@ static RValue builtin_ds_stack_write(VMContext* ctx, RValue* args, MAYBE_UNUSED 
 
 static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t id = RValue_toInt32(args[0]);
-    
+
     if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
         return RValue_makeBool(false);
     }
-    
+
     DsStack* st = dsStackGet(ctx->runner, id);
     if (st == nullptr) return RValue_makeBool(false);
 
@@ -4545,13 +4591,13 @@ static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     if (2 > hexLen || (hexLen & 1) != 0) return RValue_makeBool(false);
 
     int32_t byteLen = hexLen / 2;
-    uint8_t* bytes = safeMalloc((size_t) byteLen);
+    uint8_t* bytes = (uint8_t*)safeMalloc((size_t) byteLen);
     repeat(byteLen, i) {
         int hi = dsHexNibble(hex[i * 2]);
         int lo = dsHexNibble(hex[i * 2 + 1]);
-        if (hi < 0 || lo < 0) { 
-            free(bytes); 
-            return RValue_makeBool(false); 
+        if (hi < 0 || lo < 0) {
+            free(bytes);
+            return RValue_makeBool(false);
         }
         bytes[i] = (uint8_t) ((hi << 4) | lo);
     }
@@ -4559,7 +4605,7 @@ static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     DsReadStream s = {0};
     s.data = bytes;
     s.size = byteLen;
-    
+
     uint32_t magic = dsStreamReadU32(&s);
     int32_t version;
     if (magic == 102) {
@@ -4572,9 +4618,9 @@ static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     }
 
     int32_t len = dsStreamReadS32(&s);
-    if (s.error || 0 > len) { 
-        free(bytes); 
-        return RValue_makeBool(false); 
+    if (s.error || 0 > len) {
+        free(bytes);
+        return RValue_makeBool(false);
     }
 
     // Replace stack contents
@@ -4586,10 +4632,10 @@ static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 
     repeat(len, i) {
         RValue v = dsStreamReadValue(&s, version);
-        if (s.error) { 
-            RValue_free(&v); 
-            free(bytes); 
-            return RValue_makeBool(false); 
+        if (s.error) {
+            RValue_free(&v);
+            free(bytes);
+            return RValue_makeBool(false);
         }
         arrput(st->items, v);
     }
@@ -4723,7 +4769,7 @@ static RValue builtin_ds_queue_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     if (2 > hexLen || (hexLen & 1) != 0) return RValue_makeBool(false);
 
     int32_t byteLen = hexLen / 2;
-    uint8_t* bytes = safeMalloc((size_t) byteLen);
+    uint8_t* bytes = (uint8_t*)safeMalloc((size_t) byteLen);
     repeat(byteLen, i) {
         int hi = dsHexNibble(hex[i * 2]);
         int lo = dsHexNibble(hex[i * 2 + 1]);
@@ -6096,7 +6142,9 @@ static RValue builtin_file_text_close(VMContext* ctx, RValue* args, int32_t argC
     free(file->content);
     free(file->writeBuffer);
     free(file->filePath);
+	#ifndef PLATFORM_XBOX360_XDK
     *file = (OpenTextFile) {0};
+	#endif
     return RValue_makeUndefined();
 }
 
@@ -6119,7 +6167,7 @@ static RValue builtin_file_text_read_string(VMContext* ctx, RValue* args, int32_
     }
 
     int32_t len = file->readPos - start;
-    char* result = safeMalloc((size_t) len + 1);
+    char* result = (char*)safeMalloc((size_t) len + 1);
     memcpy(result, file->content + start, (size_t) len);
     result[len] = '\0';
     return RValue_makeOwnedString(result);
@@ -6154,7 +6202,7 @@ static RValue builtin_file_text_readln(VMContext* ctx, RValue* args, int32_t arg
     }
 
     // Now we copy it because we already know the size of the string!
-    char* string = safeMalloc(size + 1); // +1 because the last one is null
+    char* string = (char*)safeMalloc(size + 1); // +1 because the last one is null
     memcpy(string, file->content + file->readPos, size);
     string[size] = '\0';
     file->readPos = readPos;
@@ -6192,7 +6240,7 @@ static RValue builtin_file_text_write_string(VMContext* ctx, RValue* args, int32
     char* str = RValue_toString(args[1]);
     size_t oldLen = strlen(file->writeBuffer);
     size_t addLen = strlen(str);
-    file->writeBuffer = safeRealloc(file->writeBuffer, oldLen + addLen + 1);
+    file->writeBuffer = (char*)safeRealloc(file->writeBuffer, oldLen + addLen + 1);
     memcpy(file->writeBuffer + oldLen, str, addLen);
     file->writeBuffer[oldLen + addLen] = '\0';
     free(str);
@@ -6210,7 +6258,7 @@ static RValue builtin_file_text_writeln(VMContext* ctx, RValue* args, int32_t ar
     if (!file->isWriteMode) return RValue_makeUndefined();
 
     size_t oldLen = strlen(file->writeBuffer);
-    file->writeBuffer = safeRealloc(file->writeBuffer, oldLen + 2);
+    file->writeBuffer = (char*)safeRealloc(file->writeBuffer, oldLen + 2);
     file->writeBuffer[oldLen] = '\n';
     file->writeBuffer[oldLen + 1] = '\0';
 
@@ -6229,7 +6277,7 @@ static RValue builtin_file_text_write_real(VMContext* ctx, RValue* args, int32_t
     char* str = RValue_toString(args[1]);
     size_t oldLen = strlen(file->writeBuffer);
     size_t addLen = strlen(str);
-    file->writeBuffer = safeRealloc(file->writeBuffer, oldLen + addLen + 1);
+    file->writeBuffer = (char*)safeRealloc(file->writeBuffer, oldLen + addLen + 1);
     memcpy(file->writeBuffer + oldLen, str, addLen);
     file->writeBuffer[oldLen + addLen] = '\0';
     free(str);
@@ -6394,7 +6442,9 @@ static RValue builtin_file_bin_close(VMContext* ctx, RValue* args, int32_t argCo
     OpenBinaryFile* file = getBinaryFile(runner, RValue_toInt32(args[0]));
     if (file == nullptr) return RValue_makeUndefined();
     runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-    *file = (OpenBinaryFile) {0};
+    #ifndef PLATFORM_XBOX360_XDK
+	*file = (OpenBinaryFile) {0};
+	#endif
     return RValue_makeUndefined();
 }
 
@@ -6529,7 +6579,7 @@ static RValue builtin_keyboard_unset_map(VMContext* ctx, MAYBE_UNUSED RValue* ar
 }
 
 // Mouse functions
-static RValue builtinDeviceMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {   
+static RValue builtinDeviceMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeBool(false);
     Runner* runner = (Runner*) ctx->runner;
 
@@ -7571,7 +7621,7 @@ static RValue builtin_action_set_vspeed(VMContext* ctx, MAYBE_UNUSED RValue* arg
 static int32_t gmlBufferCreate(Runner* runner, int32_t size, int32_t type, int32_t alignment) {
     GmlBuffer buf = {0};
     buf.size = size > 0 ? size : 1;
-    buf.data = safeCalloc((size_t) buf.size, 1);
+    buf.data = (uint8_t*)safeCalloc((size_t) buf.size, 1);
     buf.position = 0;
     buf.usedSize = (type == GML_BUFFER_GROW) ? 0 : buf.size;
     buf.alignment = alignment > 0 ? alignment : 1;
@@ -7601,7 +7651,7 @@ static void gmlBufferEnsureSize(GmlBuffer* buf, int32_t newSize) {
     // Double or use newSize, whichever is larger
     int32_t newAlloc = buf->size * 2;
     if (newAlloc < newSize) newAlloc = newSize;
-    buf->data = safeRealloc(buf->data, (size_t) newAlloc);
+    buf->data = (uint8_t*)safeRealloc(buf->data, (size_t) newAlloc);
     memset(buf->data + buf->size, 0, (size_t) (newAlloc - buf->size));
     buf->size = newAlloc;
 }
@@ -7812,7 +7862,7 @@ static RValue builtin_buffer_read(MAYBE_UNUSED VMContext* ctx, RValue* args, MAY
                 buf->position++;
             }
             int32_t len = buf->position - start;
-            char* str = safeMalloc((size_t) len + 1);
+            char* str = (char*)safeMalloc((size_t) len + 1);
             memcpy(str, buf->data + start, (size_t) len);
             str[len] = '\0';
             // Skip past the null terminator
@@ -7825,7 +7875,7 @@ static RValue builtin_buffer_read(MAYBE_UNUSED VMContext* ctx, RValue* args, MAY
             int32_t start = buf->position;
             int32_t len = buf->size - start;
             if (0 > len) len = 0;
-            char* str = safeMalloc((size_t) len + 1);
+            char* str = (char*)safeMalloc((size_t) len + 1);
             if (len > 0) memcpy(str, buf->data + start, (size_t) len);
             str[len] = '\0';
             buf->position = buf->size;
@@ -7960,7 +8010,7 @@ static RValue builtin_buffer_save_ext(MAYBE_UNUSED VMContext* ctx, RValue* args,
 static char* gmlAsyncBufferResolvePath(const char* groupName, const char* filename) {
     if (groupName == nullptr || groupName[0] == '\0') return safeStrdup(filename);
     size_t length = strlen(groupName) + 1 + strlen(filename) + 1;
-    char* path = safeMalloc(length);
+    char* path = (char*)safeMalloc(length);
     snprintf(path, length, "%s/%s", groupName, filename);
     return path;
 }
@@ -8100,7 +8150,7 @@ static RValue builtin_filename_change_ext(MAYBE_UNUSED VMContext* ctx, MAYBE_UNU
 
     if (last != nullptr && last != 0) {
         long index = last - fname;
-        char* new_name = safeMalloc(index + strlen(newext) + 1);
+        char* new_name = (char*)safeMalloc(index + strlen(newext) + 1);
         memcpy(new_name, fname, (size_t) index);
         memcpy(new_name + index, newext, (size_t) strlen(newext));
         new_name[index + strlen(newext)] = '\0';
@@ -8139,7 +8189,7 @@ static RValue builtin_buffer_base64_encode(MAYBE_UNUSED VMContext* ctx, RValue* 
         size = (size_t)(maxBoundary - offset);
     }
 
-    char* out = safeMalloc(BASE64_ENCODE_OUT_SIZE(size));
+    char* out = (char*)safeMalloc(BASE64_ENCODE_OUT_SIZE(size));
     base64_encode((const unsigned char*) buf->data + offset, size, out);
     return RValue_makeOwnedString(out);
 }
@@ -8150,7 +8200,7 @@ static RValue builtin_buffer_base64_decode(MAYBE_UNUSED VMContext* ctx, RValue* 
     char* input = RValue_toString(args[1]);
     unsigned int inLen = (unsigned int) strlen(input);
     size_t outLen = BASE64_DECODE_OUT_SIZE(inLen);
-    uint8_t* out = safeMalloc(outLen);
+    uint8_t* out = (uint8_t*)safeMalloc(outLen);
     base64_decode(input, inLen, out);
     free(input);
     int32_t id = gmlBufferCreate(runner, outLen, GML_BUFFER_GROW, 1);
@@ -8166,7 +8216,7 @@ static RValue builtin_base64_encode(MAYBE_UNUSED VMContext* ctx, RValue* args, M
     if (1 > argCount) return RValue_makeOwnedString(safeStrdup(""));
     char* input = RValue_toString(args[0]);
     unsigned int inLen = (unsigned int) strlen(input);
-    char* out = safeMalloc(BASE64_ENCODE_OUT_SIZE(inLen));
+    char* out = (char*)safeMalloc(BASE64_ENCODE_OUT_SIZE(inLen));
     base64_encode((const unsigned char*) input, inLen, out);
     free(input);
     return RValue_makeOwnedString(out);
@@ -8177,7 +8227,7 @@ static RValue builtin_base64_decode(MAYBE_UNUSED VMContext* ctx, RValue* args, M
     char* input = RValue_toString(args[0]);
     unsigned int inLen = (unsigned int) strlen(input);
     unsigned int outCap = BASE64_DECODE_OUT_SIZE(inLen);
-    unsigned char* out = safeMalloc(outCap + 1);
+    unsigned char* out = (unsigned char*)safeMalloc(outCap + 1);
     unsigned int outLen = base64_decode(input, inLen, out);
     out[outLen] = '\0';
     free(input);
@@ -8202,7 +8252,7 @@ static RValue builtin_buffer_md5(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYB
     unsigned char digest[16];
     MD5Final(digest, &mctx);
 
-    char* hex = safeMalloc(33);
+    char* hex = (char*)safeMalloc(33);
     for (int32_t i = 0; 16 > i; i++) {
         sprintf(&hex[i * 2], "%02x", digest[i]);
     }
@@ -8228,7 +8278,7 @@ static RValue builtin_buffer_sha1(MAYBE_UNUSED VMContext* ctx, RValue* args, MAY
     unsigned char digest[20];
     SHA1Final(digest, &sctx);
 
-    char* hex = safeMalloc(41);
+    char* hex = (char*)safeMalloc(41);
     for (int32_t i = 0; 20 > i; i++) {
         sprintf(&hex[i * 2], "%02x", digest[i]);
     }
@@ -9178,18 +9228,18 @@ static RValue builtin_draw_get_font(VMContext* ctx, MAYBE_UNUSED RValue* args, M
 
 static RValue builtin_motion_add(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
-    
+
     Instance* inst = ctx->currentInstance;
     if (inst == nullptr) return RValue_makeUndefined();
-    
+
     GMLReal dir = RValue_toReal(args[0]);
     GMLReal spd = RValue_toReal(args[1]);
     GMLReal rad = dir * (M_PI / 180.0);
-    
+
     inst->hspeed += (float)(GMLReal_cos(rad) * spd);
     inst->vspeed += (float)(-GMLReal_sin(rad) * spd);
     Instance_computeSpeedFromComponents(inst);
-    
+
     return RValue_makeUndefined();
 }
 
@@ -11174,7 +11224,7 @@ static RValue builtin_tile_add(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_
 
     uint32_t newId = runner->nextInstanceId++;
     uint32_t newCount = room->tileCount + 1;
-    room->tiles = safeRealloc(room->tiles, newCount * sizeof(RoomTile));
+    room->tiles = (RoomTile*)safeRealloc(room->tiles, newCount * sizeof(RoomTile));
     RoomTile* tile = &room->tiles[room->tileCount];
     tile->x = RValue_toInt32(args[5]);
     tile->y = RValue_toInt32(args[6]);
@@ -11574,7 +11624,7 @@ static RValue builtin_layer_create(VMContext* ctx, RValue* args, int32_t argCoun
         name = RValue_toString(args[1]);
     } else {
         // Technically could be smaller, but let's be safe
-        char* generatedName = safeMalloc(16);
+        char* generatedName = (char*)safeMalloc(16);
         snprintf(generatedName, 16, "_layer_%x", id);
         name = generatedName;
     }
@@ -11618,7 +11668,7 @@ static RValue builtin_layer_background_create(VMContext* ctx, RValue* args, MAYB
     if (runtimeLayer == nullptr)
         return RValue_makeReal(-1.0);
 
-    RuntimeBackgroundElement* bg = safeMalloc(sizeof(RuntimeBackgroundElement));
+    RuntimeBackgroundElement* bg = (RuntimeBackgroundElement*)safeMalloc(sizeof(RuntimeBackgroundElement));
     bg->spriteIndex = spriteIndex;
     bg->visible = true;
     bg->htiled = false;
@@ -13481,7 +13531,7 @@ static RValue builtin_object_set_visible(VMContext* ctx, RValue* args, int32_t a
 
 static RValue builtin_object_is_ancestor(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
-    
+
     int32_t id = RValue_toInt32(args[0]);
     int32_t ancestorId = RValue_toInt32(args[1]);
 
@@ -13534,7 +13584,7 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
 
     // Allocate glyphs (+ 1 for synthetic space if needed)
     uint32_t totalGlyphs = hasSpace ? glyphCount : glyphCount + 1;
-    FontGlyph* glyphs = safeMalloc(totalGlyphs * sizeof(FontGlyph));
+    FontGlyph* glyphs = (FontGlyph*)safeMalloc(totalGlyphs * sizeof(FontGlyph));
 
     repeat(glyphCount, i) {
         int32_t tpagIdx = sprite->tpagIndices[i];
@@ -13583,7 +13633,7 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
     // Grow the font array and create the new font
     uint32_t newFontIndex = dw->font.count;
     dw->font.count++;
-    dw->font.fonts = safeRealloc(dw->font.fonts, dw->font.count * sizeof(Font));
+    dw->font.fonts = (Font*)safeRealloc(dw->font.fonts, dw->font.count * sizeof(Font));
 
     Font* font = &dw->font.fonts[newFontIndex];
     font->name = "sprite_font";
@@ -13902,7 +13952,7 @@ static RValue builtin_sprite_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     int32_t subimg = RValue_toInt32(args[1]);
     if (0 > subimg && ctx->currentInstance != nullptr) {
         subimg = (int32_t) ctx->currentInstance->imageIndex;
-    }  
+    }
     int32_t TpagIndex = Renderer_resolveTPAGIndex(ctx->dataWin, spriteIndex, subimg);
     //I think default texture page size is 2048x2048?
     float DivW = 0.00048828125; //1.0/2048.0
@@ -13910,7 +13960,7 @@ static RValue builtin_sprite_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, 
 
     DivW = ctx->runner->renderer->vtable->textureGetTexelWidth(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
     DivH = ctx->runner->renderer->vtable->textureGetTexelHeight(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
-    
+
     float left = (float) ctx->dataWin->tpag.items[TpagIndex].sourceX * DivW;
     float top = (float) ctx->dataWin->tpag.items[TpagIndex].sourceY * DivH;
     float right = (float)  left + (ctx->dataWin->tpag.items[TpagIndex].sourceWidth * DivW);
@@ -13939,7 +13989,7 @@ static RValue builtin_sprite_get_texture(VMContext* ctx, MAYBE_UNUSED RValue* ar
     int32_t subimg = RValue_toInt32(args[1]);
     if (0 > subimg && ctx->currentInstance != nullptr) {
         subimg = (int32_t) ctx->currentInstance->imageIndex;
-    }  
+    }
     int32_t TpagIndex = Renderer_resolveTPAGIndex(ctx->dataWin, spriteIndex, subimg);
 
     return RValue_makeInt32(ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
@@ -13951,16 +14001,16 @@ static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MA
     //if (0 > fontIndex || ctx->dataWin->font.count <= (uint32_t) fontIndex) return;
 
     Font* font = &ctx->runner->dataWin->font.fonts[fontIndex];
-    
+
 
     int32_t TpagIndex = font->tpagIndex;
     //I think default texture page size is 2048x2048?
     float DivW = 0.00048828125; //1.0/2048.0
     float DivH = 0.00048828125; //1.0/2048.0
-    
+
     DivW = ctx->runner->renderer->vtable->textureGetTexelWidth(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
     DivH = ctx->runner->renderer->vtable->textureGetTexelHeight(ctx->runner->renderer, ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
-    
+
     float left = (float) ctx->dataWin->tpag.items[TpagIndex].sourceX * DivW;
     float top = (float) ctx->dataWin->tpag.items[TpagIndex].sourceY * DivH;
     float right = (float)  left + (ctx->dataWin->tpag.items[TpagIndex].sourceWidth * DivW);
@@ -14017,947 +14067,947 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     const bool isGMS2 = DataWin_isVersionAtLeast(ctx->dataWin, 2, 0, 0, 0);
 
     // Core output
-    VM_registerBuiltin(ctx, "show_debug_message", builtin_show_debug_message);
+    VM_registerBuiltin(ctx, "show_debug_message", (BuiltinFunc)builtin_show_debug_message);
 
     // String functions
-    VM_registerBuiltin(ctx, "string_length", builtin_string_length);
-    VM_registerBuiltin(ctx, "string_letters", builtin_string_letters);
-    VM_registerBuiltin(ctx, "string_digits", builtin_string_digits);
-    VM_registerBuiltin(ctx, "string_lettersdigits", builtin_string_lettersdigits);
-    VM_registerBuiltin(ctx, "string_byte_length", builtin_string_byte_length);
-    VM_registerBuiltin(ctx, "string", builtin_string);
-    VM_registerBuiltin(ctx, "string_upper", builtin_string_upper);
-    VM_registerBuiltin(ctx, "string_lower", builtin_string_lower);
-    VM_registerBuiltin(ctx, "string_copy", builtin_string_copy);
-    VM_registerBuiltin(ctx, "string_pos", builtin_string_pos);
-    VM_registerBuiltin(ctx, "string_char_at", builtin_string_char_at);
-    VM_registerBuiltin(ctx, "string_split", builtin_string_split);
-    VM_registerBuiltin(ctx, "string_delete", builtin_string_delete);
-    VM_registerBuiltin(ctx, "string_insert", builtin_string_insert);
-    VM_registerBuiltin(ctx, "string_replace", builtin_string_replace);
-    VM_registerBuiltin(ctx, "string_replace_all", builtin_string_replace_all);
-    VM_registerBuiltin(ctx, "string_repeat", builtin_string_repeat);
-    VM_registerBuiltin(ctx, "string_format", builtin_string_format);
-    VM_registerBuiltin(ctx, "string_count", builtin_string_count);
-    VM_registerBuiltin(ctx, "ord", builtin_ord);
-    VM_registerBuiltin(ctx, "chr", builtin_chr);
+    VM_registerBuiltin(ctx, "string_length", (BuiltinFunc)builtin_string_length);
+    VM_registerBuiltin(ctx, "string_letters", (BuiltinFunc)builtin_string_letters);
+    VM_registerBuiltin(ctx, "string_digits", (BuiltinFunc)builtin_string_digits);
+    VM_registerBuiltin(ctx, "string_lettersdigits", (BuiltinFunc)builtin_string_lettersdigits);
+    VM_registerBuiltin(ctx, "string_byte_length", (BuiltinFunc)builtin_string_byte_length);
+    VM_registerBuiltin(ctx, "string", (BuiltinFunc)builtin_string);
+    VM_registerBuiltin(ctx, "string_upper", (BuiltinFunc)builtin_string_upper);
+    VM_registerBuiltin(ctx, "string_lower", (BuiltinFunc)builtin_string_lower);
+    VM_registerBuiltin(ctx, "string_copy", (BuiltinFunc)builtin_string_copy);
+    VM_registerBuiltin(ctx, "string_pos", (BuiltinFunc)builtin_string_pos);
+    VM_registerBuiltin(ctx, "string_char_at", (BuiltinFunc)builtin_string_char_at);
+    VM_registerBuiltin(ctx, "string_split", (BuiltinFunc)builtin_string_split);
+    VM_registerBuiltin(ctx, "string_delete", (BuiltinFunc)builtin_string_delete);
+    VM_registerBuiltin(ctx, "string_insert", (BuiltinFunc)builtin_string_insert);
+    VM_registerBuiltin(ctx, "string_replace", (BuiltinFunc)builtin_string_replace);
+    VM_registerBuiltin(ctx, "string_replace_all", (BuiltinFunc)builtin_string_replace_all);
+    VM_registerBuiltin(ctx, "string_repeat", (BuiltinFunc)builtin_string_repeat);
+    VM_registerBuiltin(ctx, "string_format", (BuiltinFunc)builtin_string_format);
+    VM_registerBuiltin(ctx, "string_count", (BuiltinFunc)builtin_string_count);
+    VM_registerBuiltin(ctx, "ord", (BuiltinFunc)builtin_ord);
+    VM_registerBuiltin(ctx, "chr", (BuiltinFunc)builtin_chr);
 
     // Type functions
-    VM_registerBuiltin(ctx, "real", builtin_real);
-    VM_registerBuiltin(ctx, "is_string", builtin_is_string);
-    VM_registerBuiltin(ctx, "is_real", builtin_is_real);
-    VM_registerBuiltin(ctx, "is_nan", builtin_is_nan);
-    VM_registerBuiltin(ctx, "is_infinity", builtin_is_infinity);
-    VM_registerBuiltin(ctx, "is_numeric", builtin_is_real);
-    VM_registerBuiltin(ctx, "is_bool", builtin_is_bool);
-    VM_registerBuiltin(ctx, "is_array", builtin_is_array);
-    VM_registerBuiltin(ctx, "is_struct", builtin_is_struct);
-    VM_registerBuiltin(ctx, "is_int32", builtin_is_int32);
-    VM_registerBuiltin(ctx, "is_int64", builtin_is_int64);
-    VM_registerBuiltin(ctx, "is_undefined", builtin_is_undefined);
+    VM_registerBuiltin(ctx, "real", (BuiltinFunc)builtin_real);
+    VM_registerBuiltin(ctx, "is_string", (BuiltinFunc)builtin_is_string);
+    VM_registerBuiltin(ctx, "is_real", (BuiltinFunc)builtin_is_real);
+    VM_registerBuiltin(ctx, "is_nan", (BuiltinFunc)builtin_is_nan);
+    VM_registerBuiltin(ctx, "is_infinity", (BuiltinFunc)builtin_is_infinity);
+    VM_registerBuiltin(ctx, "is_numeric", (BuiltinFunc)builtin_is_real);
+    VM_registerBuiltin(ctx, "is_bool", (BuiltinFunc)builtin_is_bool);
+    VM_registerBuiltin(ctx, "is_array", (BuiltinFunc)builtin_is_array);
+    VM_registerBuiltin(ctx, "is_struct", (BuiltinFunc)builtin_is_struct);
+    VM_registerBuiltin(ctx, "is_int32", (BuiltinFunc)builtin_is_int32);
+    VM_registerBuiltin(ctx, "is_int64", (BuiltinFunc)builtin_is_int64);
+    VM_registerBuiltin(ctx, "is_undefined", (BuiltinFunc)builtin_is_undefined);
 #if IS_WAD17_OR_HIGHER_ENABLED
-    VM_registerBuiltin(ctx, "is_method", builtin_is_method);
-    VM_registerBuiltin(ctx, "is_callable", builtin_is_callable);
+    VM_registerBuiltin(ctx, "is_method", (BuiltinFunc)builtin_is_method);
+    VM_registerBuiltin(ctx, "is_callable", (BuiltinFunc)builtin_is_callable);
 #endif
 
     // Math functions
-    VM_registerBuiltin(ctx, "floor", builtin_floor);
-    VM_registerBuiltin(ctx, "ceil", builtin_ceil);
-    VM_registerBuiltin(ctx, "round", builtin_round);
-    VM_registerBuiltin(ctx, "abs", builtin_abs);
-    VM_registerBuiltin(ctx, "frac", builtin_frac);
-    VM_registerBuiltin(ctx, "sign", builtin_sign);
-    VM_registerBuiltin(ctx, "max", builtin_max);
-    VM_registerBuiltin(ctx, "min", builtin_min);
-    VM_registerBuiltin(ctx, "median", builtin_median);
-    VM_registerBuiltin(ctx, "power", builtin_power);
-    VM_registerBuiltin(ctx, "sqrt", builtin_sqrt);
-    VM_registerBuiltin(ctx, "log2", builtin_log2);
-    VM_registerBuiltin(ctx, "sqr", builtin_sqr);
-    VM_registerBuiltin(ctx, "sin", builtin_sin);
-    VM_registerBuiltin(ctx, "arccos", builtin_arccos);
-    VM_registerBuiltin(ctx, "arcsin", builtin_arcsin);
-    VM_registerBuiltin(ctx, "arctan", builtin_arctan);
-    VM_registerBuiltin(ctx, "cos", builtin_cos);
-    VM_registerBuiltin(ctx, "dsin", builtin_dsin);
-    VM_registerBuiltin(ctx, "dcos", builtin_dcos);
-    VM_registerBuiltin(ctx, "darctan", builtin_darctan);
-    VM_registerBuiltin(ctx, "darctan2", builtin_darctan2);
-    VM_registerBuiltin(ctx, "degtorad", builtin_degtorad);
-    VM_registerBuiltin(ctx, "radtodeg", builtin_radtodeg);
-    VM_registerBuiltin(ctx, "clamp", builtin_clamp);
-    VM_registerBuiltin(ctx, "lerp", builtin_lerp);
-    VM_registerBuiltin(ctx, "point_distance", builtin_point_distance);
-    VM_registerBuiltin(ctx, "point_in_rectangle", builtin_point_in_rectangle);
-    VM_registerBuiltin(ctx, "point_in_circle", builtin_point_in_circle);
-    VM_registerBuiltin(ctx, "point_direction", builtin_point_direction);
-    VM_registerBuiltin(ctx, "angle_difference", builtin_angle_difference);
-    VM_registerBuiltin(ctx, "distance_to_point", builtin_distance_to_point);
-    VM_registerBuiltin(ctx, "distance_to_object", builtin_distance_to_object);
-    VM_registerBuiltin(ctx, "move_towards_point", builtin_move_towards_point);
+    VM_registerBuiltin(ctx, "floor", (BuiltinFunc)builtin_floor);
+    VM_registerBuiltin(ctx, "ceil", (BuiltinFunc)builtin_ceil);
+    VM_registerBuiltin(ctx, "round", (BuiltinFunc)builtin_round);
+    VM_registerBuiltin(ctx, "abs", (BuiltinFunc)builtin_abs);
+    VM_registerBuiltin(ctx, "frac", (BuiltinFunc)builtin_frac);
+    VM_registerBuiltin(ctx, "sign", (BuiltinFunc)builtin_sign);
+    VM_registerBuiltin(ctx, "max", (BuiltinFunc)builtin_max);
+    VM_registerBuiltin(ctx, "min", (BuiltinFunc)builtin_min);
+    VM_registerBuiltin(ctx, "median", (BuiltinFunc)builtin_median);
+    VM_registerBuiltin(ctx, "power", (BuiltinFunc)builtin_power);
+    VM_registerBuiltin(ctx, "sqrt", (BuiltinFunc)builtin_sqrt);
+    VM_registerBuiltin(ctx, "log2", (BuiltinFunc)builtin_log2);
+    VM_registerBuiltin(ctx, "sqr", (BuiltinFunc)builtin_sqr);
+    VM_registerBuiltin(ctx, "sin", (BuiltinFunc)builtin_sin);
+    VM_registerBuiltin(ctx, "arccos", (BuiltinFunc)builtin_arccos);
+    VM_registerBuiltin(ctx, "arcsin", (BuiltinFunc)builtin_arcsin);
+    VM_registerBuiltin(ctx, "arctan", (BuiltinFunc)builtin_arctan);
+    VM_registerBuiltin(ctx, "cos", (BuiltinFunc)builtin_cos);
+    VM_registerBuiltin(ctx, "dsin", (BuiltinFunc)builtin_dsin);
+    VM_registerBuiltin(ctx, "dcos", (BuiltinFunc)builtin_dcos);
+    VM_registerBuiltin(ctx, "darctan", (BuiltinFunc)builtin_darctan);
+    VM_registerBuiltin(ctx, "darctan2", (BuiltinFunc)builtin_darctan2);
+    VM_registerBuiltin(ctx, "degtorad", (BuiltinFunc)builtin_degtorad);
+    VM_registerBuiltin(ctx, "radtodeg", (BuiltinFunc)builtin_radtodeg);
+    VM_registerBuiltin(ctx, "clamp", (BuiltinFunc)builtin_clamp);
+    VM_registerBuiltin(ctx, "lerp", (BuiltinFunc)builtin_lerp);
+    VM_registerBuiltin(ctx, "point_distance", (BuiltinFunc)builtin_point_distance);
+    VM_registerBuiltin(ctx, "point_in_rectangle", (BuiltinFunc)builtin_point_in_rectangle);
+    VM_registerBuiltin(ctx, "point_in_circle", (BuiltinFunc)builtin_point_in_circle);
+    VM_registerBuiltin(ctx, "point_direction", (BuiltinFunc)builtin_point_direction);
+    VM_registerBuiltin(ctx, "angle_difference", (BuiltinFunc)builtin_angle_difference);
+    VM_registerBuiltin(ctx, "distance_to_point", (BuiltinFunc)builtin_distance_to_point);
+    VM_registerBuiltin(ctx, "distance_to_object", (BuiltinFunc)builtin_distance_to_object);
+    VM_registerBuiltin(ctx, "move_towards_point", (BuiltinFunc)builtin_move_towards_point);
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "action_move_point", builtin_move_towards_point);
+        VM_registerBuiltin(ctx, "action_move_point", (BuiltinFunc)builtin_move_towards_point);
     }
-    VM_registerBuiltin(ctx, "move_snap", builtin_move_snap);
-    VM_registerBuiltin(ctx, "move_contact_solid", builtin_move_contact_solid);
-    VM_registerBuiltin(ctx, "move_outside_solid", builtin_move_outside_solid);
-    VM_registerBuiltin(ctx, "move_outside_all", builtin_move_outside_all);
-    VM_registerBuiltin(ctx, "move_bounce_solid", builtin_move_bounce_solid);
-    VM_registerBuiltin(ctx, "move_bounce_all", builtin_move_bounce_all);    
-    VM_registerBuiltin(ctx, "lengthdir_x", builtin_lengthdir_x);
-    VM_registerBuiltin(ctx, "lengthdir_y", builtin_lengthdir_y);
+    VM_registerBuiltin(ctx, "move_snap", (BuiltinFunc)builtin_move_snap);
+    VM_registerBuiltin(ctx, "move_contact_solid", (BuiltinFunc)builtin_move_contact_solid);
+    VM_registerBuiltin(ctx, "move_outside_solid", (BuiltinFunc)builtin_move_outside_solid);
+    VM_registerBuiltin(ctx, "move_outside_all", (BuiltinFunc)builtin_move_outside_all);
+    VM_registerBuiltin(ctx, "move_bounce_solid", (BuiltinFunc)builtin_move_bounce_solid);
+    VM_registerBuiltin(ctx, "move_bounce_all", (BuiltinFunc)builtin_move_bounce_all);
+    VM_registerBuiltin(ctx, "lengthdir_x", (BuiltinFunc)builtin_lengthdir_x);
+    VM_registerBuiltin(ctx, "lengthdir_y", (BuiltinFunc)builtin_lengthdir_y);
 
     // Matrix/linear algebra
-    VM_registerBuiltin(ctx, "matrix_build_identity", builtin_matrix_build_identity);
-    VM_registerBuiltin(ctx, "matrix_inverse", builtin_matrix_inverse);
-    VM_registerBuiltin(ctx, "matrix_multiply", builtin_matrix_multiply);
-    VM_registerBuiltin(ctx, "matrix_build_lookat", builtin_matrix_build_lookat);
-    VM_registerBuiltin(ctx, "matrix_build_projection_ortho", builtin_matrix_build_projection_ortho);
-    VM_registerBuiltin(ctx, "matrix_build_projection_perspective_fov", builtin_matrix_build_projection_perspective_fov);
+    VM_registerBuiltin(ctx, "matrix_build_identity", (BuiltinFunc)builtin_matrix_build_identity);
+    VM_registerBuiltin(ctx, "matrix_inverse", (BuiltinFunc)builtin_matrix_inverse);
+    VM_registerBuiltin(ctx, "matrix_multiply", (BuiltinFunc)builtin_matrix_multiply);
+    VM_registerBuiltin(ctx, "matrix_build_lookat", (BuiltinFunc)builtin_matrix_build_lookat);
+    VM_registerBuiltin(ctx, "matrix_build_projection_ortho", (BuiltinFunc)builtin_matrix_build_projection_ortho);
+    VM_registerBuiltin(ctx, "matrix_build_projection_perspective_fov", (BuiltinFunc)builtin_matrix_build_projection_perspective_fov);
 
     // Random
-    VM_registerBuiltin(ctx, "random", builtin_random);
-    VM_registerBuiltin(ctx, "random_range", builtin_random_range);
-    VM_registerBuiltin(ctx, "irandom", builtin_irandom);
-    VM_registerBuiltin(ctx, "irandom_range", builtin_irandom_range);
-    VM_registerBuiltin(ctx, "choose", builtin_choose);
-    VM_registerBuiltin(ctx, "randomize", builtin_randomize);
-    VM_registerBuiltin(ctx, "randomise", builtin_randomize);
+    VM_registerBuiltin(ctx, "random", (BuiltinFunc)builtin_random);
+    VM_registerBuiltin(ctx, "random_range", (BuiltinFunc)builtin_random_range);
+    VM_registerBuiltin(ctx, "irandom", (BuiltinFunc)builtin_irandom);
+    VM_registerBuiltin(ctx, "irandom_range", (BuiltinFunc)builtin_irandom_range);
+    VM_registerBuiltin(ctx, "choose", (BuiltinFunc)builtin_choose);
+    VM_registerBuiltin(ctx, "randomize", (BuiltinFunc)builtin_randomize);
+    VM_registerBuiltin(ctx, "randomise", (BuiltinFunc)builtin_randomize);
 
     // Room
-    VM_registerBuiltin(ctx, "game_get_speed", builtin_game_get_speed);
-    VM_registerBuiltin(ctx, "room_exists", builtin_room_exists);
-    VM_registerBuiltin(ctx, "room_get_name", builtin_room_get_name);
-    VM_registerBuiltin(ctx, "room_get_info", builtin_room_get_info);
-    VM_registerBuiltin(ctx, "room_goto_next", builtin_room_goto_next);
-    VM_registerBuiltin(ctx, "room_goto_previous", builtin_room_goto_previous);
-    VM_registerBuiltin(ctx, "room_goto", builtin_room_goto);
-    VM_registerBuiltin(ctx, "room_restart", builtin_room_restart);
-    VM_registerBuiltin(ctx, "room_next", builtin_room_next);
-    VM_registerBuiltin(ctx, "room_previous", builtin_room_previous);
-    VM_registerBuiltin(ctx, "room_set_persistent", builtin_room_set_persistent);
+    VM_registerBuiltin(ctx, "game_get_speed", (BuiltinFunc)builtin_game_get_speed);
+    VM_registerBuiltin(ctx, "room_exists", (BuiltinFunc)builtin_room_exists);
+    VM_registerBuiltin(ctx, "room_get_name", (BuiltinFunc)builtin_room_get_name);
+    VM_registerBuiltin(ctx, "room_get_info", (BuiltinFunc)builtin_room_get_info);
+    VM_registerBuiltin(ctx, "room_goto_next", (BuiltinFunc)builtin_room_goto_next);
+    VM_registerBuiltin(ctx, "room_goto_previous", (BuiltinFunc)builtin_room_goto_previous);
+    VM_registerBuiltin(ctx, "room_goto", (BuiltinFunc)builtin_room_goto);
+    VM_registerBuiltin(ctx, "room_restart", (BuiltinFunc)builtin_room_restart);
+    VM_registerBuiltin(ctx, "room_next", (BuiltinFunc)builtin_room_next);
+    VM_registerBuiltin(ctx, "room_previous", (BuiltinFunc)builtin_room_previous);
+    VM_registerBuiltin(ctx, "room_set_persistent", (BuiltinFunc)builtin_room_set_persistent);
 
     // GMS2 camera compatibility
-    VM_registerBuiltin(ctx, "view_get_camera", builtin_view_get_camera);
-    VM_registerBuiltin(ctx, "view_get_visible", builtin_view_get_visible);
-    VM_registerBuiltin(ctx, "view_get_xport", builtin_view_get_xport);
-    VM_registerBuiltin(ctx, "view_get_yport", builtin_view_get_yport);
-    VM_registerBuiltin(ctx, "view_get_wport", builtin_view_get_wport);
-    VM_registerBuiltin(ctx, "view_get_hport", builtin_view_get_hport);
-    VM_registerBuiltin(ctx, "view_get_surface_id", builtin_view_get_surface_id);
-    VM_registerBuiltin(ctx, "view_set_visible", builtin_view_set_visible);
-    VM_registerBuiltin(ctx, "view_set_xport", builtin_view_set_xport);
-    VM_registerBuiltin(ctx, "view_set_yport", builtin_view_set_yport);
-    VM_registerBuiltin(ctx, "view_set_wport", builtin_view_set_wport);
-    VM_registerBuiltin(ctx, "view_set_hport", builtin_view_set_hport);
-    VM_registerBuiltin(ctx, "view_set_surface_id", builtin_view_set_surface_id);
-    VM_registerBuiltin(ctx, "camera_get_view_x", builtin_camera_get_view_x);
-    VM_registerBuiltin(ctx, "camera_get_view_y", builtin_camera_get_view_y);
-    VM_registerBuiltin(ctx, "camera_get_view_width", builtin_camera_get_view_width);
-    VM_registerBuiltin(ctx, "camera_get_view_height", builtin_camera_get_view_height);
-    VM_registerBuiltin(ctx, "camera_set_view_pos", builtin_camera_set_view_pos);
-    VM_registerBuiltin(ctx, "camera_set_view_mat", builtin_camera_set_view_mat);
-    VM_registerBuiltin(ctx, "camera_set_proj_mat", builtin_camera_set_proj_mat);
-    VM_registerBuiltin(ctx, "camera_get_view_target", builtin_camera_get_view_target);
-    VM_registerBuiltin(ctx, "camera_set_view_target", builtin_camera_set_view_target);
-    VM_registerBuiltin(ctx, "camera_get_view_border_x", builtin_camera_get_view_border_x);
-    VM_registerBuiltin(ctx, "camera_get_view_border_y", builtin_camera_get_view_border_y);
-    VM_registerBuiltin(ctx, "camera_set_view_border", builtin_camera_set_view_border);
-    VM_registerBuiltin(ctx, "camera_set_view_size", builtin_camera_set_view_size);
-    VM_registerBuiltin(ctx, "camera_set_view_speed", builtin_camera_set_view_speed);
-    VM_registerBuiltin(ctx, "camera_set_view_angle", builtin_camera_set_view_angle);
-    VM_registerBuiltin(ctx, "camera_get_view_angle", builtin_camera_get_view_angle);
-    VM_registerBuiltin(ctx, "camera_get_view_speed_x", builtin_camera_get_view_speed_x);
-    VM_registerBuiltin(ctx, "camera_get_view_speed_y", builtin_camera_get_view_speed_y);
-    VM_registerBuiltin(ctx, "camera_create", builtin_camera_create);
-    VM_registerBuiltin(ctx, "camera_create_view", builtin_camera_create_view);
-    VM_registerBuiltin(ctx, "camera_destroy", builtin_camera_destroy);
-    VM_registerBuiltin(ctx, "view_set_camera", builtin_view_set_camera);
-    VM_registerBuiltin(ctx, "camera_get_active", builtin_camera_get_active);
-    VM_registerBuiltin(ctx, "camera_get_default", builtin_camera_get_default);
-    VM_registerBuiltin(ctx, "camera_apply", builtin_camera_apply);
+    VM_registerBuiltin(ctx, "view_get_camera", (BuiltinFunc)builtin_view_get_camera);
+    VM_registerBuiltin(ctx, "view_get_visible", (BuiltinFunc)builtin_view_get_visible);
+    VM_registerBuiltin(ctx, "view_get_xport", (BuiltinFunc)builtin_view_get_xport);
+    VM_registerBuiltin(ctx, "view_get_yport", (BuiltinFunc)builtin_view_get_yport);
+    VM_registerBuiltin(ctx, "view_get_wport", (BuiltinFunc)builtin_view_get_wport);
+    VM_registerBuiltin(ctx, "view_get_hport", (BuiltinFunc)builtin_view_get_hport);
+    VM_registerBuiltin(ctx, "view_get_surface_id", (BuiltinFunc)builtin_view_get_surface_id);
+    VM_registerBuiltin(ctx, "view_set_visible", (BuiltinFunc)builtin_view_set_visible);
+    VM_registerBuiltin(ctx, "view_set_xport", (BuiltinFunc)builtin_view_set_xport);
+    VM_registerBuiltin(ctx, "view_set_yport", (BuiltinFunc)builtin_view_set_yport);
+    VM_registerBuiltin(ctx, "view_set_wport", (BuiltinFunc)builtin_view_set_wport);
+    VM_registerBuiltin(ctx, "view_set_hport", (BuiltinFunc)builtin_view_set_hport);
+    VM_registerBuiltin(ctx, "view_set_surface_id", (BuiltinFunc)builtin_view_set_surface_id);
+    VM_registerBuiltin(ctx, "camera_get_view_x", (BuiltinFunc)builtin_camera_get_view_x);
+    VM_registerBuiltin(ctx, "camera_get_view_y", (BuiltinFunc)builtin_camera_get_view_y);
+    VM_registerBuiltin(ctx, "camera_get_view_width", (BuiltinFunc)builtin_camera_get_view_width);
+    VM_registerBuiltin(ctx, "camera_get_view_height", (BuiltinFunc)builtin_camera_get_view_height);
+    VM_registerBuiltin(ctx, "camera_set_view_pos", (BuiltinFunc)builtin_camera_set_view_pos);
+    VM_registerBuiltin(ctx, "camera_set_view_mat", (BuiltinFunc)builtin_camera_set_view_mat);
+    VM_registerBuiltin(ctx, "camera_set_proj_mat", (BuiltinFunc)builtin_camera_set_proj_mat);
+    VM_registerBuiltin(ctx, "camera_get_view_target", (BuiltinFunc)builtin_camera_get_view_target);
+    VM_registerBuiltin(ctx, "camera_set_view_target", (BuiltinFunc)builtin_camera_set_view_target);
+    VM_registerBuiltin(ctx, "camera_get_view_border_x", (BuiltinFunc)builtin_camera_get_view_border_x);
+    VM_registerBuiltin(ctx, "camera_get_view_border_y", (BuiltinFunc)builtin_camera_get_view_border_y);
+    VM_registerBuiltin(ctx, "camera_set_view_border", (BuiltinFunc)builtin_camera_set_view_border);
+    VM_registerBuiltin(ctx, "camera_set_view_size", (BuiltinFunc)builtin_camera_set_view_size);
+    VM_registerBuiltin(ctx, "camera_set_view_speed", (BuiltinFunc)builtin_camera_set_view_speed);
+    VM_registerBuiltin(ctx, "camera_set_view_angle", (BuiltinFunc)builtin_camera_set_view_angle);
+    VM_registerBuiltin(ctx, "camera_get_view_angle", (BuiltinFunc)builtin_camera_get_view_angle);
+    VM_registerBuiltin(ctx, "camera_get_view_speed_x", (BuiltinFunc)builtin_camera_get_view_speed_x);
+    VM_registerBuiltin(ctx, "camera_get_view_speed_y", (BuiltinFunc)builtin_camera_get_view_speed_y);
+    VM_registerBuiltin(ctx, "camera_create", (BuiltinFunc)builtin_camera_create);
+    VM_registerBuiltin(ctx, "camera_create_view", (BuiltinFunc)builtin_camera_create_view);
+    VM_registerBuiltin(ctx, "camera_destroy", (BuiltinFunc)builtin_camera_destroy);
+    VM_registerBuiltin(ctx, "view_set_camera", (BuiltinFunc)builtin_view_set_camera);
+    VM_registerBuiltin(ctx, "camera_get_active", (BuiltinFunc)builtin_camera_get_active);
+    VM_registerBuiltin(ctx, "camera_get_default", (BuiltinFunc)builtin_camera_get_default);
+    VM_registerBuiltin(ctx, "camera_apply", (BuiltinFunc)builtin_camera_apply);
 
     // Variables
-    VM_registerBuiltin(ctx, "variable_global_exists", builtin_variable_global_exists);
-    VM_registerBuiltin(ctx, "variable_global_get", builtin_variable_global_get);
-    VM_registerBuiltin(ctx, "variable_global_set", builtin_variable_global_set);
-    VM_registerBuiltin(ctx, "variable_instance_set", builtin_variable_instance_set);
-    VM_registerBuiltin(ctx, "variable_instance_get", builtin_variable_instance_get);
-    VM_registerBuiltin(ctx, "variable_instance_exists", builtin_variable_instance_exists);
-    VM_registerBuiltin(ctx, "variable_struct_set", builtin_variable_struct_set);
-    VM_registerBuiltin(ctx, "variable_struct_get", builtin_variable_struct_get);
-    VM_registerBuiltin(ctx, "variable_struct_exists", builtin_variable_struct_exists);
+    VM_registerBuiltin(ctx, "variable_global_exists", (BuiltinFunc)builtin_variable_global_exists);
+    VM_registerBuiltin(ctx, "variable_global_get", (BuiltinFunc)builtin_variable_global_get);
+    VM_registerBuiltin(ctx, "variable_global_set", (BuiltinFunc)builtin_variable_global_set);
+    VM_registerBuiltin(ctx, "variable_instance_set", (BuiltinFunc)builtin_variable_instance_set);
+    VM_registerBuiltin(ctx, "variable_instance_get", (BuiltinFunc)builtin_variable_instance_get);
+    VM_registerBuiltin(ctx, "variable_instance_exists", (BuiltinFunc)builtin_variable_instance_exists);
+    VM_registerBuiltin(ctx, "variable_struct_set", (BuiltinFunc)builtin_variable_struct_set);
+    VM_registerBuiltin(ctx, "variable_struct_get", (BuiltinFunc)builtin_variable_struct_get);
+    VM_registerBuiltin(ctx, "variable_struct_exists", (BuiltinFunc)builtin_variable_struct_exists);
 
     // Script
-    VM_registerBuiltin(ctx, "script_execute", builtin_script_execute);
+    VM_registerBuiltin(ctx, "script_execute", (BuiltinFunc)builtin_script_execute);
 #if IS_WAD17_OR_HIGHER_ENABLED
-    VM_registerBuiltin(ctx, "method", builtin_method);
+    VM_registerBuiltin(ctx, "method", (BuiltinFunc)builtin_method);
 #endif
 
     // OS
-    VM_registerBuiltin(ctx, "os_get_language", builtin_os_get_language);
-    VM_registerBuiltin(ctx, "os_get_region", builtin_os_get_region);
-    VM_registerBuiltin(ctx, "os_is_paused", builtin_os_is_paused);
+    VM_registerBuiltin(ctx, "os_get_language", (BuiltinFunc)builtin_os_get_language);
+    VM_registerBuiltin(ctx, "os_get_region", (BuiltinFunc)builtin_os_get_region);
+    VM_registerBuiltin(ctx, "os_is_paused", (BuiltinFunc)builtin_os_is_paused);
 
     // Xbox One
-    VM_registerBuiltin(ctx, "xboxone_show_account_picker", builtin_xboxone_show_account_picker);
-    VM_registerBuiltin(ctx, "xboxone_user_is_signed_in", builtin_xboxone_user_is_signed_in);
-    VM_registerBuiltin(ctx, "xboxone_is_suspending", builtin_xboxone_is_suspending);
-    VM_registerBuiltin(ctx, "xboxone_is_constrained", builtin_xboxone_is_constrained);
-    VM_registerBuiltin(ctx, "xboxone_suspend", builtin_xboxone_suspend);
-    VM_registerBuiltin(ctx, "xboxone_set_savedata_user", builtin_xboxone_set_savedata_user);
-    VM_registerBuiltin(ctx, "xboxone_stats_add_user", builtin_xboxone_stats_add_user);
-    VM_registerBuiltin(ctx, "xboxone_achievements_set_progress", builtin_xboxone_achievements_set_progress);
-    VM_registerBuiltin(ctx, "environment_get_variable", builtin_environment_get_variable);
+    VM_registerBuiltin(ctx, "xboxone_show_account_picker", (BuiltinFunc)builtin_xboxone_show_account_picker);
+    VM_registerBuiltin(ctx, "xboxone_user_is_signed_in", (BuiltinFunc)builtin_xboxone_user_is_signed_in);
+    VM_registerBuiltin(ctx, "xboxone_is_suspending", (BuiltinFunc)builtin_xboxone_is_suspending);
+    VM_registerBuiltin(ctx, "xboxone_is_constrained", (BuiltinFunc)builtin_xboxone_is_constrained);
+    VM_registerBuiltin(ctx, "xboxone_suspend", (BuiltinFunc)builtin_xboxone_suspend);
+    VM_registerBuiltin(ctx, "xboxone_set_savedata_user", (BuiltinFunc)builtin_xboxone_set_savedata_user);
+    VM_registerBuiltin(ctx, "xboxone_stats_add_user", (BuiltinFunc)builtin_xboxone_stats_add_user);
+    VM_registerBuiltin(ctx, "xboxone_achievements_set_progress", (BuiltinFunc)builtin_xboxone_achievements_set_progress);
+    VM_registerBuiltin(ctx, "environment_get_variable", (BuiltinFunc)builtin_environment_get_variable);
 
     // ds_map
-    VM_registerBuiltin(ctx, "ds_map_create", builtin_ds_map_create);
-    VM_registerBuiltin(ctx, "ds_map_add", builtin_ds_map_add);
-    VM_registerBuiltin(ctx, "ds_map_set", builtin_ds_map_set);
-    VM_registerBuiltin(ctx, "ds_map_set_pre", builtin_ds_map_set_pre);
-    VM_registerBuiltin(ctx, "ds_map_set_post", builtin_ds_map_set_post);
-    VM_registerBuiltin(ctx, "ds_map_replace", builtin_ds_map_replace);
-    VM_registerBuiltin(ctx, "ds_map_find_value", builtin_ds_map_find_value);
-    VM_registerBuiltin(ctx, "ds_map_exists", builtin_ds_map_exists);
-    VM_registerBuiltin(ctx, "ds_map_find_first", builtin_ds_map_find_first);
-    VM_registerBuiltin(ctx, "ds_map_find_next", builtin_ds_map_find_next);
-    VM_registerBuiltin(ctx, "ds_map_size", builtin_ds_map_size);
-    VM_registerBuiltin(ctx, "ds_map_destroy", builtin_ds_map_destroy);
+    VM_registerBuiltin(ctx, "ds_map_create", (BuiltinFunc)builtin_ds_map_create);
+    VM_registerBuiltin(ctx, "ds_map_add", (BuiltinFunc)builtin_ds_map_add);
+    VM_registerBuiltin(ctx, "ds_map_set", (BuiltinFunc)builtin_ds_map_set);
+    VM_registerBuiltin(ctx, "ds_map_set_pre", (BuiltinFunc)builtin_ds_map_set_pre);
+    VM_registerBuiltin(ctx, "ds_map_set_post", (BuiltinFunc)builtin_ds_map_set_post);
+    VM_registerBuiltin(ctx, "ds_map_replace", (BuiltinFunc)builtin_ds_map_replace);
+    VM_registerBuiltin(ctx, "ds_map_find_value", (BuiltinFunc)builtin_ds_map_find_value);
+    VM_registerBuiltin(ctx, "ds_map_exists", (BuiltinFunc)builtin_ds_map_exists);
+    VM_registerBuiltin(ctx, "ds_map_find_first", (BuiltinFunc)builtin_ds_map_find_first);
+    VM_registerBuiltin(ctx, "ds_map_find_next", (BuiltinFunc)builtin_ds_map_find_next);
+    VM_registerBuiltin(ctx, "ds_map_size", (BuiltinFunc)builtin_ds_map_size);
+    VM_registerBuiltin(ctx, "ds_map_destroy", (BuiltinFunc)builtin_ds_map_destroy);
 
     // ds_list
-    VM_registerBuiltin(ctx, "ds_list_create", builtin_ds_list_create);
-    VM_registerBuiltin(ctx, "ds_list_destroy", builtin_ds_list_destroy);
-    VM_registerBuiltin(ctx, "ds_list_add", builtin_ds_list_add);
-    VM_registerBuiltin(ctx, "ds_list_delete", builtin_ds_list_delete);
-    VM_registerBuiltin(ctx, "ds_list_empty", builtin_ds_list_empty);
-    VM_registerBuiltin(ctx, "ds_list_size", builtin_ds_list_size);
-    VM_registerBuiltin(ctx, "ds_list_find_index", builtin_ds_list_find_index);
-    VM_registerBuiltin(ctx, "ds_list_find_value", builtin_ds_list_find_value);
-    VM_registerBuiltin(ctx, "ds_list_shuffle", builtin_ds_list_shuffle);
-    VM_registerBuiltin(ctx, "ds_list_clear", builtin_ds_list_clear);
-    VM_registerBuiltin(ctx, "ds_list_write", builtin_ds_list_write);
-    VM_registerBuiltin(ctx, "ds_list_read", builtin_ds_list_read);
+    VM_registerBuiltin(ctx, "ds_list_create", (BuiltinFunc)builtin_ds_list_create);
+    VM_registerBuiltin(ctx, "ds_list_destroy", (BuiltinFunc)builtin_ds_list_destroy);
+    VM_registerBuiltin(ctx, "ds_list_add", (BuiltinFunc)builtin_ds_list_add);
+    VM_registerBuiltin(ctx, "ds_list_delete", (BuiltinFunc)builtin_ds_list_delete);
+    VM_registerBuiltin(ctx, "ds_list_empty", (BuiltinFunc)builtin_ds_list_empty);
+    VM_registerBuiltin(ctx, "ds_list_size", (BuiltinFunc)builtin_ds_list_size);
+    VM_registerBuiltin(ctx, "ds_list_find_index", (BuiltinFunc)builtin_ds_list_find_index);
+    VM_registerBuiltin(ctx, "ds_list_find_value", (BuiltinFunc)builtin_ds_list_find_value);
+    VM_registerBuiltin(ctx, "ds_list_shuffle", (BuiltinFunc)builtin_ds_list_shuffle);
+    VM_registerBuiltin(ctx, "ds_list_clear", (BuiltinFunc)builtin_ds_list_clear);
+    VM_registerBuiltin(ctx, "ds_list_write", (BuiltinFunc)builtin_ds_list_write);
+    VM_registerBuiltin(ctx, "ds_list_read", (BuiltinFunc)builtin_ds_list_read);
 
     // ds_stack
-    VM_registerBuiltin(ctx, "ds_stack_create", builtin_ds_stack_create);
-    VM_registerBuiltin(ctx, "ds_stack_destroy", builtin_ds_stack_destroy);
-    VM_registerBuiltin(ctx, "ds_stack_clear", builtin_ds_stack_clear);
-    VM_registerBuiltin(ctx, "ds_stack_copy", builtin_ds_stack_copy);
-    VM_registerBuiltin(ctx, "ds_stack_size", builtin_ds_stack_size);
-    VM_registerBuiltin(ctx, "ds_stack_empty", builtin_ds_stack_empty);
-    VM_registerBuiltin(ctx, "ds_stack_push", builtin_ds_stack_push);
-    VM_registerBuiltin(ctx, "ds_stack_pop", builtin_ds_stack_pop);
-    VM_registerBuiltin(ctx, "ds_stack_top", builtin_ds_stack_top);
-    VM_registerBuiltin(ctx, "ds_stack_write", builtin_ds_stack_write);
-    VM_registerBuiltin(ctx, "ds_stack_read", builtin_ds_stack_read);
+    VM_registerBuiltin(ctx, "ds_stack_create", (BuiltinFunc)builtin_ds_stack_create);
+    VM_registerBuiltin(ctx, "ds_stack_destroy", (BuiltinFunc)builtin_ds_stack_destroy);
+    VM_registerBuiltin(ctx, "ds_stack_clear", (BuiltinFunc)builtin_ds_stack_clear);
+    VM_registerBuiltin(ctx, "ds_stack_copy", (BuiltinFunc)builtin_ds_stack_copy);
+    VM_registerBuiltin(ctx, "ds_stack_size", (BuiltinFunc)builtin_ds_stack_size);
+    VM_registerBuiltin(ctx, "ds_stack_empty", (BuiltinFunc)builtin_ds_stack_empty);
+    VM_registerBuiltin(ctx, "ds_stack_push", (BuiltinFunc)builtin_ds_stack_push);
+    VM_registerBuiltin(ctx, "ds_stack_pop", (BuiltinFunc)builtin_ds_stack_pop);
+    VM_registerBuiltin(ctx, "ds_stack_top", (BuiltinFunc)builtin_ds_stack_top);
+    VM_registerBuiltin(ctx, "ds_stack_write", (BuiltinFunc)builtin_ds_stack_write);
+    VM_registerBuiltin(ctx, "ds_stack_read", (BuiltinFunc)builtin_ds_stack_read);
 
     // ds_queue
-    VM_registerBuiltin(ctx, "ds_queue_create", builtin_ds_queue_create);
-    VM_registerBuiltin(ctx, "ds_queue_destroy", builtin_ds_queue_destroy);
-    VM_registerBuiltin(ctx, "ds_queue_clear", builtin_ds_queue_clear);
-    VM_registerBuiltin(ctx, "ds_queue_copy", builtin_ds_queue_copy);
-    VM_registerBuiltin(ctx, "ds_queue_size", builtin_ds_queue_size);
-    VM_registerBuiltin(ctx, "ds_queue_empty", builtin_ds_queue_empty);
-    VM_registerBuiltin(ctx, "ds_queue_enqueue", builtin_ds_queue_enqueue);
-    VM_registerBuiltin(ctx, "ds_queue_dequeue", builtin_ds_queue_dequeue);
-    VM_registerBuiltin(ctx, "ds_queue_head", builtin_ds_queue_head);
-    VM_registerBuiltin(ctx, "ds_queue_tail", builtin_ds_queue_tail);
-    VM_registerBuiltin(ctx, "ds_queue_write", builtin_ds_queue_write);
-    VM_registerBuiltin(ctx, "ds_queue_read", builtin_ds_queue_read);
+    VM_registerBuiltin(ctx, "ds_queue_create", (BuiltinFunc)builtin_ds_queue_create);
+    VM_registerBuiltin(ctx, "ds_queue_destroy", (BuiltinFunc)builtin_ds_queue_destroy);
+    VM_registerBuiltin(ctx, "ds_queue_clear", (BuiltinFunc)builtin_ds_queue_clear);
+    VM_registerBuiltin(ctx, "ds_queue_copy", (BuiltinFunc)builtin_ds_queue_copy);
+    VM_registerBuiltin(ctx, "ds_queue_size", (BuiltinFunc)builtin_ds_queue_size);
+    VM_registerBuiltin(ctx, "ds_queue_empty", (BuiltinFunc)builtin_ds_queue_empty);
+    VM_registerBuiltin(ctx, "ds_queue_enqueue", (BuiltinFunc)builtin_ds_queue_enqueue);
+    VM_registerBuiltin(ctx, "ds_queue_dequeue", (BuiltinFunc)builtin_ds_queue_dequeue);
+    VM_registerBuiltin(ctx, "ds_queue_head", (BuiltinFunc)builtin_ds_queue_head);
+    VM_registerBuiltin(ctx, "ds_queue_tail", (BuiltinFunc)builtin_ds_queue_tail);
+    VM_registerBuiltin(ctx, "ds_queue_write", (BuiltinFunc)builtin_ds_queue_write);
+    VM_registerBuiltin(ctx, "ds_queue_read", (BuiltinFunc)builtin_ds_queue_read);
 
     // Array
 
-    VM_registerBuiltin(ctx, "array_length_1d", builtin_array_length_1d);
-    VM_registerBuiltin(ctx, "array_length_2d", builtin_array_length_2d);
-    VM_registerBuiltin(ctx, "array_length", builtin_array_length_1d); // GM:S 2 alias for array_length_1d
-    VM_registerBuiltin(ctx, "array_height_2d", builtin_array_height_2d);
-    VM_registerBuiltin(ctx, "array_get", builtin_array_get);
-    VM_registerBuiltin(ctx, "array_set", builtin_array_set);
-    VM_registerBuiltin(ctx, "array_push", builtin_array_push);
-    VM_registerBuiltin(ctx, "array_pop", builtin_array_pop);
-    VM_registerBuiltin(ctx, "array_resize", builtin_array_resize);
-    VM_registerBuiltin(ctx, "array_delete", builtin_array_delete);
-    VM_registerBuiltin(ctx, "array_insert", builtin_array_insert);
-    VM_registerBuiltin(ctx, "array_create", builtin_array_create);
+    VM_registerBuiltin(ctx, "array_length_1d", (BuiltinFunc)builtin_array_length_1d);
+    VM_registerBuiltin(ctx, "array_length_2d", (BuiltinFunc)builtin_array_length_2d);
+    VM_registerBuiltin(ctx, "array_length", (BuiltinFunc)builtin_array_length_1d); // GM:S 2 alias for array_length_1d
+    VM_registerBuiltin(ctx, "array_height_2d", (BuiltinFunc)builtin_array_height_2d);
+    VM_registerBuiltin(ctx, "array_get", (BuiltinFunc)builtin_array_get);
+    VM_registerBuiltin(ctx, "array_set", (BuiltinFunc)builtin_array_set);
+    VM_registerBuiltin(ctx, "array_push", (BuiltinFunc)builtin_array_push);
+    VM_registerBuiltin(ctx, "array_pop", (BuiltinFunc)builtin_array_pop);
+    VM_registerBuiltin(ctx, "array_resize", (BuiltinFunc)builtin_array_resize);
+    VM_registerBuiltin(ctx, "array_delete", (BuiltinFunc)builtin_array_delete);
+    VM_registerBuiltin(ctx, "array_insert", (BuiltinFunc)builtin_array_insert);
+    VM_registerBuiltin(ctx, "array_create", (BuiltinFunc)builtin_array_create);
 
     // Steam stubs
-    VM_registerBuiltin(ctx, "steam_initialised", builtin_steam_initialised);
-    VM_registerBuiltin(ctx, "steam_stats_ready", builtin_steam_stats_ready);
-    VM_registerBuiltin(ctx, "steam_file_exists", builtin_steam_file_exists);
-    VM_registerBuiltin(ctx, "steam_file_write", builtin_steam_file_write);
-    VM_registerBuiltin(ctx, "steam_file_read", builtin_steam_file_read);
-    VM_registerBuiltin(ctx, "steam_get_persona_name", builtin_steam_get_persona_name);
+    VM_registerBuiltin(ctx, "steam_initialised", (BuiltinFunc)builtin_steam_initialised);
+    VM_registerBuiltin(ctx, "steam_stats_ready", (BuiltinFunc)builtin_steam_stats_ready);
+    VM_registerBuiltin(ctx, "steam_file_exists", (BuiltinFunc)builtin_steam_file_exists);
+    VM_registerBuiltin(ctx, "steam_file_write", (BuiltinFunc)builtin_steam_file_write);
+    VM_registerBuiltin(ctx, "steam_file_read", (BuiltinFunc)builtin_steam_file_read);
+    VM_registerBuiltin(ctx, "steam_get_persona_name", (BuiltinFunc)builtin_steam_get_persona_name);
 
     // Audio
-    VM_registerBuiltin(ctx, "audio_system_is_available", builtin_audio_system_is_available);
-    VM_registerBuiltin(ctx, "audio_exists", builtin_audio_exists);
-    VM_registerBuiltin(ctx, "audio_channel_num", builtin_audio_channel_num);
-    VM_registerBuiltin(ctx, "audio_play_sound", builtin_audio_play_sound);
-    VM_registerBuiltin(ctx, "audio_stop_sound", builtin_audio_stop_sound);
-    VM_registerBuiltin(ctx, "audio_stop_all", builtin_audio_stop_all);
-    VM_registerBuiltin(ctx, "audio_is_playing", builtin_audio_is_playing);
-    VM_registerBuiltin(ctx, "audio_is_paused", builtin_audio_is_paused);
-    VM_registerBuiltin(ctx, "audio_sound_length", builtin_audio_sound_length);
-    VM_registerBuiltin(ctx, "audio_sound_gain", builtin_audio_sound_gain);
-    VM_registerBuiltin(ctx, "audio_sound_pitch", builtin_audio_sound_pitch);
-    VM_registerBuiltin(ctx, "audio_sound_get_gain", builtin_audio_sound_get_gain);
-    VM_registerBuiltin(ctx, "audio_sound_get_pitch", builtin_audio_sound_get_pitch);
-    VM_registerBuiltin(ctx, "audio_master_gain", builtin_audio_master_gain);
-    VM_registerBuiltin(ctx, "audio_group_load", builtin_audio_group_load);
-    VM_registerBuiltin(ctx, "audio_group_is_loaded", builtin_audio_group_is_loaded);
-    VM_registerBuiltin(ctx, "audio_play_music", builtin_audio_play_music);
-    VM_registerBuiltin(ctx, "audio_stop_music", builtin_audio_stop_music);
-    VM_registerBuiltin(ctx, "audio_music_gain", builtin_audio_music_gain);
-    VM_registerBuiltin(ctx, "audio_music_is_playing", builtin_audio_music_is_playing);
-    VM_registerBuiltin(ctx, "audio_pause_sound", builtin_audio_pause_sound);
-    VM_registerBuiltin(ctx, "audio_resume_sound", builtin_audio_resume_sound);
-    VM_registerBuiltin(ctx, "audio_pause_all", builtin_audio_pause_all);
-    VM_registerBuiltin(ctx, "audio_resume_all", builtin_audio_resume_all);
-    VM_registerBuiltin(ctx, "audio_sound_get_track_position", builtin_audio_sound_get_track_position);
-    VM_registerBuiltin(ctx, "audio_sound_set_track_position", builtin_audio_sound_set_track_position);
-    VM_registerBuiltin(ctx, "audio_create_stream", builtin_audio_create_stream);
-    VM_registerBuiltin(ctx, "audio_destroy_stream", builtin_audio_destroy_stream);
+    VM_registerBuiltin(ctx, "audio_system_is_available", (BuiltinFunc)builtin_audio_system_is_available);
+    VM_registerBuiltin(ctx, "audio_exists", (BuiltinFunc)builtin_audio_exists);
+    VM_registerBuiltin(ctx, "audio_channel_num", (BuiltinFunc)builtin_audio_channel_num);
+    VM_registerBuiltin(ctx, "audio_play_sound", (BuiltinFunc)builtin_audio_play_sound);
+    VM_registerBuiltin(ctx, "audio_stop_sound", (BuiltinFunc)builtin_audio_stop_sound);
+    VM_registerBuiltin(ctx, "audio_stop_all", (BuiltinFunc)builtin_audio_stop_all);
+    VM_registerBuiltin(ctx, "audio_is_playing", (BuiltinFunc)builtin_audio_is_playing);
+    VM_registerBuiltin(ctx, "audio_is_paused", (BuiltinFunc)builtin_audio_is_paused);
+    VM_registerBuiltin(ctx, "audio_sound_length", (BuiltinFunc)builtin_audio_sound_length);
+    VM_registerBuiltin(ctx, "audio_sound_gain", (BuiltinFunc)builtin_audio_sound_gain);
+    VM_registerBuiltin(ctx, "audio_sound_pitch", (BuiltinFunc)builtin_audio_sound_pitch);
+    VM_registerBuiltin(ctx, "audio_sound_get_gain", (BuiltinFunc)builtin_audio_sound_get_gain);
+    VM_registerBuiltin(ctx, "audio_sound_get_pitch", (BuiltinFunc)builtin_audio_sound_get_pitch);
+    VM_registerBuiltin(ctx, "audio_master_gain", (BuiltinFunc)builtin_audio_master_gain);
+    VM_registerBuiltin(ctx, "audio_group_load", (BuiltinFunc)builtin_audio_group_load);
+    VM_registerBuiltin(ctx, "audio_group_is_loaded", (BuiltinFunc)builtin_audio_group_is_loaded);
+    VM_registerBuiltin(ctx, "audio_play_music", (BuiltinFunc)builtin_audio_play_music);
+    VM_registerBuiltin(ctx, "audio_stop_music", (BuiltinFunc)builtin_audio_stop_music);
+    VM_registerBuiltin(ctx, "audio_music_gain", (BuiltinFunc)builtin_audio_music_gain);
+    VM_registerBuiltin(ctx, "audio_music_is_playing", (BuiltinFunc)builtin_audio_music_is_playing);
+    VM_registerBuiltin(ctx, "audio_pause_sound", (BuiltinFunc)builtin_audio_pause_sound);
+    VM_registerBuiltin(ctx, "audio_resume_sound", (BuiltinFunc)builtin_audio_resume_sound);
+    VM_registerBuiltin(ctx, "audio_pause_all", (BuiltinFunc)builtin_audio_pause_all);
+    VM_registerBuiltin(ctx, "audio_resume_all", (BuiltinFunc)builtin_audio_resume_all);
+    VM_registerBuiltin(ctx, "audio_sound_get_track_position", (BuiltinFunc)builtin_audio_sound_get_track_position);
+    VM_registerBuiltin(ctx, "audio_sound_set_track_position", (BuiltinFunc)builtin_audio_sound_set_track_position);
+    VM_registerBuiltin(ctx, "audio_create_stream", (BuiltinFunc)builtin_audio_create_stream);
+    VM_registerBuiltin(ctx, "audio_destroy_stream", (BuiltinFunc)builtin_audio_destroy_stream);
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "action_sound", builtin_action_sound);
-        VM_registerBuiltin(ctx, "action_end_sound", builtin_audio_stop_sound);
-        VM_registerBuiltin(ctx, "action_if_sound", builtin_audio_is_playing);
-        VM_registerBuiltin(ctx, "sound_play", builtin_sound_play);
-        VM_registerBuiltin(ctx, "sound_loop", builtin_sound_loop);
-        VM_registerBuiltin(ctx, "sound_volume", builtin_sound_volume);
-        VM_registerBuiltin(ctx, "sound_exists", builtin_audio_exists); // Replaced with audio_exists in GMS2
-        VM_registerBuiltin(ctx, "sound_fade", builtin_audio_sound_gain);
-        VM_registerBuiltin(ctx, "sound_global_volume", builtin_audio_master_gain);
-        VM_registerBuiltin(ctx, "sound_isplaying", builtin_audio_is_playing);
-        VM_registerBuiltin(ctx, "sound_stop", builtin_audio_stop_sound);
-        VM_registerBuiltin(ctx, "sound_stop_all", builtin_audio_stop_all);
+        VM_registerBuiltin(ctx, "action_sound", (BuiltinFunc)builtin_action_sound);
+        VM_registerBuiltin(ctx, "action_end_sound", (BuiltinFunc)builtin_audio_stop_sound);
+        VM_registerBuiltin(ctx, "action_if_sound", (BuiltinFunc)builtin_audio_is_playing);
+        VM_registerBuiltin(ctx, "sound_play", (BuiltinFunc)builtin_sound_play);
+        VM_registerBuiltin(ctx, "sound_loop", (BuiltinFunc)builtin_sound_loop);
+        VM_registerBuiltin(ctx, "sound_volume", (BuiltinFunc)builtin_sound_volume);
+        VM_registerBuiltin(ctx, "sound_exists", (BuiltinFunc)builtin_audio_exists); // Replaced with audio_exists in GMS2
+        VM_registerBuiltin(ctx, "sound_fade", (BuiltinFunc)builtin_audio_sound_gain);
+        VM_registerBuiltin(ctx, "sound_global_volume", (BuiltinFunc)builtin_audio_master_gain);
+        VM_registerBuiltin(ctx, "sound_isplaying", (BuiltinFunc)builtin_audio_is_playing);
+        VM_registerBuiltin(ctx, "sound_stop", (BuiltinFunc)builtin_audio_stop_sound);
+        VM_registerBuiltin(ctx, "sound_stop_all", (BuiltinFunc)builtin_audio_stop_all);
     }
     // Application surface
-    VM_registerBuiltin(ctx, "application_surface_enable", builtin_application_surface_enable);
-    VM_registerBuiltin(ctx, "application_surface_draw_enable", builtin_application_surface_draw_enable);
+    VM_registerBuiltin(ctx, "application_surface_enable", (BuiltinFunc)builtin_application_surface_enable);
+    VM_registerBuiltin(ctx, "application_surface_draw_enable", (BuiltinFunc)builtin_application_surface_draw_enable);
 
     // Gamepad
-    VM_registerBuiltin(ctx, "gamepad_get_device_count", builtin_gamepad_get_device_count);
-    VM_registerBuiltin(ctx, "gamepad_is_connected", builtin_gamepad_is_connected);
-    VM_registerBuiltin(ctx, "gamepad_button_check", builtin_gamepad_button_check);
-    VM_registerBuiltin(ctx, "gamepad_button_check_pressed", builtin_gamepad_button_check_pressed);
-    VM_registerBuiltin(ctx, "gamepad_button_check_released", builtin_gamepad_button_check_released);
-    VM_registerBuiltin(ctx, "gamepad_axis_value", builtin_gamepad_axis_value);
-    VM_registerBuiltin(ctx, "gamepad_get_description", builtin_gamepad_get_description);
-    VM_registerBuiltin(ctx, "gamepad_button_value", builtin_gamepad_button_value);
-    VM_registerBuiltin(ctx, "gamepad_is_supported", builtin_gamepad_is_supported);
-    VM_registerBuiltin(ctx, "gamepad_get_guid", builtin_gamepad_get_guid);
-    VM_registerBuiltin(ctx, "gamepad_get_button_threshold", builtin_gamepad_get_button_threshold);
-    VM_registerBuiltin(ctx, "gamepad_set_button_threshold", builtin_gamepad_set_button_threshold);
-    VM_registerBuiltin(ctx, "gamepad_get_axis_deadzone", builtin_gamepad_get_axis_deadzone);
-    VM_registerBuiltin(ctx, "gamepad_set_axis_deadzone", builtin_gamepad_set_axis_deadzone);
-    VM_registerBuiltin(ctx, "gamepad_axis_count", builtin_gamepad_axis_count);
-    VM_registerBuiltin(ctx, "gamepad_button_count", builtin_gamepad_button_count);
-    VM_registerBuiltin(ctx, "gamepad_hat_count", builtin_gamepad_hat_count);
-    VM_registerBuiltin(ctx, "gamepad_hat_value", builtin_gamepad_hat_value);
+    VM_registerBuiltin(ctx, "gamepad_get_device_count", (BuiltinFunc)builtin_gamepad_get_device_count);
+    VM_registerBuiltin(ctx, "gamepad_is_connected", (BuiltinFunc)builtin_gamepad_is_connected);
+    VM_registerBuiltin(ctx, "gamepad_button_check", (BuiltinFunc)builtin_gamepad_button_check);
+    VM_registerBuiltin(ctx, "gamepad_button_check_pressed", (BuiltinFunc)builtin_gamepad_button_check_pressed);
+    VM_registerBuiltin(ctx, "gamepad_button_check_released", (BuiltinFunc)builtin_gamepad_button_check_released);
+    VM_registerBuiltin(ctx, "gamepad_axis_value", (BuiltinFunc)builtin_gamepad_axis_value);
+    VM_registerBuiltin(ctx, "gamepad_get_description", (BuiltinFunc)builtin_gamepad_get_description);
+    VM_registerBuiltin(ctx, "gamepad_button_value", (BuiltinFunc)builtin_gamepad_button_value);
+    VM_registerBuiltin(ctx, "gamepad_is_supported", (BuiltinFunc)builtin_gamepad_is_supported);
+    VM_registerBuiltin(ctx, "gamepad_get_guid", (BuiltinFunc)builtin_gamepad_get_guid);
+    VM_registerBuiltin(ctx, "gamepad_get_button_threshold", (BuiltinFunc)builtin_gamepad_get_button_threshold);
+    VM_registerBuiltin(ctx, "gamepad_set_button_threshold", (BuiltinFunc)builtin_gamepad_set_button_threshold);
+    VM_registerBuiltin(ctx, "gamepad_get_axis_deadzone", (BuiltinFunc)builtin_gamepad_get_axis_deadzone);
+    VM_registerBuiltin(ctx, "gamepad_set_axis_deadzone", (BuiltinFunc)builtin_gamepad_set_axis_deadzone);
+    VM_registerBuiltin(ctx, "gamepad_axis_count", (BuiltinFunc)builtin_gamepad_axis_count);
+    VM_registerBuiltin(ctx, "gamepad_button_count", (BuiltinFunc)builtin_gamepad_button_count);
+    VM_registerBuiltin(ctx, "gamepad_hat_count", (BuiltinFunc)builtin_gamepad_hat_count);
+    VM_registerBuiltin(ctx, "gamepad_hat_value", (BuiltinFunc)builtin_gamepad_hat_value);
 
     // INI
-    VM_registerBuiltin(ctx, "ini_open", builtin_ini_open);
-    VM_registerBuiltin(ctx, "ini_open_from_string", builtin_ini_open_from_string);
-    VM_registerBuiltin(ctx, "ini_close", builtin_ini_close);
-    VM_registerBuiltin(ctx, "ini_write_real", builtin_ini_write_real);
-    VM_registerBuiltin(ctx, "ini_write_string", builtin_ini_write_string);
-    VM_registerBuiltin(ctx, "ini_read_string", builtin_ini_read_string);
-    VM_registerBuiltin(ctx, "ini_read_real", builtin_ini_read_real);
-    VM_registerBuiltin(ctx, "ini_section_exists", builtin_ini_section_exists);
+    VM_registerBuiltin(ctx, "ini_open", (BuiltinFunc)builtin_ini_open);
+    VM_registerBuiltin(ctx, "ini_open_from_string", (BuiltinFunc)builtin_ini_open_from_string);
+    VM_registerBuiltin(ctx, "ini_close", (BuiltinFunc)builtin_ini_close);
+    VM_registerBuiltin(ctx, "ini_write_real", (BuiltinFunc)builtin_ini_write_real);
+    VM_registerBuiltin(ctx, "ini_write_string", (BuiltinFunc)builtin_ini_write_string);
+    VM_registerBuiltin(ctx, "ini_read_string", (BuiltinFunc)builtin_ini_read_string);
+    VM_registerBuiltin(ctx, "ini_read_real", (BuiltinFunc)builtin_ini_read_real);
+    VM_registerBuiltin(ctx, "ini_section_exists", (BuiltinFunc)builtin_ini_section_exists);
 
     // Directory
-    VM_registerBuiltin(ctx, "directory_exists", builtin_directory_exists);
-    VM_registerBuiltin(ctx, "directory_create", builtin_directory_create);
-    VM_registerBuiltin(ctx, "directory_destroy", builtin_directory_destroy);
+    VM_registerBuiltin(ctx, "directory_exists", (BuiltinFunc)builtin_directory_exists);
+    VM_registerBuiltin(ctx, "directory_create", (BuiltinFunc)builtin_directory_create);
+    VM_registerBuiltin(ctx, "directory_destroy", (BuiltinFunc)builtin_directory_destroy);
 
     // File
-    VM_registerBuiltin(ctx, "file_exists", builtin_file_exists);
-    VM_registerBuiltin(ctx, "file_text_open_write", builtin_file_text_open_write);
-    VM_registerBuiltin(ctx, "file_text_open_read", builtin_file_text_open_read);
-    VM_registerBuiltin(ctx, "file_text_close", builtin_file_text_close);
-    VM_registerBuiltin(ctx, "file_text_write_string", builtin_file_text_write_string);
-    VM_registerBuiltin(ctx, "file_text_writeln", builtin_file_text_writeln);
-    VM_registerBuiltin(ctx, "file_text_write_real", builtin_file_text_write_real);
-    VM_registerBuiltin(ctx, "file_text_eof", builtin_file_text_eof);
-    VM_registerBuiltin(ctx, "file_delete", builtin_file_delete);
-    VM_registerBuiltin(ctx, "file_find_first", builtin_file_find_first);
-    VM_registerBuiltin(ctx, "file_find_next", builtin_file_find_next);
-    VM_registerBuiltin(ctx, "file_find_close", builtin_file_find_close);
-    VM_registerBuiltin(ctx, "file_text_read_string", builtin_file_text_read_string);
-    VM_registerBuiltin(ctx, "file_text_read_real", builtin_file_text_read_real);
-    VM_registerBuiltin(ctx, "file_text_readln", builtin_file_text_readln);
-    VM_registerBuiltin(ctx, "file_bin_open", builtin_file_bin_open);
-    VM_registerBuiltin(ctx, "file_bin_close", builtin_file_bin_close);
-    VM_registerBuiltin(ctx, "file_bin_position", builtin_file_bin_position);
-    VM_registerBuiltin(ctx, "file_bin_size", builtin_file_bin_size);
-    VM_registerBuiltin(ctx, "file_bin_seek", builtin_file_bin_seek);
-    VM_registerBuiltin(ctx, "file_bin_read_byte", builtin_file_bin_read_byte);
-    VM_registerBuiltin(ctx, "file_bin_write_byte", builtin_file_bin_write_byte);
-    VM_registerBuiltin(ctx, "file_bin_rewrite", builtin_file_bin_rewrite);
+    VM_registerBuiltin(ctx, "file_exists", (BuiltinFunc)builtin_file_exists);
+    VM_registerBuiltin(ctx, "file_text_open_write", (BuiltinFunc)builtin_file_text_open_write);
+    VM_registerBuiltin(ctx, "file_text_open_read", (BuiltinFunc)builtin_file_text_open_read);
+    VM_registerBuiltin(ctx, "file_text_close", (BuiltinFunc)builtin_file_text_close);
+    VM_registerBuiltin(ctx, "file_text_write_string", (BuiltinFunc)builtin_file_text_write_string);
+    VM_registerBuiltin(ctx, "file_text_writeln", (BuiltinFunc)builtin_file_text_writeln);
+    VM_registerBuiltin(ctx, "file_text_write_real", (BuiltinFunc)builtin_file_text_write_real);
+    VM_registerBuiltin(ctx, "file_text_eof", (BuiltinFunc)builtin_file_text_eof);
+    VM_registerBuiltin(ctx, "file_delete", (BuiltinFunc)builtin_file_delete);
+    VM_registerBuiltin(ctx, "file_find_first", (BuiltinFunc)builtin_file_find_first);
+    VM_registerBuiltin(ctx, "file_find_next", (BuiltinFunc)builtin_file_find_next);
+    VM_registerBuiltin(ctx, "file_find_close", (BuiltinFunc)builtin_file_find_close);
+    VM_registerBuiltin(ctx, "file_text_read_string", (BuiltinFunc)builtin_file_text_read_string);
+    VM_registerBuiltin(ctx, "file_text_read_real", (BuiltinFunc)builtin_file_text_read_real);
+    VM_registerBuiltin(ctx, "file_text_readln", (BuiltinFunc)builtin_file_text_readln);
+    VM_registerBuiltin(ctx, "file_bin_open", (BuiltinFunc)builtin_file_bin_open);
+    VM_registerBuiltin(ctx, "file_bin_close", (BuiltinFunc)builtin_file_bin_close);
+    VM_registerBuiltin(ctx, "file_bin_position", (BuiltinFunc)builtin_file_bin_position);
+    VM_registerBuiltin(ctx, "file_bin_size", (BuiltinFunc)builtin_file_bin_size);
+    VM_registerBuiltin(ctx, "file_bin_seek", (BuiltinFunc)builtin_file_bin_seek);
+    VM_registerBuiltin(ctx, "file_bin_read_byte", (BuiltinFunc)builtin_file_bin_read_byte);
+    VM_registerBuiltin(ctx, "file_bin_write_byte", (BuiltinFunc)builtin_file_bin_write_byte);
+    VM_registerBuiltin(ctx, "file_bin_rewrite", (BuiltinFunc)builtin_file_bin_rewrite);
 
     // Keyboard
-    VM_registerBuiltin(ctx, "keyboard_check", builtin_keyboard_check);
-    VM_registerBuiltin(ctx, "keyboard_check_pressed", builtin_keyboard_check_pressed);
-    VM_registerBuiltin(ctx, "keyboard_check_released", builtin_keyboard_check_released);
-    VM_registerBuiltin(ctx, "keyboard_check_direct", builtin_keyboard_check_direct);
-    VM_registerBuiltin(ctx, "keyboard_key_press", builtin_keyboard_key_press);
-    VM_registerBuiltin(ctx, "keyboard_key_release", builtin_keyboard_key_release);
-    VM_registerBuiltin(ctx, "keyboard_clear", builtin_keyboard_clear);
-    VM_registerBuiltin(ctx, "keyboard_set_map", builtin_keyboard_set_map);
-    VM_registerBuiltin(ctx, "keyboard_get_map", builtin_keyboard_get_map);
-    VM_registerBuiltin(ctx, "keyboard_unset_map", builtin_keyboard_unset_map);
+    VM_registerBuiltin(ctx, "keyboard_check", (BuiltinFunc)builtin_keyboard_check);
+    VM_registerBuiltin(ctx, "keyboard_check_pressed", (BuiltinFunc)builtin_keyboard_check_pressed);
+    VM_registerBuiltin(ctx, "keyboard_check_released", (BuiltinFunc)builtin_keyboard_check_released);
+    VM_registerBuiltin(ctx, "keyboard_check_direct", (BuiltinFunc)builtin_keyboard_check_direct);
+    VM_registerBuiltin(ctx, "keyboard_key_press", (BuiltinFunc)builtin_keyboard_key_press);
+    VM_registerBuiltin(ctx, "keyboard_key_release", (BuiltinFunc)builtin_keyboard_key_release);
+    VM_registerBuiltin(ctx, "keyboard_clear", (BuiltinFunc)builtin_keyboard_clear);
+    VM_registerBuiltin(ctx, "keyboard_set_map", (BuiltinFunc)builtin_keyboard_set_map);
+    VM_registerBuiltin(ctx, "keyboard_get_map", (BuiltinFunc)builtin_keyboard_get_map);
+    VM_registerBuiltin(ctx, "keyboard_unset_map", (BuiltinFunc)builtin_keyboard_unset_map);
 
     // Mouse
-    VM_registerBuiltin(ctx, "mouse_check_button", builtinMouseCheckButton);
-    VM_registerBuiltin(ctx, "mouse_check_button_pressed", builtinMouseCheckButtonPressed);
-    VM_registerBuiltin(ctx, "mouse_check_button_released", builtinMouseCheckButtonReleased);
-    VM_registerBuiltin(ctx, "mouse_clear", builtinMouseClear);
-    VM_registerBuiltin(ctx, "mouse_wheel_up", builtinMouseWheelUp);
-    VM_registerBuiltin(ctx, "mouse_wheel_down", builtinMouseWheelDown);
+    VM_registerBuiltin(ctx, "mouse_check_button", (BuiltinFunc)builtinMouseCheckButton);
+    VM_registerBuiltin(ctx, "mouse_check_button_pressed", (BuiltinFunc)builtinMouseCheckButtonPressed);
+    VM_registerBuiltin(ctx, "mouse_check_button_released", (BuiltinFunc)builtinMouseCheckButtonReleased);
+    VM_registerBuiltin(ctx, "mouse_clear", (BuiltinFunc)builtinMouseClear);
+    VM_registerBuiltin(ctx, "mouse_wheel_up", (BuiltinFunc)builtinMouseWheelUp);
+    VM_registerBuiltin(ctx, "mouse_wheel_down", (BuiltinFunc)builtinMouseWheelDown);
 
     // Joystick
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "joystick_exists", builtin_joystick_exists);
-        VM_registerBuiltin(ctx, "joystick_name", builtin_joystick_name);
-        VM_registerBuiltin(ctx, "joystick_axes", builtin_joystick_axes);
-        VM_registerBuiltin(ctx, "joystick_xpos", builtin_joystick_xpos);
-        VM_registerBuiltin(ctx, "joystick_ypos", builtin_joystick_ypos);
-        VM_registerBuiltin(ctx, "joystick_direction", builtin_joystick_direction);
-        VM_registerBuiltin(ctx, "joystick_pov", builtin_joystick_pov);
-        VM_registerBuiltin(ctx, "joystick_check_button", builtin_joystick_check_button);
-        VM_registerBuiltin(ctx, "joystick_has_pov", builtin_joystick_has_pov);
-        VM_registerBuiltin(ctx, "joystick_buttons", builtin_joystick_buttons);
+        VM_registerBuiltin(ctx, "joystick_exists", (BuiltinFunc)builtin_joystick_exists);
+        VM_registerBuiltin(ctx, "joystick_name", (BuiltinFunc)builtin_joystick_name);
+        VM_registerBuiltin(ctx, "joystick_axes", (BuiltinFunc)builtin_joystick_axes);
+        VM_registerBuiltin(ctx, "joystick_xpos", (BuiltinFunc)builtin_joystick_xpos);
+        VM_registerBuiltin(ctx, "joystick_ypos", (BuiltinFunc)builtin_joystick_ypos);
+        VM_registerBuiltin(ctx, "joystick_direction", (BuiltinFunc)builtin_joystick_direction);
+        VM_registerBuiltin(ctx, "joystick_pov", (BuiltinFunc)builtin_joystick_pov);
+        VM_registerBuiltin(ctx, "joystick_check_button", (BuiltinFunc)builtin_joystick_check_button);
+        VM_registerBuiltin(ctx, "joystick_has_pov", (BuiltinFunc)builtin_joystick_has_pov);
+        VM_registerBuiltin(ctx, "joystick_buttons", (BuiltinFunc)builtin_joystick_buttons);
     }
 
     // Window
-    VM_registerBuiltin(ctx, "window_get_fullscreen", builtin_window_get_fullscreen);
-    VM_registerBuiltin(ctx, "window_set_fullscreen", builtin_window_set_fullscreen);
-    VM_registerBuiltin(ctx, "window_set_caption", builtin_window_set_caption);
-    VM_registerBuiltin(ctx, "window_get_width", builtin_window_get_width);
-    VM_registerBuiltin(ctx, "window_get_height", builtin_window_get_height);
-    VM_registerBuiltin(ctx, "window_set_size", builtin_window_set_size);
-    VM_registerBuiltin(ctx, "window_center", builtin_window_center);
-    VM_registerBuiltin(ctx, "window_has_focus", builtin_window_has_focus);
+    VM_registerBuiltin(ctx, "window_get_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
+    VM_registerBuiltin(ctx, "window_set_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
+    VM_registerBuiltin(ctx, "window_set_caption", (BuiltinFunc)builtin_window_set_caption);
+    VM_registerBuiltin(ctx, "window_get_width", (BuiltinFunc)builtin_window_get_width);
+    VM_registerBuiltin(ctx, "window_get_height", (BuiltinFunc)builtin_window_get_height);
+    VM_registerBuiltin(ctx, "window_set_size", (BuiltinFunc)builtin_window_set_size);
+    VM_registerBuiltin(ctx, "window_center", (BuiltinFunc)builtin_window_center);
+    VM_registerBuiltin(ctx, "window_has_focus", (BuiltinFunc)builtin_window_has_focus);
 
     // Game
-    VM_registerBuiltin(ctx, "game_restart", builtin_game_restart);
-    VM_registerBuiltin(ctx, "game_end", builtin_game_end);
-    VM_registerBuiltin(ctx, "game_save", builtin_game_save);
-    VM_registerBuiltin(ctx, "game_load", builtin_game_load);
+    VM_registerBuiltin(ctx, "game_restart", (BuiltinFunc)builtin_game_restart);
+    VM_registerBuiltin(ctx, "game_end", (BuiltinFunc)builtin_game_end);
+    VM_registerBuiltin(ctx, "game_save", (BuiltinFunc)builtin_game_save);
+    VM_registerBuiltin(ctx, "game_load", (BuiltinFunc)builtin_game_load);
 
     // Instance
-    VM_registerBuiltin(ctx, "instance_exists", builtin_instance_exists);
-    VM_registerBuiltin(ctx, "instance_number", builtin_instance_number);
-    VM_registerBuiltin(ctx, "instance_find", builtin_instance_find);
-    VM_registerBuiltin(ctx, "instance_nearest", builtin_instance_nearest);
-    VM_registerBuiltin(ctx, "instance_destroy", builtin_instance_destroy);
+    VM_registerBuiltin(ctx, "instance_exists", (BuiltinFunc)builtin_instance_exists);
+    VM_registerBuiltin(ctx, "instance_number", (BuiltinFunc)builtin_instance_number);
+    VM_registerBuiltin(ctx, "instance_find", (BuiltinFunc)builtin_instance_find);
+    VM_registerBuiltin(ctx, "instance_nearest", (BuiltinFunc)builtin_instance_nearest);
+    VM_registerBuiltin(ctx, "instance_destroy", (BuiltinFunc)builtin_instance_destroy);
     if(!isGMS2) {
-        VM_registerBuiltin(ctx, "instance_create", builtin_instance_create);
+        VM_registerBuiltin(ctx, "instance_create", (BuiltinFunc)builtin_instance_create);
     }
     else {
-        VM_registerBuiltin(ctx, "instance_create_depth", builtin_instance_create_depth);
-        VM_registerBuiltin(ctx, "instance_create_layer", builtin_instance_create_layer);
+        VM_registerBuiltin(ctx, "instance_create_depth", (BuiltinFunc)builtin_instance_create_depth);
+        VM_registerBuiltin(ctx, "instance_create_layer", (BuiltinFunc)builtin_instance_create_layer);
     }
-    VM_registerBuiltin(ctx, "instance_copy", builtin_instance_copy);
-    VM_registerBuiltin(ctx, "instance_change", builtin_instance_change);
-    VM_registerBuiltin(ctx, "instance_deactivate_all", builtin_instance_deactivate_all);
-    VM_registerBuiltin(ctx, "instance_activate_all", builtin_instance_activate_all);
-    VM_registerBuiltin(ctx, "instance_activate_object", builtin_instance_activate_object);
-    VM_registerBuiltin(ctx, "instance_deactivate_object", builtin_instance_deactivate_object);
-    VM_registerBuiltin(ctx, "instance_activate_region", builtin_instance_activate_region);
-    VM_registerBuiltin(ctx, "instance_deactivate_region", builtin_instance_deactivate_region);
-    VM_registerBuiltin(ctx, "instance_activate_layer", builtin_instance_activate_layer);
-    VM_registerBuiltin(ctx, "instance_deactivate_layer", builtin_instance_deactivate_layer);
+    VM_registerBuiltin(ctx, "instance_copy", (BuiltinFunc)builtin_instance_copy);
+    VM_registerBuiltin(ctx, "instance_change", (BuiltinFunc)builtin_instance_change);
+    VM_registerBuiltin(ctx, "instance_deactivate_all", (BuiltinFunc)builtin_instance_deactivate_all);
+    VM_registerBuiltin(ctx, "instance_activate_all", (BuiltinFunc)builtin_instance_activate_all);
+    VM_registerBuiltin(ctx, "instance_activate_object", (BuiltinFunc)builtin_instance_activate_object);
+    VM_registerBuiltin(ctx, "instance_deactivate_object", (BuiltinFunc)builtin_instance_deactivate_object);
+    VM_registerBuiltin(ctx, "instance_activate_region", (BuiltinFunc)builtin_instance_activate_region);
+    VM_registerBuiltin(ctx, "instance_deactivate_region", (BuiltinFunc)builtin_instance_deactivate_region);
+    VM_registerBuiltin(ctx, "instance_activate_layer", (BuiltinFunc)builtin_instance_activate_layer);
+    VM_registerBuiltin(ctx, "instance_deactivate_layer", (BuiltinFunc)builtin_instance_deactivate_layer);
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "action_kill_object", builtin_action_kill_object);
-        VM_registerBuiltin(ctx, "action_create_object", builtin_action_create_object);
-        VM_registerBuiltin(ctx, "action_set_relative", builtin_action_set_relative);
-        VM_registerBuiltin(ctx, "action_move", builtin_action_move);
-        VM_registerBuiltin(ctx, "action_move_to", builtin_action_move_to);
-        VM_registerBuiltin(ctx, "action_move_start", builtin_action_move_start);
-        VM_registerBuiltin(ctx, "action_potential_step", builtin_action_potential_step);
-        VM_registerBuiltin(ctx, "action_bounce", builtin_action_bounce);
-        VM_registerBuiltin(ctx, "action_move_contact", builtin_action_move_contact);
-        VM_registerBuiltin(ctx, "action_snap", builtin_action_snap);
-        VM_registerBuiltin(ctx, "action_set_friction", builtin_action_set_friction);
-        VM_registerBuiltin(ctx, "action_set_gravity", builtin_action_set_gravity);
-        VM_registerBuiltin(ctx, "action_set_hspeed", builtin_action_set_hspeed);
-        VM_registerBuiltin(ctx, "action_set_vspeed", builtin_action_set_vspeed);
-        VM_registerBuiltin(ctx, "action_inherited", builtin_event_inherited);
-        VM_registerBuiltin(ctx, "action_timeline_start", builtin_action_timeline_start);
-        VM_registerBuiltin(ctx, "action_timeline_pause", builtin_action_timeline_pause);
-        VM_registerBuiltin(ctx, "action_timeline_stop", builtin_action_timeline_stop);
-        VM_registerBuiltin(ctx, "action_set_timeline_position", builtin_action_set_timeline_position);
-        VM_registerBuiltin(ctx, "action_set_timeline_speed", builtin_action_set_timeline_speed);
-        VM_registerBuiltin(ctx, "action_set_timeline", builtin_action_set_timeline);
-        VM_registerBuiltin(ctx, "action_timeline_set", builtin_action_timeline_set);
+        VM_registerBuiltin(ctx, "action_kill_object", (BuiltinFunc)builtin_action_kill_object);
+        VM_registerBuiltin(ctx, "action_create_object", (BuiltinFunc)builtin_action_create_object);
+        VM_registerBuiltin(ctx, "action_set_relative", (BuiltinFunc)builtin_action_set_relative);
+        VM_registerBuiltin(ctx, "action_move", (BuiltinFunc)builtin_action_move);
+        VM_registerBuiltin(ctx, "action_move_to", (BuiltinFunc)builtin_action_move_to);
+        VM_registerBuiltin(ctx, "action_move_start", (BuiltinFunc)builtin_action_move_start);
+        VM_registerBuiltin(ctx, "action_potential_step", (BuiltinFunc)builtin_action_potential_step);
+        VM_registerBuiltin(ctx, "action_bounce", (BuiltinFunc)builtin_action_bounce);
+        VM_registerBuiltin(ctx, "action_move_contact", (BuiltinFunc)builtin_action_move_contact);
+        VM_registerBuiltin(ctx, "action_snap", (BuiltinFunc)builtin_action_snap);
+        VM_registerBuiltin(ctx, "action_set_friction", (BuiltinFunc)builtin_action_set_friction);
+        VM_registerBuiltin(ctx, "action_set_gravity", (BuiltinFunc)builtin_action_set_gravity);
+        VM_registerBuiltin(ctx, "action_set_hspeed", (BuiltinFunc)builtin_action_set_hspeed);
+        VM_registerBuiltin(ctx, "action_set_vspeed", (BuiltinFunc)builtin_action_set_vspeed);
+        VM_registerBuiltin(ctx, "action_inherited", (BuiltinFunc)builtin_event_inherited);
+        VM_registerBuiltin(ctx, "action_timeline_start", (BuiltinFunc)builtin_action_timeline_start);
+        VM_registerBuiltin(ctx, "action_timeline_pause", (BuiltinFunc)builtin_action_timeline_pause);
+        VM_registerBuiltin(ctx, "action_timeline_stop", (BuiltinFunc)builtin_action_timeline_stop);
+        VM_registerBuiltin(ctx, "action_set_timeline_position", (BuiltinFunc)builtin_action_set_timeline_position);
+        VM_registerBuiltin(ctx, "action_set_timeline_speed", (BuiltinFunc)builtin_action_set_timeline_speed);
+        VM_registerBuiltin(ctx, "action_set_timeline", (BuiltinFunc)builtin_action_set_timeline);
+        VM_registerBuiltin(ctx, "action_timeline_set", (BuiltinFunc)builtin_action_timeline_set);
     }
-    VM_registerBuiltin(ctx, "event_inherited", builtin_event_inherited);
-    VM_registerBuiltin(ctx, "event_user", builtin_event_user);
-    VM_registerBuiltin(ctx, "event_perform", builtin_event_perform);
+    VM_registerBuiltin(ctx, "event_inherited", (BuiltinFunc)builtin_event_inherited);
+    VM_registerBuiltin(ctx, "event_user", (BuiltinFunc)builtin_event_user);
+    VM_registerBuiltin(ctx, "event_perform", (BuiltinFunc)builtin_event_perform);
 
     // Buffer
-    VM_registerBuiltin(ctx, "buffer_create", builtin_buffer_create);
-    VM_registerBuiltin(ctx, "buffer_delete", builtin_buffer_delete);
-    VM_registerBuiltin(ctx, "buffer_write", builtin_buffer_write);
-    VM_registerBuiltin(ctx, "buffer_read", builtin_buffer_read);
-    VM_registerBuiltin(ctx, "buffer_seek", builtin_buffer_seek);
-    VM_registerBuiltin(ctx, "buffer_tell", builtin_buffer_tell);
-    VM_registerBuiltin(ctx, "buffer_get_size", builtin_buffer_get_size);
-    VM_registerBuiltin(ctx, "buffer_load", builtin_buffer_load);
-    VM_registerBuiltin(ctx, "buffer_save", builtin_buffer_save);
-    VM_registerBuiltin(ctx, "buffer_save_ext", builtin_buffer_save_ext);
-    VM_registerBuiltin(ctx, "buffer_load_async", builtin_buffer_load_async);
-    VM_registerBuiltin(ctx, "buffer_save_async", builtin_buffer_save_async);
-    VM_registerBuiltin(ctx, "buffer_async_group_begin", builtin_buffer_async_group_begin);
-    VM_registerBuiltin(ctx, "buffer_async_group_end", builtin_buffer_async_group_end);
-    VM_registerBuiltin(ctx, "filename_change_ext", builtin_filename_change_ext);
-    VM_registerBuiltin(ctx, "buffer_base64_encode", builtin_buffer_base64_encode);
-    VM_registerBuiltin(ctx, "buffer_base64_decode", builtin_buffer_base64_decode);
-    VM_registerBuiltin(ctx, "base64_encode", builtin_base64_encode);
-    VM_registerBuiltin(ctx, "base64_decode", builtin_base64_decode);
-    VM_registerBuiltin(ctx, "buffer_md5", builtin_buffer_md5);
-    VM_registerBuiltin(ctx, "buffer_sha1", builtin_buffer_sha1);
-    VM_registerBuiltin(ctx, "buffer_get_surface", builtin_buffer_get_surface);
+    VM_registerBuiltin(ctx, "buffer_create", (BuiltinFunc)builtin_buffer_create);
+    VM_registerBuiltin(ctx, "buffer_delete", (BuiltinFunc)builtin_buffer_delete);
+    VM_registerBuiltin(ctx, "buffer_write", (BuiltinFunc)builtin_buffer_write);
+    VM_registerBuiltin(ctx, "buffer_read", (BuiltinFunc)builtin_buffer_read);
+    VM_registerBuiltin(ctx, "buffer_seek", (BuiltinFunc)builtin_buffer_seek);
+    VM_registerBuiltin(ctx, "buffer_tell", (BuiltinFunc)builtin_buffer_tell);
+    VM_registerBuiltin(ctx, "buffer_get_size", (BuiltinFunc)builtin_buffer_get_size);
+    VM_registerBuiltin(ctx, "buffer_load", (BuiltinFunc)builtin_buffer_load);
+    VM_registerBuiltin(ctx, "buffer_save", (BuiltinFunc)builtin_buffer_save);
+    VM_registerBuiltin(ctx, "buffer_save_ext", (BuiltinFunc)builtin_buffer_save_ext);
+    VM_registerBuiltin(ctx, "buffer_load_async", (BuiltinFunc)builtin_buffer_load_async);
+    VM_registerBuiltin(ctx, "buffer_save_async", (BuiltinFunc)builtin_buffer_save_async);
+    VM_registerBuiltin(ctx, "buffer_async_group_begin", (BuiltinFunc)builtin_buffer_async_group_begin);
+    VM_registerBuiltin(ctx, "buffer_async_group_end", (BuiltinFunc)builtin_buffer_async_group_end);
+    VM_registerBuiltin(ctx, "filename_change_ext", (BuiltinFunc)builtin_filename_change_ext);
+    VM_registerBuiltin(ctx, "buffer_base64_encode", (BuiltinFunc)builtin_buffer_base64_encode);
+    VM_registerBuiltin(ctx, "buffer_base64_decode", (BuiltinFunc)builtin_buffer_base64_decode);
+    VM_registerBuiltin(ctx, "base64_encode", (BuiltinFunc)builtin_base64_encode);
+    VM_registerBuiltin(ctx, "base64_decode", (BuiltinFunc)builtin_base64_decode);
+    VM_registerBuiltin(ctx, "buffer_md5", (BuiltinFunc)builtin_buffer_md5);
+    VM_registerBuiltin(ctx, "buffer_sha1", (BuiltinFunc)builtin_buffer_sha1);
+    VM_registerBuiltin(ctx, "buffer_get_surface", (BuiltinFunc)builtin_buffer_get_surface);
 
     // PSN
-    VM_registerBuiltin(ctx, "psn_init", builtin_psn_init);
-    VM_registerBuiltin(ctx, "psn_init_np_libs", builtin_psn_init_np_libs);
-    VM_registerBuiltin(ctx, "psn_default_user", builtin_psn_default_user);
-    VM_registerBuiltin(ctx, "psn_get_leaderboard_score", builtin_psn_get_leaderboard_score);
-    VM_registerBuiltin(ctx, "psn_setup_trophies", builtin_psn_setup_trophies);
+    VM_registerBuiltin(ctx, "psn_init", (BuiltinFunc)builtin_psn_init);
+    VM_registerBuiltin(ctx, "psn_init_np_libs", (BuiltinFunc)builtin_psn_init_np_libs);
+    VM_registerBuiltin(ctx, "psn_default_user", (BuiltinFunc)builtin_psn_default_user);
+    VM_registerBuiltin(ctx, "psn_get_leaderboard_score", (BuiltinFunc)builtin_psn_get_leaderboard_score);
+    VM_registerBuiltin(ctx, "psn_setup_trophies", (BuiltinFunc)builtin_psn_setup_trophies);
 
     // Draw
-    VM_registerBuiltin(ctx, "draw_sprite", builtin_draw_sprite);
-    VM_registerBuiltin(ctx, "draw_sprite_ext", builtin_draw_sprite_ext);
-    VM_registerBuiltin(ctx, "draw_sprite_tiled", builtin_draw_sprite_tiled);
-    VM_registerBuiltin(ctx, "draw_sprite_tiled_ext", builtin_draw_sprite_tiled_ext);
-    VM_registerBuiltin(ctx, "draw_sprite_stretched", builtin_draw_sprite_stretched);
-    VM_registerBuiltin(ctx, "draw_sprite_stretched_ext", builtin_draw_sprite_stretched_ext);
-    VM_registerBuiltin(ctx, "draw_sprite_part", builtin_draw_sprite_part);
-    VM_registerBuiltin(ctx, "draw_sprite_part_ext", builtin_draw_sprite_part_ext);
-    VM_registerBuiltin(ctx, "draw_sprite_general", builtin_draw_sprite_general);
-    VM_registerBuiltin(ctx, "draw_sprite_pos", builtin_draw_sprite_pos);
-    VM_registerBuiltin(ctx, "draw_rectangle", builtin_draw_rectangle);
-    VM_registerBuiltin(ctx, "draw_rectangle_color", builtin_draw_rectangle_color);
-    VM_registerBuiltin(ctx, "draw_rectangle_colour", builtin_draw_rectangle_color);
-    VM_registerBuiltin(ctx, "draw_healthbar", builtin_draw_healthbar);
-    VM_registerBuiltin(ctx, "draw_set_color", builtin_draw_set_color);
-    VM_registerBuiltin(ctx, "draw_set_alpha", builtin_draw_set_alpha);
-    VM_registerBuiltin(ctx, "draw_clear", builtin_draw_clear);
-    VM_registerBuiltin(ctx, "draw_clear_alpha", builtin_draw_clear_alpha);
-    VM_registerBuiltin(ctx, "draw_set_font", builtin_draw_set_font);
-    VM_registerBuiltin(ctx, "draw_set_halign", builtin_draw_set_halign);
-    VM_registerBuiltin(ctx, "draw_set_valign", builtin_draw_set_valign);
-    VM_registerBuiltin(ctx, "draw_text", builtin_draw_text);
-    VM_registerBuiltin(ctx, "draw_text_transformed", builtin_draw_text_transformed);
-    VM_registerBuiltin(ctx, "draw_text_ext", builtin_draw_text_ext);
-    VM_registerBuiltin(ctx, "draw_text_ext_color", builtin_draw_text_ext_color);
-    VM_registerBuiltin(ctx, "draw_text_ext_transformed", builtin_draw_text_ext_transformed);
-    VM_registerBuiltin(ctx, "draw_text_color", builtin_draw_text_color);
-    VM_registerBuiltin(ctx, "draw_text_color_transformed", builtin_draw_text_color_transformed);
-    VM_registerBuiltin(ctx, "draw_text_color_ext", builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_color_ext_transformed", builtin_draw_text_color_ext_transformed);
-    VM_registerBuiltin(ctx, "draw_text_colour", builtin_draw_text_color);
-    VM_registerBuiltin(ctx, "draw_text_colour_transformed", builtin_draw_text_color_transformed);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext", builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext_transformed", builtin_draw_text_color_ext_transformed);
-    VM_registerBuiltin(ctx, "draw_surface", builtin_draw_surface);
-    VM_registerBuiltin(ctx, "draw_surface_ext", builtin_draw_surface_ext);
-    VM_registerBuiltin(ctx, "draw_surface_part", builtin_draw_surface_part);
-    VM_registerBuiltin(ctx, "draw_surface_part_ext", builtin_draw_surface_part_ext);
-    VM_registerBuiltin(ctx, "draw_surface_stretched", builtin_draw_surface_stretched);
+    VM_registerBuiltin(ctx, "draw_sprite", (BuiltinFunc)builtin_draw_sprite);
+    VM_registerBuiltin(ctx, "draw_sprite_ext", (BuiltinFunc)builtin_draw_sprite_ext);
+    VM_registerBuiltin(ctx, "draw_sprite_tiled", (BuiltinFunc)builtin_draw_sprite_tiled);
+    VM_registerBuiltin(ctx, "draw_sprite_tiled_ext", (BuiltinFunc)builtin_draw_sprite_tiled_ext);
+    VM_registerBuiltin(ctx, "draw_sprite_stretched", (BuiltinFunc)builtin_draw_sprite_stretched);
+    VM_registerBuiltin(ctx, "draw_sprite_stretched_ext", (BuiltinFunc)builtin_draw_sprite_stretched_ext);
+    VM_registerBuiltin(ctx, "draw_sprite_part", (BuiltinFunc)builtin_draw_sprite_part);
+    VM_registerBuiltin(ctx, "draw_sprite_part_ext", (BuiltinFunc)builtin_draw_sprite_part_ext);
+    VM_registerBuiltin(ctx, "draw_sprite_general", (BuiltinFunc)builtin_draw_sprite_general);
+    VM_registerBuiltin(ctx, "draw_sprite_pos", (BuiltinFunc)builtin_draw_sprite_pos);
+    VM_registerBuiltin(ctx, "draw_rectangle", (BuiltinFunc)builtin_draw_rectangle);
+    VM_registerBuiltin(ctx, "draw_rectangle_color", (BuiltinFunc)builtin_draw_rectangle_color);
+    VM_registerBuiltin(ctx, "draw_rectangle_colour", (BuiltinFunc)builtin_draw_rectangle_color);
+    VM_registerBuiltin(ctx, "draw_healthbar", (BuiltinFunc)builtin_draw_healthbar);
+    VM_registerBuiltin(ctx, "draw_set_color", (BuiltinFunc)builtin_draw_set_color);
+    VM_registerBuiltin(ctx, "draw_set_alpha", (BuiltinFunc)builtin_draw_set_alpha);
+    VM_registerBuiltin(ctx, "draw_clear", (BuiltinFunc)builtin_draw_clear);
+    VM_registerBuiltin(ctx, "draw_clear_alpha", (BuiltinFunc)builtin_draw_clear_alpha);
+    VM_registerBuiltin(ctx, "draw_set_font", (BuiltinFunc)builtin_draw_set_font);
+    VM_registerBuiltin(ctx, "draw_set_halign", (BuiltinFunc)builtin_draw_set_halign);
+    VM_registerBuiltin(ctx, "draw_set_valign", (BuiltinFunc)builtin_draw_set_valign);
+    VM_registerBuiltin(ctx, "draw_text", (BuiltinFunc)builtin_draw_text);
+    VM_registerBuiltin(ctx, "draw_text_transformed", (BuiltinFunc)builtin_draw_text_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext", (BuiltinFunc)builtin_draw_text_ext);
+    VM_registerBuiltin(ctx, "draw_text_ext_color", (BuiltinFunc)builtin_draw_text_ext_color);
+    VM_registerBuiltin(ctx, "draw_text_ext_transformed", (BuiltinFunc)builtin_draw_text_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_color", (BuiltinFunc)builtin_draw_text_color);
+    VM_registerBuiltin(ctx, "draw_text_color_transformed", (BuiltinFunc)builtin_draw_text_color_transformed);
+    VM_registerBuiltin(ctx, "draw_text_color_ext", (BuiltinFunc)builtin_draw_text_color_ext);
+    VM_registerBuiltin(ctx, "draw_text_color_ext_transformed", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_colour", (BuiltinFunc)builtin_draw_text_color);
+    VM_registerBuiltin(ctx, "draw_text_colour_transformed", (BuiltinFunc)builtin_draw_text_color_transformed);
+    VM_registerBuiltin(ctx, "draw_text_colour_ext", (BuiltinFunc)builtin_draw_text_color_ext);
+    VM_registerBuiltin(ctx, "draw_text_colour_ext_transformed", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_surface", (BuiltinFunc)builtin_draw_surface);
+    VM_registerBuiltin(ctx, "draw_surface_ext", (BuiltinFunc)builtin_draw_surface_ext);
+    VM_registerBuiltin(ctx, "draw_surface_part", (BuiltinFunc)builtin_draw_surface_part);
+    VM_registerBuiltin(ctx, "draw_surface_part_ext", (BuiltinFunc)builtin_draw_surface_part_ext);
+    VM_registerBuiltin(ctx, "draw_surface_stretched", (BuiltinFunc)builtin_draw_surface_stretched);
     if(!isGMS2) {
-        VM_registerBuiltin(ctx, "draw_background", builtin_draw_background);
-        VM_registerBuiltin(ctx, "draw_background_ext", builtin_draw_background_ext);
-        VM_registerBuiltin(ctx, "draw_background_stretched", builtin_draw_background_stretched);
-        VM_registerBuiltin(ctx, "draw_background_part_ext", builtin_draw_background_part_ext);
-        VM_registerBuiltin(ctx, "draw_background_tiled", builtin_draw_background_tiled);
-        VM_registerBuiltin(ctx, "draw_background_tiled_ext", builtin_draw_background_tiled_ext);
-        VM_registerBuiltin(ctx, "background_get_width", builtin_background_get_width);
-        VM_registerBuiltin(ctx, "background_get_height", builtin_background_get_height);
-        VM_registerBuiltin(ctx, "background_delete", builtin_sprite_delete);
-        VM_registerBuiltin(ctx, "background_exists", builtin_sprite_exists);
-        VM_registerBuiltin(ctx, "background_get_name", builtin_sprite_get_name);
-        VM_registerBuiltin(ctx, "background_name", builtin_sprite_get_name);
+        VM_registerBuiltin(ctx, "draw_background", (BuiltinFunc)builtin_draw_background);
+        VM_registerBuiltin(ctx, "draw_background_ext", (BuiltinFunc)builtin_draw_background_ext);
+        VM_registerBuiltin(ctx, "draw_background_stretched", (BuiltinFunc)builtin_draw_background_stretched);
+        VM_registerBuiltin(ctx, "draw_background_part_ext", (BuiltinFunc)builtin_draw_background_part_ext);
+        VM_registerBuiltin(ctx, "draw_background_tiled", (BuiltinFunc)builtin_draw_background_tiled);
+        VM_registerBuiltin(ctx, "draw_background_tiled_ext", (BuiltinFunc)builtin_draw_background_tiled_ext);
+        VM_registerBuiltin(ctx, "background_get_width", (BuiltinFunc)builtin_background_get_width);
+        VM_registerBuiltin(ctx, "background_get_height", (BuiltinFunc)builtin_background_get_height);
+        VM_registerBuiltin(ctx, "background_delete", (BuiltinFunc)builtin_sprite_delete);
+        VM_registerBuiltin(ctx, "background_exists", (BuiltinFunc)builtin_sprite_exists);
+        VM_registerBuiltin(ctx, "background_get_name", (BuiltinFunc)builtin_sprite_get_name);
+        VM_registerBuiltin(ctx, "background_name", (BuiltinFunc)builtin_sprite_get_name);
     }
-    VM_registerBuiltin(ctx, "draw_self", builtin_draw_self);
-    VM_registerBuiltin(ctx, "draw_line", builtin_draw_line);
-    VM_registerBuiltin(ctx, "draw_line_colour", builtin_draw_line_colour);
-    VM_registerBuiltin(ctx, "draw_line_color", builtin_draw_line_colour); // alt-spelling (used in Undertale)
-    VM_registerBuiltin(ctx, "draw_line_width", builtin_draw_line_width);
-    VM_registerBuiltin(ctx, "draw_line_width_colour", builtin_draw_line_width_colour);
-    VM_registerBuiltin(ctx, "draw_line_width_color", builtin_draw_line_width_colour);
-    VM_registerBuiltin(ctx, "draw_triangle", builtin_draw_triangle);
-    VM_registerBuiltin(ctx, "draw_triangle_colour", builtin_draw_triangle_color);
-    VM_registerBuiltin(ctx, "draw_triangle_color", builtin_draw_triangle_color);
-    VM_registerBuiltin(ctx, "draw_circle", builtin_draw_circle);
-    VM_registerBuiltin(ctx, "draw_circle_colour", builtin_draw_circle_color);
-    VM_registerBuiltin(ctx, "draw_circle_color", builtin_draw_circle_color);
-    VM_registerBuiltin(ctx, "draw_ellipse", builtin_draw_ellipse);
-    VM_registerBuiltin(ctx, "draw_ellipse_colour", builtin_draw_ellipse_color);
-    VM_registerBuiltin(ctx, "draw_ellipse_color", builtin_draw_ellipse_color);
-    VM_registerBuiltin(ctx, "draw_set_circle_precision", builtin_draw_set_circle_precision);
-    VM_registerBuiltin(ctx, "draw_get_circle_precision", builtin_draw_get_circle_precision);
-    VM_registerBuiltin(ctx, "draw_set_colour", builtin_draw_set_colour);
-    VM_registerBuiltin(ctx, "draw_get_colour", builtin_draw_get_colour);
-    VM_registerBuiltin(ctx, "draw_get_color", builtin_draw_get_color);
-    VM_registerBuiltin(ctx, "draw_get_alpha", builtin_draw_get_alpha);
-    VM_registerBuiltin(ctx, "draw_get_font", builtin_draw_get_font);
+    VM_registerBuiltin(ctx, "draw_self", (BuiltinFunc)builtin_draw_self);
+    VM_registerBuiltin(ctx, "draw_line", (BuiltinFunc)builtin_draw_line);
+    VM_registerBuiltin(ctx, "draw_line_colour", (BuiltinFunc)builtin_draw_line_colour);
+    VM_registerBuiltin(ctx, "draw_line_color", (BuiltinFunc)builtin_draw_line_colour); // alt-spelling (used in Undertale)
+    VM_registerBuiltin(ctx, "draw_line_width", (BuiltinFunc)builtin_draw_line_width);
+    VM_registerBuiltin(ctx, "draw_line_width_colour", (BuiltinFunc)builtin_draw_line_width_colour);
+    VM_registerBuiltin(ctx, "draw_line_width_color", (BuiltinFunc)builtin_draw_line_width_colour);
+    VM_registerBuiltin(ctx, "draw_triangle", (BuiltinFunc)builtin_draw_triangle);
+    VM_registerBuiltin(ctx, "draw_triangle_colour", (BuiltinFunc)builtin_draw_triangle_color);
+    VM_registerBuiltin(ctx, "draw_triangle_color", (BuiltinFunc)builtin_draw_triangle_color);
+    VM_registerBuiltin(ctx, "draw_circle", (BuiltinFunc)builtin_draw_circle);
+    VM_registerBuiltin(ctx, "draw_circle_colour", (BuiltinFunc)builtin_draw_circle_color);
+    VM_registerBuiltin(ctx, "draw_circle_color", (BuiltinFunc)builtin_draw_circle_color);
+    VM_registerBuiltin(ctx, "draw_ellipse", (BuiltinFunc)builtin_draw_ellipse);
+    VM_registerBuiltin(ctx, "draw_ellipse_colour", (BuiltinFunc)builtin_draw_ellipse_color);
+    VM_registerBuiltin(ctx, "draw_ellipse_color", (BuiltinFunc)builtin_draw_ellipse_color);
+    VM_registerBuiltin(ctx, "draw_set_circle_precision", (BuiltinFunc)builtin_draw_set_circle_precision);
+    VM_registerBuiltin(ctx, "draw_get_circle_precision", (BuiltinFunc)builtin_draw_get_circle_precision);
+    VM_registerBuiltin(ctx, "draw_set_colour", (BuiltinFunc)builtin_draw_set_colour);
+    VM_registerBuiltin(ctx, "draw_get_colour", (BuiltinFunc)builtin_draw_get_colour);
+    VM_registerBuiltin(ctx, "draw_get_color", (BuiltinFunc)builtin_draw_get_color);
+    VM_registerBuiltin(ctx, "draw_get_alpha", (BuiltinFunc)builtin_draw_get_alpha);
+    VM_registerBuiltin(ctx, "draw_get_font", (BuiltinFunc)builtin_draw_get_font);
 
     // Motion
-    VM_registerBuiltin(ctx, "motion_add", builtin_motion_add);
+    VM_registerBuiltin(ctx, "motion_add", (BuiltinFunc)builtin_motion_add);
 
     // Color
-    VM_registerBuiltin(ctx, "merge_color", builtin_merge_color);
-    VM_registerBuiltin(ctx, "merge_colour", builtin_merge_color);
+    VM_registerBuiltin(ctx, "merge_color", (BuiltinFunc)builtin_merge_color);
+    VM_registerBuiltin(ctx, "merge_colour", (BuiltinFunc)builtin_merge_color);
 
     // Surface
-    VM_registerBuiltin(ctx, "surface_create", builtin_surface_create);
-    VM_registerBuiltin(ctx, "surface_free", builtin_surface_free);
-    VM_registerBuiltin(ctx, "surface_set_target", builtin_surface_set_target);
-    VM_registerBuiltin(ctx, "surface_reset_target", builtin_surface_reset_target);
-    VM_registerBuiltin(ctx, "surface_get_target", builtin_surface_get_target);
-    VM_registerBuiltin(ctx, "surface_exists", builtin_surface_exists);
-    VM_registerBuiltin(ctx, "surface_get_width", builtin_surface_get_width);
-    VM_registerBuiltin(ctx, "surface_get_height", builtin_surface_get_height);
-    VM_registerBuiltin(ctx, "surface_get_texture", builtin_surface_get_texture);
-    VM_registerBuiltin(ctx, "surface_resize", builtin_surface_resize);
-    VM_registerBuiltin(ctx, "surface_copy", builtin_surface_copy);
-    VM_registerBuiltin(ctx, "surface_copy_part", builtin_surface_copy_part);
+    VM_registerBuiltin(ctx, "surface_create", (BuiltinFunc)builtin_surface_create);
+    VM_registerBuiltin(ctx, "surface_free", (BuiltinFunc)builtin_surface_free);
+    VM_registerBuiltin(ctx, "surface_set_target", (BuiltinFunc)builtin_surface_set_target);
+    VM_registerBuiltin(ctx, "surface_reset_target", (BuiltinFunc)builtin_surface_reset_target);
+    VM_registerBuiltin(ctx, "surface_get_target", (BuiltinFunc)builtin_surface_get_target);
+    VM_registerBuiltin(ctx, "surface_exists", (BuiltinFunc)builtin_surface_exists);
+    VM_registerBuiltin(ctx, "surface_get_width", (BuiltinFunc)builtin_surface_get_width);
+    VM_registerBuiltin(ctx, "surface_get_height", (BuiltinFunc)builtin_surface_get_height);
+    VM_registerBuiltin(ctx, "surface_get_texture", (BuiltinFunc)builtin_surface_get_texture);
+    VM_registerBuiltin(ctx, "surface_resize", (BuiltinFunc)builtin_surface_resize);
+    VM_registerBuiltin(ctx, "surface_copy", (BuiltinFunc)builtin_surface_copy);
+    VM_registerBuiltin(ctx, "surface_copy_part", (BuiltinFunc)builtin_surface_copy_part);
 
     // Sprite info
-    VM_registerBuiltin(ctx, "sprite_add", builtin_sprite_add);
-    VM_registerBuiltin(ctx, "sprite_exists", builtin_sprite_exists);
-    VM_registerBuiltin(ctx, "sprite_get_width", builtin_sprite_get_width);
-    VM_registerBuiltin(ctx, "sprite_get_height", builtin_sprite_get_height);
-    VM_registerBuiltin(ctx, "sprite_get_number", builtin_sprite_get_number);
-    VM_registerBuiltin(ctx, "sprite_get_xoffset", builtin_sprite_get_xoffset);
-    VM_registerBuiltin(ctx, "sprite_get_yoffset", builtin_sprite_get_yoffset);
-    VM_registerBuiltin(ctx, "sprite_get_name", builtin_sprite_get_name);
-    VM_registerBuiltin(ctx, "sprite_get_bbox_left", builtin_sprite_get_bbox_left);
-    VM_registerBuiltin(ctx, "sprite_get_bbox_right", builtin_sprite_get_bbox_right);
-    VM_registerBuiltin(ctx, "sprite_get_bbox_top", builtin_sprite_get_bbox_top);
-    VM_registerBuiltin(ctx, "sprite_get_bbox_bottom", builtin_sprite_get_bbox_bottom);
-    VM_registerBuiltin(ctx, "sprite_set_offset", builtin_sprite_set_offset);
-    VM_registerBuiltin(ctx, "sprite_create_from_surface", builtin_sprite_create_from_surface);
-    VM_registerBuiltin(ctx, "sprite_delete", builtin_sprite_delete);
+    VM_registerBuiltin(ctx, "sprite_add", (BuiltinFunc)builtin_sprite_add);
+    VM_registerBuiltin(ctx, "sprite_exists", (BuiltinFunc)builtin_sprite_exists);
+    VM_registerBuiltin(ctx, "sprite_get_width", (BuiltinFunc)builtin_sprite_get_width);
+    VM_registerBuiltin(ctx, "sprite_get_height", (BuiltinFunc)builtin_sprite_get_height);
+    VM_registerBuiltin(ctx, "sprite_get_number", (BuiltinFunc)builtin_sprite_get_number);
+    VM_registerBuiltin(ctx, "sprite_get_xoffset", (BuiltinFunc)builtin_sprite_get_xoffset);
+    VM_registerBuiltin(ctx, "sprite_get_yoffset", (BuiltinFunc)builtin_sprite_get_yoffset);
+    VM_registerBuiltin(ctx, "sprite_get_name", (BuiltinFunc)builtin_sprite_get_name);
+    VM_registerBuiltin(ctx, "sprite_get_bbox_left", (BuiltinFunc)builtin_sprite_get_bbox_left);
+    VM_registerBuiltin(ctx, "sprite_get_bbox_right", (BuiltinFunc)builtin_sprite_get_bbox_right);
+    VM_registerBuiltin(ctx, "sprite_get_bbox_top", (BuiltinFunc)builtin_sprite_get_bbox_top);
+    VM_registerBuiltin(ctx, "sprite_get_bbox_bottom", (BuiltinFunc)builtin_sprite_get_bbox_bottom);
+    VM_registerBuiltin(ctx, "sprite_set_offset", (BuiltinFunc)builtin_sprite_set_offset);
+    VM_registerBuiltin(ctx, "sprite_create_from_surface", (BuiltinFunc)builtin_sprite_create_from_surface);
+    VM_registerBuiltin(ctx, "sprite_delete", (BuiltinFunc)builtin_sprite_delete);
 
     // Text measurement
-    VM_registerBuiltin(ctx, "string_width", builtin_string_width);
-    VM_registerBuiltin(ctx, "string_height", builtin_string_height);
-    VM_registerBuiltin(ctx, "string_width_ext", builtin_string_width_ext);
-    VM_registerBuiltin(ctx, "string_height_ext", builtin_string_height_ext);
+    VM_registerBuiltin(ctx, "string_width", (BuiltinFunc)builtin_string_width);
+    VM_registerBuiltin(ctx, "string_height", (BuiltinFunc)builtin_string_height);
+    VM_registerBuiltin(ctx, "string_width_ext", (BuiltinFunc)builtin_string_width_ext);
+    VM_registerBuiltin(ctx, "string_height_ext", (BuiltinFunc)builtin_string_height_ext);
 
     // Color
-    VM_registerBuiltin(ctx, "make_color_rgb", builtin_make_color_rgb);
-    VM_registerBuiltin(ctx, "make_colour_rgb", builtin_make_colour_rgb);
-    VM_registerBuiltin(ctx, "make_color_hsv", builtin_make_color_hsv);
-    VM_registerBuiltin(ctx, "make_colour_hsv", builtin_make_colour_hsv);
-    VM_registerBuiltin(ctx, "color_get_red", builtin_color_get_red);
-    VM_registerBuiltin(ctx, "colour_get_red", builtin_color_get_red);
-    VM_registerBuiltin(ctx, "color_get_green", builtin_color_get_green);
-    VM_registerBuiltin(ctx, "colour_get_green", builtin_color_get_green);
-    VM_registerBuiltin(ctx, "color_get_blue", builtin_color_get_blue);
-    VM_registerBuiltin(ctx, "colour_get_blue", builtin_color_get_blue);
-    VM_registerBuiltin(ctx, "color_get_hue", builtin_color_get_hue);
-    VM_registerBuiltin(ctx, "colour_get_hue", builtin_color_get_hue);
-    VM_registerBuiltin(ctx, "color_get_saturation", builtin_color_get_saturation);
-    VM_registerBuiltin(ctx, "colour_get_saturation", builtin_color_get_saturation);
-    VM_registerBuiltin(ctx, "color_get_value", builtin_color_get_value);
-    VM_registerBuiltin(ctx, "colour_get_value", builtin_color_get_value);
+    VM_registerBuiltin(ctx, "make_color_rgb", (BuiltinFunc)builtin_make_color_rgb);
+    VM_registerBuiltin(ctx, "make_colour_rgb", (BuiltinFunc)builtin_make_colour_rgb);
+    VM_registerBuiltin(ctx, "make_color_hsv", (BuiltinFunc)builtin_make_color_hsv);
+    VM_registerBuiltin(ctx, "make_colour_hsv", (BuiltinFunc)builtin_make_colour_hsv);
+    VM_registerBuiltin(ctx, "color_get_red", (BuiltinFunc)builtin_color_get_red);
+    VM_registerBuiltin(ctx, "colour_get_red", (BuiltinFunc)builtin_color_get_red);
+    VM_registerBuiltin(ctx, "color_get_green", (BuiltinFunc)builtin_color_get_green);
+    VM_registerBuiltin(ctx, "colour_get_green", (BuiltinFunc)builtin_color_get_green);
+    VM_registerBuiltin(ctx, "color_get_blue", (BuiltinFunc)builtin_color_get_blue);
+    VM_registerBuiltin(ctx, "colour_get_blue", (BuiltinFunc)builtin_color_get_blue);
+    VM_registerBuiltin(ctx, "color_get_hue", (BuiltinFunc)builtin_color_get_hue);
+    VM_registerBuiltin(ctx, "colour_get_hue", (BuiltinFunc)builtin_color_get_hue);
+    VM_registerBuiltin(ctx, "color_get_saturation", (BuiltinFunc)builtin_color_get_saturation);
+    VM_registerBuiltin(ctx, "colour_get_saturation", (BuiltinFunc)builtin_color_get_saturation);
+    VM_registerBuiltin(ctx, "color_get_value", (BuiltinFunc)builtin_color_get_value);
+    VM_registerBuiltin(ctx, "colour_get_value", (BuiltinFunc)builtin_color_get_value);
 
     // Display
-    VM_registerBuiltin(ctx, "display_get_width", builtin_display_get_width);
-    VM_registerBuiltin(ctx, "display_get_height", builtin_display_get_height);
-    VM_registerBuiltin(ctx, "display_get_gui_width", builtin_display_get_gui_width);
-    VM_registerBuiltin(ctx, "display_get_gui_height", builtin_display_get_gui_height);
-    VM_registerBuiltin(ctx, "display_set_gui_size", builtin_display_set_gui_size);
-    VM_registerBuiltin(ctx, "display_set_gui_maximise", builtin_display_set_gui_maximise);
-    VM_registerBuiltin(ctx, "display_set_gui_maximize", builtin_display_set_gui_maximise);
+    VM_registerBuiltin(ctx, "display_get_width", (BuiltinFunc)builtin_display_get_width);
+    VM_registerBuiltin(ctx, "display_get_height", (BuiltinFunc)builtin_display_get_height);
+    VM_registerBuiltin(ctx, "display_get_gui_width", (BuiltinFunc)builtin_display_get_gui_width);
+    VM_registerBuiltin(ctx, "display_get_gui_height", (BuiltinFunc)builtin_display_get_gui_height);
+    VM_registerBuiltin(ctx, "display_set_gui_size", (BuiltinFunc)builtin_display_set_gui_size);
+    VM_registerBuiltin(ctx, "display_set_gui_maximise", (BuiltinFunc)builtin_display_set_gui_maximise);
+    VM_registerBuiltin(ctx, "display_set_gui_maximize", (BuiltinFunc)builtin_display_set_gui_maximise);
 
     // Devices
-    VM_registerBuiltin(ctx, "device_mouse_check_button", builtinDeviceMouseCheckButton);
-    VM_registerBuiltin(ctx, "device_mouse_x", builtinDeviceMouseX);
-    VM_registerBuiltin(ctx, "device_mouse_y", builtinDeviceMouseY);
-    VM_registerBuiltin(ctx, "device_mouse_x_to_gui", builtinDeviceMouseXToGui);
-    VM_registerBuiltin(ctx, "device_mouse_y_to_gui", builtinDeviceMouseYToGui);
+    VM_registerBuiltin(ctx, "device_mouse_check_button", (BuiltinFunc)builtinDeviceMouseCheckButton);
+    VM_registerBuiltin(ctx, "device_mouse_x", (BuiltinFunc)builtinDeviceMouseX);
+    VM_registerBuiltin(ctx, "device_mouse_y", (BuiltinFunc)builtinDeviceMouseY);
+    VM_registerBuiltin(ctx, "device_mouse_x_to_gui", (BuiltinFunc)builtinDeviceMouseXToGui);
+    VM_registerBuiltin(ctx, "device_mouse_y_to_gui", (BuiltinFunc)builtinDeviceMouseYToGui);
 
     // Collision
-    VM_registerBuiltin(ctx, "place_meeting", builtin_place_meeting);
-    VM_registerBuiltin(ctx, "collision_rectangle", builtin_collision_rectangle);
-    VM_registerBuiltin(ctx, "collision_rectangle_list", builtin_collision_rectangle_list);
-    VM_registerBuiltin(ctx, "rectangle_in_rectangle", builtin_rectangle_in_rectangle);
-    VM_registerBuiltin(ctx, "collision_line", builtin_collision_line);
-    VM_registerBuiltin(ctx, "collision_point", builtin_collision_point);
-    VM_registerBuiltin(ctx, "collision_circle", builtin_collision_circle);
-    VM_registerBuiltin(ctx, "instance_place", builtin_instance_place);
-    VM_registerBuiltin(ctx, "instance_place_list", builtin_instance_place_list);
-    VM_registerBuiltin(ctx, "instance_position", builtin_instance_position);
-    VM_registerBuiltin(ctx, "position_meeting", builtin_position_meeting);
-    VM_registerBuiltin(ctx, "place_free", builtin_place_free);
-    VM_registerBuiltin(ctx, "place_empty", builtin_place_empty);
+    VM_registerBuiltin(ctx, "place_meeting", (BuiltinFunc)builtin_place_meeting);
+    VM_registerBuiltin(ctx, "collision_rectangle", (BuiltinFunc)builtin_collision_rectangle);
+    VM_registerBuiltin(ctx, "collision_rectangle_list", (BuiltinFunc)builtin_collision_rectangle_list);
+    VM_registerBuiltin(ctx, "rectangle_in_rectangle", (BuiltinFunc)builtin_rectangle_in_rectangle);
+    VM_registerBuiltin(ctx, "collision_line", (BuiltinFunc)builtin_collision_line);
+    VM_registerBuiltin(ctx, "collision_point", (BuiltinFunc)builtin_collision_point);
+    VM_registerBuiltin(ctx, "collision_circle", (BuiltinFunc)builtin_collision_circle);
+    VM_registerBuiltin(ctx, "instance_place", (BuiltinFunc)builtin_instance_place);
+    VM_registerBuiltin(ctx, "instance_place_list", (BuiltinFunc)builtin_instance_place_list);
+    VM_registerBuiltin(ctx, "instance_position", (BuiltinFunc)builtin_instance_position);
+    VM_registerBuiltin(ctx, "position_meeting", (BuiltinFunc)builtin_position_meeting);
+    VM_registerBuiltin(ctx, "place_free", (BuiltinFunc)builtin_place_free);
+    VM_registerBuiltin(ctx, "place_empty", (BuiltinFunc)builtin_place_empty);
 
     // Motion planning
-    VM_registerBuiltin(ctx, "mp_linear_step", builtin_mp_linear_step);
-    VM_registerBuiltin(ctx, "mp_linear_step_object", builtin_mp_linear_step_object);
-    VM_registerBuiltin(ctx, "mp_potential_step", builtin_mp_potential_step);
-    VM_registerBuiltin(ctx, "mp_potential_step_object", builtin_mp_potential_step_object);
-    VM_registerBuiltin(ctx, "mp_potential_settings", builtin_mp_potential_settings);
+    VM_registerBuiltin(ctx, "mp_linear_step", (BuiltinFunc)builtin_mp_linear_step);
+    VM_registerBuiltin(ctx, "mp_linear_step_object", (BuiltinFunc)builtin_mp_linear_step_object);
+    VM_registerBuiltin(ctx, "mp_potential_step", (BuiltinFunc)builtin_mp_potential_step);
+    VM_registerBuiltin(ctx, "mp_potential_step_object", (BuiltinFunc)builtin_mp_potential_step_object);
+    VM_registerBuiltin(ctx, "mp_potential_settings", (BuiltinFunc)builtin_mp_potential_settings);
 
     // Tile layers (GM:S 1.x)
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "tile_layer_hide", builtin_tile_layer_hide);
-        VM_registerBuiltin(ctx, "tile_layer_show", builtin_tile_layer_show);
-        VM_registerBuiltin(ctx, "tile_layer_shift", builtin_tile_layer_shift);
-        VM_registerBuiltin(ctx, "tile_add", builtin_tile_add);
-        VM_registerBuiltin(ctx, "tile_exists", builtin_tile_exists);
-        VM_registerBuiltin(ctx, "tile_layer_find", builtin_tile_layer_find);
-        VM_registerBuiltin(ctx, "tile_layer_delete", builtin_tile_layer_delete);
-        VM_registerBuiltin(ctx, "tile_delete", builtin_tile_delete);
-        VM_registerBuiltin(ctx, "tile_get_ids_at_depth", builtin_tile_get_ids_at_depth);
-        VM_registerBuiltin(ctx, "tile_set_alpha", builtin_tile_set_alpha);
-        VM_registerBuiltin(ctx, "tile_set_visible", builtin_layer_tile_visible);
+        VM_registerBuiltin(ctx, "tile_layer_hide", (BuiltinFunc)builtin_tile_layer_hide);
+        VM_registerBuiltin(ctx, "tile_layer_show", (BuiltinFunc)builtin_tile_layer_show);
+        VM_registerBuiltin(ctx, "tile_layer_shift", (BuiltinFunc)builtin_tile_layer_shift);
+        VM_registerBuiltin(ctx, "tile_add", (BuiltinFunc)builtin_tile_add);
+        VM_registerBuiltin(ctx, "tile_exists", (BuiltinFunc)builtin_tile_exists);
+        VM_registerBuiltin(ctx, "tile_layer_find", (BuiltinFunc)builtin_tile_layer_find);
+        VM_registerBuiltin(ctx, "tile_layer_delete", (BuiltinFunc)builtin_tile_layer_delete);
+        VM_registerBuiltin(ctx, "tile_delete", (BuiltinFunc)builtin_tile_delete);
+        VM_registerBuiltin(ctx, "tile_get_ids_at_depth", (BuiltinFunc)builtin_tile_get_ids_at_depth);
+        VM_registerBuiltin(ctx, "tile_set_alpha", (BuiltinFunc)builtin_tile_set_alpha);
+        VM_registerBuiltin(ctx, "tile_set_visible", (BuiltinFunc)builtin_layer_tile_visible);
     }
 
     // Layer
-    VM_registerBuiltin(ctx, "layer_force_draw_depth", builtin_layer_force_draw_depth);
-    VM_registerBuiltin(ctx, "layer_is_draw_depth_forced", builtin_layer_is_draw_depth_forced);
-    VM_registerBuiltin(ctx, "layer_get_forced_depth", builtin_layer_get_forced_depth);
-    VM_registerBuiltin(ctx, "layer_get_id", builtin_layer_get_id);
-    VM_registerBuiltin(ctx, "layer_exists", builtin_layer_exists);
-    VM_registerBuiltin(ctx, "layer_get_name", builtin_layer_get_name);
-    VM_registerBuiltin(ctx, "layer_get_depth", builtin_layer_get_depth);
-    VM_registerBuiltin(ctx, "layer_depth", builtin_layer_depth);
-    VM_registerBuiltin(ctx, "layer_get_visible", builtin_layer_get_visible);
-    VM_registerBuiltin(ctx, "layer_set_visible", builtin_layer_set_visible);
-    VM_registerBuiltin(ctx, "layer_get_x", builtin_layer_get_x);
-    VM_registerBuiltin(ctx, "layer_x", builtin_layer_x);
-    VM_registerBuiltin(ctx, "layer_get_y", builtin_layer_get_y);
-    VM_registerBuiltin(ctx, "layer_y", builtin_layer_y);
-    VM_registerBuiltin(ctx, "layer_get_hspeed", builtin_layer_get_hspeed);
-    VM_registerBuiltin(ctx, "layer_hspeed", builtin_layer_hspeed);
-    VM_registerBuiltin(ctx, "layer_get_vspeed", builtin_layer_get_vspeed);
-    VM_registerBuiltin(ctx, "layer_vspeed", builtin_layer_vspeed);
+    VM_registerBuiltin(ctx, "layer_force_draw_depth", (BuiltinFunc)builtin_layer_force_draw_depth);
+    VM_registerBuiltin(ctx, "layer_is_draw_depth_forced", (BuiltinFunc)builtin_layer_is_draw_depth_forced);
+    VM_registerBuiltin(ctx, "layer_get_forced_depth", (BuiltinFunc)builtin_layer_get_forced_depth);
+    VM_registerBuiltin(ctx, "layer_get_id", (BuiltinFunc)builtin_layer_get_id);
+    VM_registerBuiltin(ctx, "layer_exists", (BuiltinFunc)builtin_layer_exists);
+    VM_registerBuiltin(ctx, "layer_get_name", (BuiltinFunc)builtin_layer_get_name);
+    VM_registerBuiltin(ctx, "layer_get_depth", (BuiltinFunc)builtin_layer_get_depth);
+    VM_registerBuiltin(ctx, "layer_depth", (BuiltinFunc)builtin_layer_depth);
+    VM_registerBuiltin(ctx, "layer_get_visible", (BuiltinFunc)builtin_layer_get_visible);
+    VM_registerBuiltin(ctx, "layer_set_visible", (BuiltinFunc)builtin_layer_set_visible);
+    VM_registerBuiltin(ctx, "layer_get_x", (BuiltinFunc)builtin_layer_get_x);
+    VM_registerBuiltin(ctx, "layer_x", (BuiltinFunc)builtin_layer_x);
+    VM_registerBuiltin(ctx, "layer_get_y", (BuiltinFunc)builtin_layer_get_y);
+    VM_registerBuiltin(ctx, "layer_y", (BuiltinFunc)builtin_layer_y);
+    VM_registerBuiltin(ctx, "layer_get_hspeed", (BuiltinFunc)builtin_layer_get_hspeed);
+    VM_registerBuiltin(ctx, "layer_hspeed", (BuiltinFunc)builtin_layer_hspeed);
+    VM_registerBuiltin(ctx, "layer_get_vspeed", (BuiltinFunc)builtin_layer_get_vspeed);
+    VM_registerBuiltin(ctx, "layer_vspeed", (BuiltinFunc)builtin_layer_vspeed);
 #if IS_WAD17_OR_HIGHER_ENABLED
-    VM_registerBuiltin(ctx, "layer_get_all", builtin_layer_get_all);
-    VM_registerBuiltin(ctx, "layer_get_all_elements", builtin_layer_get_all_elements);
-    VM_registerBuiltin(ctx, "layer_instance_get_instance", builtin_layer_instance_get_instance);
+    VM_registerBuiltin(ctx, "layer_get_all", (BuiltinFunc)builtin_layer_get_all);
+    VM_registerBuiltin(ctx, "layer_get_all_elements", (BuiltinFunc)builtin_layer_get_all_elements);
+    VM_registerBuiltin(ctx, "layer_instance_get_instance", (BuiltinFunc)builtin_layer_instance_get_instance);
 #endif
-    VM_registerBuiltin(ctx, "layer_get_element_type", builtin_layer_get_element_type);
-    VM_registerBuiltin(ctx, "layer_sprite_get_sprite", builtin_layer_sprite_get_sprite);
-    VM_registerBuiltin(ctx, "layer_sprite_get_x", builtin_layer_sprite_get_x);
-    VM_registerBuiltin(ctx, "layer_sprite_get_y", builtin_layer_sprite_get_y);
-    VM_registerBuiltin(ctx, "layer_sprite_get_xscale", builtin_layer_sprite_get_xscale);
-    VM_registerBuiltin(ctx, "layer_sprite_get_yscale", builtin_layer_sprite_get_yscale);
-    VM_registerBuiltin(ctx, "layer_sprite_get_speed", builtin_layer_sprite_get_speed);
-    VM_registerBuiltin(ctx, "layer_sprite_get_index", builtin_layer_sprite_get_index);
-    VM_registerBuiltin(ctx, "layer_sprite_get_angle", builtin_layer_sprite_get_angle);
-    VM_registerBuiltin(ctx, "layer_sprite_get_alpha", builtin_layer_sprite_get_alpha);
-    VM_registerBuiltin(ctx, "layer_sprite_get_blend", builtin_layer_sprite_get_blend);
-    VM_registerBuiltin(ctx, "layer_sprite_destroy", builtin_layer_sprite_destroy);
-    VM_registerBuiltin(ctx, "layer_tile_visible", builtin_layer_tile_visible);
+    VM_registerBuiltin(ctx, "layer_get_element_type", (BuiltinFunc)builtin_layer_get_element_type);
+    VM_registerBuiltin(ctx, "layer_sprite_get_sprite", (BuiltinFunc)builtin_layer_sprite_get_sprite);
+    VM_registerBuiltin(ctx, "layer_sprite_get_x", (BuiltinFunc)builtin_layer_sprite_get_x);
+    VM_registerBuiltin(ctx, "layer_sprite_get_y", (BuiltinFunc)builtin_layer_sprite_get_y);
+    VM_registerBuiltin(ctx, "layer_sprite_get_xscale", (BuiltinFunc)builtin_layer_sprite_get_xscale);
+    VM_registerBuiltin(ctx, "layer_sprite_get_yscale", (BuiltinFunc)builtin_layer_sprite_get_yscale);
+    VM_registerBuiltin(ctx, "layer_sprite_get_speed", (BuiltinFunc)builtin_layer_sprite_get_speed);
+    VM_registerBuiltin(ctx, "layer_sprite_get_index", (BuiltinFunc)builtin_layer_sprite_get_index);
+    VM_registerBuiltin(ctx, "layer_sprite_get_angle", (BuiltinFunc)builtin_layer_sprite_get_angle);
+    VM_registerBuiltin(ctx, "layer_sprite_get_alpha", (BuiltinFunc)builtin_layer_sprite_get_alpha);
+    VM_registerBuiltin(ctx, "layer_sprite_get_blend", (BuiltinFunc)builtin_layer_sprite_get_blend);
+    VM_registerBuiltin(ctx, "layer_sprite_destroy", (BuiltinFunc)builtin_layer_sprite_destroy);
+    VM_registerBuiltin(ctx, "layer_tile_visible", (BuiltinFunc)builtin_layer_tile_visible);
 #if IS_WAD17_OR_HIGHER_ENABLED
-    VM_registerBuiltin(ctx, "layer_get_id_at_depth", builtin_layer_get_id_at_depth);
-    VM_registerBuiltin(ctx, "layer_tilemap_get_id", builtin_layer_tilemap_get_id);
-    VM_registerBuiltin(ctx, "draw_tilemap", builtin_draw_tilemap);
-    VM_registerBuiltin(ctx, "tilemap_x", builtin_tilemap_x);
-    VM_registerBuiltin(ctx, "tilemap_y", builtin_tilemap_y);
-    VM_registerBuiltin(ctx, "tilemap_get_x", builtin_tilemap_get_x);
-    VM_registerBuiltin(ctx, "tilemap_get_y", builtin_tilemap_get_y);
-    VM_registerBuiltin(ctx, "tilemap_get_at_pixel", builtin_tilemap_get_at_pixel);
+    VM_registerBuiltin(ctx, "layer_get_id_at_depth", (BuiltinFunc)builtin_layer_get_id_at_depth);
+    VM_registerBuiltin(ctx, "layer_tilemap_get_id", (BuiltinFunc)builtin_layer_tilemap_get_id);
+    VM_registerBuiltin(ctx, "draw_tilemap", (BuiltinFunc)builtin_draw_tilemap);
+    VM_registerBuiltin(ctx, "tilemap_x", (BuiltinFunc)builtin_tilemap_x);
+    VM_registerBuiltin(ctx, "tilemap_y", (BuiltinFunc)builtin_tilemap_y);
+    VM_registerBuiltin(ctx, "tilemap_get_x", (BuiltinFunc)builtin_tilemap_get_x);
+    VM_registerBuiltin(ctx, "tilemap_get_y", (BuiltinFunc)builtin_tilemap_get_y);
+    VM_registerBuiltin(ctx, "tilemap_get_at_pixel", (BuiltinFunc)builtin_tilemap_get_at_pixel);
 #endif
-    VM_registerBuiltin(ctx, "layer_create", builtin_layer_create);
-    VM_registerBuiltin(ctx, "layer_destroy", builtin_layer_destroy);
-    VM_registerBuiltin(ctx, "layer_background_create", builtin_layer_background_create);
-    VM_registerBuiltin(ctx, "layer_background_exists", builtin_layer_background_exists);
-    VM_registerBuiltin(ctx, "layer_background_visible", builtin_layer_background_visible);
-    VM_registerBuiltin(ctx, "layer_background_htiled", builtin_layer_background_htiled);
-    VM_registerBuiltin(ctx, "layer_background_vtiled", builtin_layer_background_vtiled);
-    VM_registerBuiltin(ctx, "layer_background_xscale", builtin_layer_background_xscale);
-    VM_registerBuiltin(ctx, "layer_background_yscale", builtin_layer_background_yscale);
-    VM_registerBuiltin(ctx, "layer_background_stretch", builtin_layer_background_stretch);
-    VM_registerBuiltin(ctx, "layer_background_blend", builtin_layer_background_blend);
-    VM_registerBuiltin(ctx, "layer_background_alpha", builtin_layer_background_alpha);
-    VM_registerBuiltin(ctx, "layer_background_sprite", builtin_layer_background_sprite);
-    VM_registerBuiltin(ctx, "layer_background_change", builtin_layer_background_sprite);
-    VM_registerBuiltin(ctx, "layer_background_get_id", builtin_layer_background_get_id);
-    VM_registerBuiltin(ctx, "layer_background_index", builtin_layer_background_index);
-    VM_registerBuiltin(ctx, "layer_tile_alpha", builtin_layer_tile_alpha);
-    VM_registerBuiltin(ctx, "layer_background_destroy", builtin_layer_background_destroy);
+    VM_registerBuiltin(ctx, "layer_create", (BuiltinFunc)builtin_layer_create);
+    VM_registerBuiltin(ctx, "layer_destroy", (BuiltinFunc)builtin_layer_destroy);
+    VM_registerBuiltin(ctx, "layer_background_create", (BuiltinFunc)builtin_layer_background_create);
+    VM_registerBuiltin(ctx, "layer_background_exists", (BuiltinFunc)builtin_layer_background_exists);
+    VM_registerBuiltin(ctx, "layer_background_visible", (BuiltinFunc)builtin_layer_background_visible);
+    VM_registerBuiltin(ctx, "layer_background_htiled", (BuiltinFunc)builtin_layer_background_htiled);
+    VM_registerBuiltin(ctx, "layer_background_vtiled", (BuiltinFunc)builtin_layer_background_vtiled);
+    VM_registerBuiltin(ctx, "layer_background_xscale", (BuiltinFunc)builtin_layer_background_xscale);
+    VM_registerBuiltin(ctx, "layer_background_yscale", (BuiltinFunc)builtin_layer_background_yscale);
+    VM_registerBuiltin(ctx, "layer_background_stretch", (BuiltinFunc)builtin_layer_background_stretch);
+    VM_registerBuiltin(ctx, "layer_background_blend", (BuiltinFunc)builtin_layer_background_blend);
+    VM_registerBuiltin(ctx, "layer_background_alpha", (BuiltinFunc)builtin_layer_background_alpha);
+    VM_registerBuiltin(ctx, "layer_background_sprite", (BuiltinFunc)builtin_layer_background_sprite);
+    VM_registerBuiltin(ctx, "layer_background_change", (BuiltinFunc)builtin_layer_background_sprite);
+    VM_registerBuiltin(ctx, "layer_background_get_id", (BuiltinFunc)builtin_layer_background_get_id);
+    VM_registerBuiltin(ctx, "layer_background_index", (BuiltinFunc)builtin_layer_background_index);
+    VM_registerBuiltin(ctx, "layer_tile_alpha", (BuiltinFunc)builtin_layer_tile_alpha);
+    VM_registerBuiltin(ctx, "layer_background_destroy", (BuiltinFunc)builtin_layer_background_destroy);
 
     // GMS2 internal
-    VM_registerBuiltin(ctx, "@@NewGMLArray@@", builtin_NewGMLArray);
-    VM_registerBuiltin(ctx, "@@This@@", builtin_This);
-    VM_registerBuiltin(ctx, "@@Other@@", builtin_Other);
-    VM_registerBuiltin(ctx, "@@Global@@", builtin_Global);
+    VM_registerBuiltin(ctx, "@@NewGMLArray@@", (BuiltinFunc)builtin_NewGMLArray);
+    VM_registerBuiltin(ctx, "@@This@@", (BuiltinFunc)builtin_This);
+    VM_registerBuiltin(ctx, "@@Other@@", (BuiltinFunc)builtin_Other);
+    VM_registerBuiltin(ctx, "@@Global@@", (BuiltinFunc)builtin_Global);
 #if IS_WAD17_OR_HIGHER_ENABLED
-    VM_registerBuiltin(ctx, "@@NullObject@@", builtin_NullObject);
-    VM_registerBuiltin(ctx, "@@NewGMLObject@@", builtin_NewGMLObject);
-    VM_registerBuiltin(ctx, "@@CopyStatic@@", builtin_CopyStatic);
-    VM_registerBuiltin(ctx, "@@SetStatic@@", builtin_SetStatic);
-    VM_registerBuiltin(ctx, "@@GetInstance@@", builtin_GetInstance);
+    VM_registerBuiltin(ctx, "@@NullObject@@", (BuiltinFunc)builtin_NullObject);
+    VM_registerBuiltin(ctx, "@@NewGMLObject@@", (BuiltinFunc)builtin_NewGMLObject);
+    VM_registerBuiltin(ctx, "@@CopyStatic@@", (BuiltinFunc)builtin_CopyStatic);
+    VM_registerBuiltin(ctx, "@@SetStatic@@", (BuiltinFunc)builtin_SetStatic);
+    VM_registerBuiltin(ctx, "@@GetInstance@@", (BuiltinFunc)builtin_GetInstance);
 #endif
 
     // Path
-    VM_registerBuiltin(ctx, "path_start", builtin_path_start);
-    VM_registerBuiltin(ctx, "path_end", builtin_path_end);
-    VM_registerBuiltin(ctx, "path_get_length", builtin_path_get_length);
-    VM_registerBuiltin(ctx, "path_get_point_x", builtin_path_get_point_x);
-    VM_registerBuiltin(ctx, "path_get_point_y", builtin_path_get_point_y);
-    VM_registerBuiltin(ctx, "path_get_point_speed", builtin_path_get_point_speed);
-    VM_registerBuiltin(ctx, "path_get_x", builtin_path_get_x);
-    VM_registerBuiltin(ctx, "path_get_y", builtin_path_get_y);
-    VM_registerBuiltin(ctx, "path_get_speed", builtin_path_get_speed);
-    VM_registerBuiltin(ctx, "path_get_kind", builtin_path_get_kind);
-    VM_registerBuiltin(ctx, "path_get_closed", builtin_path_get_closed);
-    VM_registerBuiltin(ctx, "path_get_precision", builtin_path_get_precision);
-    VM_registerBuiltin(ctx, "path_get_number", builtin_path_get_number);
-    VM_registerBuiltin(ctx, "path_set_kind", builtin_path_set_kind);
-    VM_registerBuiltin(ctx, "path_set_closed", builtin_path_set_closed);
-    VM_registerBuiltin(ctx, "path_set_precision", builtin_path_set_precision);
-    VM_registerBuiltin(ctx, "path_add", builtin_path_add);
-    VM_registerBuiltin(ctx, "path_clear_points", builtin_path_clear_points);
-    VM_registerBuiltin(ctx, "path_add_point", builtin_path_add_point);
-    VM_registerBuiltin(ctx, "path_exists", builtin_path_exists);
-    VM_registerBuiltin(ctx, "path_delete", builtin_path_delete);
+    VM_registerBuiltin(ctx, "path_start", (BuiltinFunc)builtin_path_start);
+    VM_registerBuiltin(ctx, "path_end", (BuiltinFunc)builtin_path_end);
+    VM_registerBuiltin(ctx, "path_get_length", (BuiltinFunc)builtin_path_get_length);
+    VM_registerBuiltin(ctx, "path_get_point_x", (BuiltinFunc)builtin_path_get_point_x);
+    VM_registerBuiltin(ctx, "path_get_point_y", (BuiltinFunc)builtin_path_get_point_y);
+    VM_registerBuiltin(ctx, "path_get_point_speed", (BuiltinFunc)builtin_path_get_point_speed);
+    VM_registerBuiltin(ctx, "path_get_x", (BuiltinFunc)builtin_path_get_x);
+    VM_registerBuiltin(ctx, "path_get_y", (BuiltinFunc)builtin_path_get_y);
+    VM_registerBuiltin(ctx, "path_get_speed", (BuiltinFunc)builtin_path_get_speed);
+    VM_registerBuiltin(ctx, "path_get_kind", (BuiltinFunc)builtin_path_get_kind);
+    VM_registerBuiltin(ctx, "path_get_closed", (BuiltinFunc)builtin_path_get_closed);
+    VM_registerBuiltin(ctx, "path_get_precision", (BuiltinFunc)builtin_path_get_precision);
+    VM_registerBuiltin(ctx, "path_get_number", (BuiltinFunc)builtin_path_get_number);
+    VM_registerBuiltin(ctx, "path_set_kind", (BuiltinFunc)builtin_path_set_kind);
+    VM_registerBuiltin(ctx, "path_set_closed", (BuiltinFunc)builtin_path_set_closed);
+    VM_registerBuiltin(ctx, "path_set_precision", (BuiltinFunc)builtin_path_set_precision);
+    VM_registerBuiltin(ctx, "path_add", (BuiltinFunc)builtin_path_add);
+    VM_registerBuiltin(ctx, "path_clear_points", (BuiltinFunc)builtin_path_clear_points);
+    VM_registerBuiltin(ctx, "path_add_point", (BuiltinFunc)builtin_path_add_point);
+    VM_registerBuiltin(ctx, "path_exists", (BuiltinFunc)builtin_path_exists);
+    VM_registerBuiltin(ctx, "path_delete", (BuiltinFunc)builtin_path_delete);
 
     // Timeline
-    VM_registerBuiltin(ctx, "timeline_exists", builtin_timeline_exists);
-    VM_registerBuiltin(ctx, "timeline_get_name", builtin_timeline_get_name);
-    VM_registerBuiltin(ctx, "timeline_max_moment", builtin_timeline_max_moment);
-    VM_registerBuiltin(ctx, "timeline_size", builtin_timeline_size);
+    VM_registerBuiltin(ctx, "timeline_exists", (BuiltinFunc)builtin_timeline_exists);
+    VM_registerBuiltin(ctx, "timeline_get_name", (BuiltinFunc)builtin_timeline_get_name);
+    VM_registerBuiltin(ctx, "timeline_max_moment", (BuiltinFunc)builtin_timeline_max_moment);
+    VM_registerBuiltin(ctx, "timeline_size", (BuiltinFunc)builtin_timeline_size);
 
     // Animation curves
-    VM_registerBuiltin(ctx, "animcurve_get", builtin_animcurve_get);
-    VM_registerBuiltin(ctx, "animcurve_get_channel", builtin_animcurve_get_channel);
-    VM_registerBuiltin(ctx, "animcurve_get_channel_index", builtin_animcurve_get_channel_index);
-    VM_registerBuiltin(ctx, "animcurve_channel_evaluate", builtin_animcurve_channel_evaluate);
+    VM_registerBuiltin(ctx, "animcurve_get", (BuiltinFunc)builtin_animcurve_get);
+    VM_registerBuiltin(ctx, "animcurve_get_channel", (BuiltinFunc)builtin_animcurve_get_channel);
+    VM_registerBuiltin(ctx, "animcurve_get_channel_index", (BuiltinFunc)builtin_animcurve_get_channel_index);
+    VM_registerBuiltin(ctx, "animcurve_channel_evaluate", (BuiltinFunc)builtin_animcurve_channel_evaluate);
 
     // Motion planning grid
-    VM_registerBuiltin(ctx, "mp_grid_create", builtin_mp_grid_create);
-    VM_registerBuiltin(ctx, "mp_grid_destroy", builtin_mp_grid_destroy);
-    VM_registerBuiltin(ctx, "mp_grid_clear_all", builtin_mp_grid_clear_all);
-    VM_registerBuiltin(ctx, "mp_grid_add_cell", builtin_mp_grid_add_cell);
-    VM_registerBuiltin(ctx, "mp_grid_clear_cell", builtin_mp_grid_clear_cell);
-    VM_registerBuiltin(ctx, "mp_grid_add_rectangle", builtin_mp_grid_add_rectangle);
-    VM_registerBuiltin(ctx, "mp_grid_clear_rectangle", builtin_mp_grid_clear_rectangle);
-    VM_registerBuiltin(ctx, "mp_grid_get_cell", builtin_mp_grid_get_cell);
-    VM_registerBuiltin(ctx, "mp_grid_draw", builtin_mp_grid_draw);
-    VM_registerBuiltin(ctx, "mp_grid_path", builtin_mp_grid_path);
+    VM_registerBuiltin(ctx, "mp_grid_create", (BuiltinFunc)builtin_mp_grid_create);
+    VM_registerBuiltin(ctx, "mp_grid_destroy", (BuiltinFunc)builtin_mp_grid_destroy);
+    VM_registerBuiltin(ctx, "mp_grid_clear_all", (BuiltinFunc)builtin_mp_grid_clear_all);
+    VM_registerBuiltin(ctx, "mp_grid_add_cell", (BuiltinFunc)builtin_mp_grid_add_cell);
+    VM_registerBuiltin(ctx, "mp_grid_clear_cell", (BuiltinFunc)builtin_mp_grid_clear_cell);
+    VM_registerBuiltin(ctx, "mp_grid_add_rectangle", (BuiltinFunc)builtin_mp_grid_add_rectangle);
+    VM_registerBuiltin(ctx, "mp_grid_clear_rectangle", (BuiltinFunc)builtin_mp_grid_clear_rectangle);
+    VM_registerBuiltin(ctx, "mp_grid_get_cell", (BuiltinFunc)builtin_mp_grid_get_cell);
+    VM_registerBuiltin(ctx, "mp_grid_draw", (BuiltinFunc)builtin_mp_grid_draw);
+    VM_registerBuiltin(ctx, "mp_grid_path", (BuiltinFunc)builtin_mp_grid_path);
 
     // Misc
-    VM_registerBuiltin(ctx, "get_timer", builtin_get_timer);
+    VM_registerBuiltin(ctx, "get_timer", (BuiltinFunc)builtin_get_timer);
     if (!isGMS2) {
-        VM_registerBuiltin(ctx, "action_if_variable", builtin_action_if_variable);
-        VM_registerBuiltin(ctx, "action_if", builtin_action_if);
-        VM_registerBuiltin(ctx, "action_if_dice", builtin_action_if_dice);
-        VM_registerBuiltin(ctx, "action_set_alarm", builtin_action_set_alarm);
-        VM_registerBuiltin(ctx, "action_set_score", builtin_action_set_score);
-        VM_registerBuiltin(ctx, "action_if_score", builtin_action_if_score);
-        VM_registerBuiltin(ctx, "action_draw_score", builtin_action_draw_score);
-        VM_registerBuiltin(ctx, "action_set_life", builtin_action_set_life);
-        VM_registerBuiltin(ctx, "action_if_life", builtin_action_if_life);
-        VM_registerBuiltin(ctx, "action_draw_life", builtin_action_draw_life);
-        VM_registerBuiltin(ctx, "action_draw_life_images", builtin_action_draw_life_images);
-        VM_registerBuiltin(ctx, "action_set_health", builtin_action_set_health);
-        VM_registerBuiltin(ctx, "action_if_health", builtin_action_if_health);
-        VM_registerBuiltin(ctx, "action_if_aligned", builtin_action_if_aligned);
-        VM_registerBuiltin(ctx, "action_if_collision", builtin_action_if_collision);
-        VM_registerBuiltin(ctx, "action_if_empty", builtin_action_if_empty);
-        VM_registerBuiltin(ctx, "action_if_object", builtin_action_if_object);
-        VM_registerBuiltin(ctx, "action_if_number", builtin_action_if_number);
-        VM_registerBuiltin(ctx, "action_if_next_room", builtin_action_if_next_room);
-        VM_registerBuiltin(ctx, "action_if_previous_room", builtin_action_if_previous_room);
-        VM_registerBuiltin(ctx, "action_if_mouse", builtin_action_if_mouse);
-        VM_registerBuiltin(ctx, "action_if_question", builtin_action_if_question);
-        VM_registerBuiltin(ctx, "action_draw_health", builtin_action_draw_health);
-        VM_registerBuiltin(ctx, "action_sprite_set", builtin_action_sprite_set);
-        VM_registerBuiltin(ctx, "action_sprite_color", builtin_action_sprite_color);
-        VM_registerBuiltin(ctx, "action_sprite_colour", builtin_action_sprite_color);
-        VM_registerBuiltin(ctx, "action_message", builtin_action_message);
-        VM_registerBuiltin(ctx, "action_another_room", builtin_action_another_room);
-        VM_registerBuiltin(ctx, "action_current_room", builtin_action_current_room);
-        VM_registerBuiltin(ctx, "action_next_room", builtin_action_next_room);
-        VM_registerBuiltin(ctx, "action_reverse_xdir", builtin_action_reverse_xdir);
-        VM_registerBuiltin(ctx, "action_reverse_ydir", builtin_action_reverse_ydir);
-        VM_registerBuiltin(ctx, "action_color", builtin_action_color);
-        VM_registerBuiltin(ctx, "action_colour", builtin_action_color);
-        VM_registerBuiltin(ctx, "action_font", builtin_action_font);
-        VM_registerBuiltin(ctx, "action_draw_text", builtin_action_draw_text);
-        VM_registerBuiltin(ctx, "action_draw_sprite", builtin_action_draw_sprite);
-        VM_registerBuiltin(ctx, "action_draw_variable", builtin_action_draw_variable);
-        VM_registerBuiltin(ctx, "action_change_object", builtin_instance_change);
-        VM_registerBuiltin(ctx, "action_end_game", builtin_game_end);
-        VM_registerBuiltin(ctx, "action_execute_script", builtin_script_execute); //It its right? i think
-        VM_registerBuiltin(ctx, "action_load_game", builtin_game_load);
-        VM_registerBuiltin(ctx, "action_path", builtin_path_start);
-        VM_registerBuiltin(ctx, "action_path_end", builtin_path_end);
-        VM_registerBuiltin(ctx, "action_previous_room", builtin_room_goto_previous);
-        VM_registerBuiltin(ctx, "action_restart_game", builtin_game_restart);
-        VM_registerBuiltin(ctx, "action_save_game", builtin_game_save);
+        VM_registerBuiltin(ctx, "action_if_variable", (BuiltinFunc)builtin_action_if_variable);
+        VM_registerBuiltin(ctx, "action_if", (BuiltinFunc)builtin_action_if);
+        VM_registerBuiltin(ctx, "action_if_dice", (BuiltinFunc)builtin_action_if_dice);
+        VM_registerBuiltin(ctx, "action_set_alarm", (BuiltinFunc)builtin_action_set_alarm);
+        VM_registerBuiltin(ctx, "action_set_score", (BuiltinFunc)builtin_action_set_score);
+        VM_registerBuiltin(ctx, "action_if_score", (BuiltinFunc)builtin_action_if_score);
+        VM_registerBuiltin(ctx, "action_draw_score", (BuiltinFunc)builtin_action_draw_score);
+        VM_registerBuiltin(ctx, "action_set_life", (BuiltinFunc)builtin_action_set_life);
+        VM_registerBuiltin(ctx, "action_if_life", (BuiltinFunc)builtin_action_if_life);
+        VM_registerBuiltin(ctx, "action_draw_life", (BuiltinFunc)builtin_action_draw_life);
+        VM_registerBuiltin(ctx, "action_draw_life_images", (BuiltinFunc)builtin_action_draw_life_images);
+        VM_registerBuiltin(ctx, "action_set_health", (BuiltinFunc)builtin_action_set_health);
+        VM_registerBuiltin(ctx, "action_if_health", (BuiltinFunc)builtin_action_if_health);
+        VM_registerBuiltin(ctx, "action_if_aligned", (BuiltinFunc)builtin_action_if_aligned);
+        VM_registerBuiltin(ctx, "action_if_collision", (BuiltinFunc)builtin_action_if_collision);
+        VM_registerBuiltin(ctx, "action_if_empty", (BuiltinFunc)builtin_action_if_empty);
+        VM_registerBuiltin(ctx, "action_if_object", (BuiltinFunc)builtin_action_if_object);
+        VM_registerBuiltin(ctx, "action_if_number", (BuiltinFunc)builtin_action_if_number);
+        VM_registerBuiltin(ctx, "action_if_next_room", (BuiltinFunc)builtin_action_if_next_room);
+        VM_registerBuiltin(ctx, "action_if_previous_room", (BuiltinFunc)builtin_action_if_previous_room);
+        VM_registerBuiltin(ctx, "action_if_mouse", (BuiltinFunc)builtin_action_if_mouse);
+        VM_registerBuiltin(ctx, "action_if_question", (BuiltinFunc)builtin_action_if_question);
+        VM_registerBuiltin(ctx, "action_draw_health", (BuiltinFunc)builtin_action_draw_health);
+        VM_registerBuiltin(ctx, "action_sprite_set", (BuiltinFunc)builtin_action_sprite_set);
+        VM_registerBuiltin(ctx, "action_sprite_color", (BuiltinFunc)builtin_action_sprite_color);
+        VM_registerBuiltin(ctx, "action_sprite_colour", (BuiltinFunc)builtin_action_sprite_color);
+        VM_registerBuiltin(ctx, "action_message", (BuiltinFunc)builtin_action_message);
+        VM_registerBuiltin(ctx, "action_another_room", (BuiltinFunc)builtin_action_another_room);
+        VM_registerBuiltin(ctx, "action_current_room", (BuiltinFunc)builtin_action_current_room);
+        VM_registerBuiltin(ctx, "action_next_room", (BuiltinFunc)builtin_action_next_room);
+        VM_registerBuiltin(ctx, "action_reverse_xdir", (BuiltinFunc)builtin_action_reverse_xdir);
+        VM_registerBuiltin(ctx, "action_reverse_ydir", (BuiltinFunc)builtin_action_reverse_ydir);
+        VM_registerBuiltin(ctx, "action_color", (BuiltinFunc)builtin_action_color);
+        VM_registerBuiltin(ctx, "action_colour", (BuiltinFunc)builtin_action_color);
+        VM_registerBuiltin(ctx, "action_font", (BuiltinFunc)builtin_action_font);
+        VM_registerBuiltin(ctx, "action_draw_text", (BuiltinFunc)builtin_action_draw_text);
+        VM_registerBuiltin(ctx, "action_draw_sprite", (BuiltinFunc)builtin_action_draw_sprite);
+        VM_registerBuiltin(ctx, "action_draw_variable", (BuiltinFunc)builtin_action_draw_variable);
+        VM_registerBuiltin(ctx, "action_change_object", (BuiltinFunc)builtin_instance_change);
+        VM_registerBuiltin(ctx, "action_end_game", (BuiltinFunc)builtin_game_end);
+        VM_registerBuiltin(ctx, "action_execute_script", (BuiltinFunc)builtin_script_execute); //It its right? i think
+        VM_registerBuiltin(ctx, "action_load_game", (BuiltinFunc)builtin_game_load);
+        VM_registerBuiltin(ctx, "action_path", (BuiltinFunc)builtin_path_start);
+        VM_registerBuiltin(ctx, "action_path_end", (BuiltinFunc)builtin_path_end);
+        VM_registerBuiltin(ctx, "action_previous_room", (BuiltinFunc)builtin_room_goto_previous);
+        VM_registerBuiltin(ctx, "action_restart_game", (BuiltinFunc)builtin_game_restart);
+        VM_registerBuiltin(ctx, "action_save_game", (BuiltinFunc)builtin_game_save);
     }
-    VM_registerBuiltin(ctx, "alarm_set", builtin_alarm_set);
-    VM_registerBuiltin(ctx, "alarm_get", builtin_alarm_get);
-    VM_registerBuiltin(ctx, "string_hash_to_newline", builtin_string_hash_to_newline);
-    VM_registerBuiltin(ctx, "json_decode", builtin_json_decode);
-    VM_registerBuiltin(ctx, "json_encode", builtin_json_encode);
-    VM_registerBuiltin(ctx, "font_add_sprite", builtin_font_add_sprite);
-    VM_registerBuiltin(ctx, "font_add_sprite_ext", builtin_font_add_sprite_ext);
-    VM_registerBuiltin(ctx, "font_get_name", builtin_font_get_name);
-    VM_registerBuiltin(ctx, "object_exists", builtin_object_exists);
-    VM_registerBuiltin(ctx, "object_get_depth", builtin_object_get_depth);
-    VM_registerBuiltin(ctx, "object_get_name", builtin_object_get_name);
-    VM_registerBuiltin(ctx, "object_name", builtin_object_get_name); // alias for pre-GMS 2.3
-    VM_registerBuiltin(ctx, "object_get_parent", builtin_object_get_parent);
-    VM_registerBuiltin(ctx, "object_get_persistent", builtin_object_get_persistent);
-    VM_registerBuiltin(ctx, "object_get_solid", builtin_object_get_solid);
-    VM_registerBuiltin(ctx, "object_get_sprite", builtin_object_get_sprite);
-    VM_registerBuiltin(ctx, "object_set_depth", builtin_object_set_depth);
-    VM_registerBuiltin(ctx, "object_set_parent", builtin_object_set_parent);
-    VM_registerBuiltin(ctx, "object_set_persistent", builtin_object_set_persistent);
-    VM_registerBuiltin(ctx, "object_set_solid", builtin_object_set_solid);
-    VM_registerBuiltin(ctx, "object_set_sprite", builtin_object_set_sprite);
-    VM_registerBuiltin(ctx, "object_set_visible", builtin_object_set_visible);
-    VM_registerBuiltin(ctx, "object_is_ancestor", builtin_object_is_ancestor);
-    VM_registerBuiltin(ctx, "asset_get_index", builtin_asset_get_index);
-    VM_registerBuiltin(ctx,"gpu_set_blendmode", builtin_gpu_set_blendmode);
-    VM_registerBuiltin(ctx,"gpu_set_blendmode_ext", builtin_gpu_set_blendmode_ext);
-    VM_registerBuiltin(ctx,"gpu_set_blendenable", builtin_gpu_set_blendenable);
-    VM_registerBuiltin(ctx,"gpu_get_blendenable", builtin_gpu_get_blendenable);
-    VM_registerBuiltin(ctx,"gpu_set_alphatestenable", builtin_gpu_set_alphatestenable);
-    VM_registerBuiltin(ctx,"gpu_set_alphatestref", builtin_gpu_set_alphatestref);
-    VM_registerBuiltin(ctx,"gpu_set_colorwriteenable", builtin_gpu_set_colorwriteenable);
-    VM_registerBuiltin(ctx,"gpu_get_colorwriteenable", builtin_gpu_get_colorwriteenable);
-    VM_registerBuiltin(ctx,"gpu_set_fog", builtin_gpu_set_fog);
+    VM_registerBuiltin(ctx, "alarm_set", (BuiltinFunc)builtin_alarm_set);
+    VM_registerBuiltin(ctx, "alarm_get", (BuiltinFunc)builtin_alarm_get);
+    VM_registerBuiltin(ctx, "string_hash_to_newline", (BuiltinFunc)builtin_string_hash_to_newline);
+    VM_registerBuiltin(ctx, "json_decode", (BuiltinFunc)builtin_json_decode);
+    VM_registerBuiltin(ctx, "json_encode", (BuiltinFunc)builtin_json_encode);
+    VM_registerBuiltin(ctx, "font_add_sprite", (BuiltinFunc)builtin_font_add_sprite);
+    VM_registerBuiltin(ctx, "font_add_sprite_ext", (BuiltinFunc)builtin_font_add_sprite_ext);
+    VM_registerBuiltin(ctx, "font_get_name", (BuiltinFunc)builtin_font_get_name);
+    VM_registerBuiltin(ctx, "object_exists", (BuiltinFunc)builtin_object_exists);
+    VM_registerBuiltin(ctx, "object_get_depth", (BuiltinFunc)builtin_object_get_depth);
+    VM_registerBuiltin(ctx, "object_get_name", (BuiltinFunc)builtin_object_get_name);
+    VM_registerBuiltin(ctx, "object_name", (BuiltinFunc)builtin_object_get_name); // alias for pre-GMS 2.3
+    VM_registerBuiltin(ctx, "object_get_parent", (BuiltinFunc)builtin_object_get_parent);
+    VM_registerBuiltin(ctx, "object_get_persistent", (BuiltinFunc)builtin_object_get_persistent);
+    VM_registerBuiltin(ctx, "object_get_solid", (BuiltinFunc)builtin_object_get_solid);
+    VM_registerBuiltin(ctx, "object_get_sprite", (BuiltinFunc)builtin_object_get_sprite);
+    VM_registerBuiltin(ctx, "object_set_depth", (BuiltinFunc)builtin_object_set_depth);
+    VM_registerBuiltin(ctx, "object_set_parent", (BuiltinFunc)builtin_object_set_parent);
+    VM_registerBuiltin(ctx, "object_set_persistent", (BuiltinFunc)builtin_object_set_persistent);
+    VM_registerBuiltin(ctx, "object_set_solid", (BuiltinFunc)builtin_object_set_solid);
+    VM_registerBuiltin(ctx, "object_set_sprite", (BuiltinFunc)builtin_object_set_sprite);
+    VM_registerBuiltin(ctx, "object_set_visible", (BuiltinFunc)builtin_object_set_visible);
+    VM_registerBuiltin(ctx, "object_is_ancestor", (BuiltinFunc)builtin_object_is_ancestor);
+    VM_registerBuiltin(ctx, "asset_get_index", (BuiltinFunc)builtin_asset_get_index);
+    VM_registerBuiltin(ctx,"gpu_set_blendmode", (BuiltinFunc)builtin_gpu_set_blendmode);
+    VM_registerBuiltin(ctx,"gpu_set_blendmode_ext", (BuiltinFunc)builtin_gpu_set_blendmode_ext);
+    VM_registerBuiltin(ctx,"gpu_set_blendenable", (BuiltinFunc)builtin_gpu_set_blendenable);
+    VM_registerBuiltin(ctx,"gpu_get_blendenable", (BuiltinFunc)builtin_gpu_get_blendenable);
+    VM_registerBuiltin(ctx,"gpu_set_alphatestenable", (BuiltinFunc)builtin_gpu_set_alphatestenable);
+    VM_registerBuiltin(ctx,"gpu_set_alphatestref", (BuiltinFunc)builtin_gpu_set_alphatestref);
+    VM_registerBuiltin(ctx,"gpu_set_colorwriteenable", (BuiltinFunc)builtin_gpu_set_colorwriteenable);
+    VM_registerBuiltin(ctx,"gpu_get_colorwriteenable", (BuiltinFunc)builtin_gpu_get_colorwriteenable);
+    VM_registerBuiltin(ctx,"gpu_set_fog", (BuiltinFunc)builtin_gpu_set_fog);
     if (!isGMS2) {
-        VM_registerBuiltin(ctx,"draw_set_blend_mode", builtin_gpu_set_blendmode);
-        VM_registerBuiltin(ctx,"draw_set_blend_mode_ext", builtin_gpu_set_blendmode_ext);
-        VM_registerBuiltin(ctx,"d3d_set_fog", builtin_gpu_set_fog);
-        VM_registerBuiltin(ctx, "draw_enable_alphablend", builtin_gpu_set_blendenable);
-        VM_registerBuiltin(ctx, "draw_set_alpha_test", builtin_gpu_set_alphatestenable);
-        VM_registerBuiltin(ctx, "draw_set_alpha_test_ref_value", builtin_gpu_set_alphatestref);
-        VM_registerBuiltin(ctx, "draw_set_color_write_enable", builtin_gpu_set_colorwriteenable);
-        VM_registerBuiltin(ctx, "draw_set_colour_write_enable", builtin_gpu_set_colorwriteenable);
+        VM_registerBuiltin(ctx,"draw_set_blend_mode", (BuiltinFunc)builtin_gpu_set_blendmode);
+        VM_registerBuiltin(ctx,"draw_set_blend_mode_ext", (BuiltinFunc)builtin_gpu_set_blendmode_ext);
+        VM_registerBuiltin(ctx,"d3d_set_fog", (BuiltinFunc)builtin_gpu_set_fog);
+        VM_registerBuiltin(ctx, "draw_enable_alphablend", (BuiltinFunc)builtin_gpu_set_blendenable);
+        VM_registerBuiltin(ctx, "draw_set_alpha_test", (BuiltinFunc)builtin_gpu_set_alphatestenable);
+        VM_registerBuiltin(ctx, "draw_set_alpha_test_ref_value", (BuiltinFunc)builtin_gpu_set_alphatestref);
+        VM_registerBuiltin(ctx, "draw_set_color_write_enable", (BuiltinFunc)builtin_gpu_set_colorwriteenable);
+        VM_registerBuiltin(ctx, "draw_set_colour_write_enable", (BuiltinFunc)builtin_gpu_set_colorwriteenable);
     }
-    VM_registerBuiltin(ctx, "game_change", builtin_game_change);
-    VM_registerBuiltin(ctx, "parameter_count", builtin_parameter_count);
-    VM_registerBuiltin(ctx, "parameter_string", builtin_parameter_string);
-    VM_registerBuiltin(ctx, "shader_set", builtin_shader_set);
-    VM_registerBuiltin(ctx, "shader_reset", builtin_shader_reset);
-    VM_registerBuiltin(ctx, "shader_current", builtin_shader_current);
-    VM_registerBuiltin(ctx, "shader_is_compiled", builtin_shader_is_compiled); 
-    VM_registerBuiltin(ctx, "shader_get_name", builtin_shader_get_name);
-    VM_registerBuiltin(ctx, "shaders_are_supported", builtin_shaders_are_supported);  
-    VM_registerBuiltin(ctx, "shader_get_uniform", builtin_shader_get_uniform);
-    VM_registerBuiltin(ctx, "shader_get_sampler_index", builtin_shader_get_sampler_index);
-    VM_registerBuiltin(ctx, "shader_set_uniform_f", builtin_shader_set_uniformF);
-    VM_registerBuiltin(ctx, "shader_set_uniform_i", builtin_shader_set_uniformI);
-    VM_registerBuiltin(ctx, "sprite_get_uvs", builtin_sprite_get_uvs);
-    VM_registerBuiltin(ctx, "sprite_get_texture", builtin_sprite_get_texture);
-    VM_registerBuiltin(ctx, "font_get_uvs", builtin_font_get_uvs);   
-    VM_registerBuiltin(ctx, "texture_get_texel_width", builtin_texture_get_texel_width);
-    VM_registerBuiltin(ctx, "texture_get_texel_height", builtin_texture_get_texel_height);
-    VM_registerBuiltin(ctx, "texture_get_uvs", builtin_texture_get_uvs);
-    VM_registerBuiltin(ctx, "texture_set_stage", builtin_texture_set_stage);
+    VM_registerBuiltin(ctx, "game_change", (BuiltinFunc)builtin_game_change);
+    VM_registerBuiltin(ctx, "parameter_count", (BuiltinFunc)builtin_parameter_count);
+    VM_registerBuiltin(ctx, "parameter_string", (BuiltinFunc)builtin_parameter_string);
+    VM_registerBuiltin(ctx, "shader_set", (BuiltinFunc)builtin_shader_set);
+    VM_registerBuiltin(ctx, "shader_reset", (BuiltinFunc)builtin_shader_reset);
+    VM_registerBuiltin(ctx, "shader_current", (BuiltinFunc)builtin_shader_current);
+    VM_registerBuiltin(ctx, "shader_is_compiled", (BuiltinFunc)builtin_shader_is_compiled);
+    VM_registerBuiltin(ctx, "shader_get_name", (BuiltinFunc)builtin_shader_get_name);
+    VM_registerBuiltin(ctx, "shaders_are_supported", (BuiltinFunc)builtin_shaders_are_supported);
+    VM_registerBuiltin(ctx, "shader_get_uniform", (BuiltinFunc)builtin_shader_get_uniform);
+    VM_registerBuiltin(ctx, "shader_get_sampler_index", (BuiltinFunc)builtin_shader_get_sampler_index);
+    VM_registerBuiltin(ctx, "shader_set_uniform_f", (BuiltinFunc)builtin_shader_set_uniformF);
+    VM_registerBuiltin(ctx, "shader_set_uniform_i", (BuiltinFunc)builtin_shader_set_uniformI);
+    VM_registerBuiltin(ctx, "sprite_get_uvs", (BuiltinFunc)builtin_sprite_get_uvs);
+    VM_registerBuiltin(ctx, "sprite_get_texture", (BuiltinFunc)builtin_sprite_get_texture);
+    VM_registerBuiltin(ctx, "font_get_uvs", (BuiltinFunc)builtin_font_get_uvs);
+    VM_registerBuiltin(ctx, "texture_get_texel_width", (BuiltinFunc)builtin_texture_get_texel_width);
+    VM_registerBuiltin(ctx, "texture_get_texel_height", (BuiltinFunc)builtin_texture_get_texel_height);
+    VM_registerBuiltin(ctx, "texture_get_uvs", (BuiltinFunc)builtin_texture_get_uvs);
+    VM_registerBuiltin(ctx, "texture_set_stage", (BuiltinFunc)builtin_texture_set_stage);
 }

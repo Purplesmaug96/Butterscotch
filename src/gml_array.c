@@ -9,7 +9,7 @@ static void ensureRowCapacity(GMLArray* arr, int32_t minRows) {
     if (arr->rowCapacity >= minRows) return;
     int32_t newCap = arr->rowCapacity > 0 ? arr->rowCapacity : 4;
     while (minRows > newCap) newCap *= 2;
-    arr->rows = safeRealloc(arr->rows, (uint32_t) newCap * sizeof(GMLArrayRow));
+    arr->rows = (GMLArrayRow*)safeRealloc(arr->rows, (uint32_t) newCap * sizeof(GMLArrayRow));
     memset(arr->rows + arr->rowCapacity, 0, (newCap - arr->rowCapacity) * sizeof(GMLArrayRow));
     arr->rowCapacity = newCap;
 }
@@ -19,7 +19,7 @@ static void growRow(GMLArrayRow* row, int32_t minLength) {
     if (minLength > row->capacity) {
         int32_t newCap = row->capacity > 0 ? row->capacity : 4;
         while (minLength > newCap) newCap *= 2;
-        row->data = safeRealloc(row->data, (uint32_t) newCap * sizeof(RValue));
+        row->data = (RValue*)safeRealloc(row->data, (uint32_t) newCap * sizeof(RValue));
         row->capacity = newCap;
     }
     // GameMaker fills uninitialized array slots with 0 (real).
@@ -31,7 +31,7 @@ static void growRow(GMLArrayRow* row, int32_t minLength) {
 }
 
 GMLArray* GMLArray_create(int32_t initialLength) {
-    GMLArray* arr = safeCalloc(1, sizeof(GMLArray));
+    GMLArray* arr = (GMLArray*)safeCalloc(1, sizeof(GMLArray));
     arr->refCount = 1;
     arr->owner = nullptr;
     if (initialLength > 0) {
@@ -66,7 +66,7 @@ void GMLArray_decRef(GMLArray* arr) {
 
 GMLArray* GMLArray_clone(GMLArray* src, void* newOwner) {
     if (src == nullptr) return nullptr;
-    GMLArray* dst = safeCalloc(1, sizeof(GMLArray));
+    GMLArray* dst = (GMLArray*)safeCalloc(1, sizeof(GMLArray));
     dst->refCount = 1;
     dst->owner = newOwner;
     if (src->rowCount > 0) {
@@ -116,4 +116,3 @@ void GMLArray_growTo(GMLArray* arr, int32_t minLength) {
     if (row + 1 > arr->rowCount) arr->rowCount = row + 1;
     growRow(&arr->rows[row], col + 1);
 }
-

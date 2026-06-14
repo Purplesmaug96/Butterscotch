@@ -43,8 +43,18 @@
 	#include <__compat_math.h>
 	#define snprintf _snprintf
 	#define ALIGNED(x) __declspec(align(x))
+	#define NOINLINE __declspec(noinline)
+	#define ALWAYSINLINE __forceinline
 #endif
 
 #ifndef ALIGNED
 	#define ALIGNED(x) __attribute__((aligned(x)))
+#endif
+
+#ifndef NOINLINE
+	#define NOINLINE __attribute__((noinline))
+#endif
+
+#ifndef ALWAYSINLINE
+	#define ALWAYSINLINE __attribute__((always_inline))
 #endif

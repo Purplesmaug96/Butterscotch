@@ -9,7 +9,7 @@
 #include "int_rvalue_hashmap.h"
 
 Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, GMLReal y) {
-    Instance* inst = safeCalloc(1, sizeof(Instance));
+    Instance* inst = (Instance*)safeCalloc(1, sizeof(Instance));
     inst->instanceId = instanceId;
     inst->objectIndex = objectIndex;
     inst->refCount = 0;
@@ -179,7 +179,7 @@ void Instance_computeSpeedFromComponents(Instance* inst) {
     if (GMLReal_fabs(inst->direction - GMLReal_round(inst->direction)) < 0.0001) {
         inst->direction = (float) GMLReal_round(inst->direction);
     }
-    inst->direction = (float) GMLReal_fmod(inst->direction, 360.0);
+    inst->direction = (float) GMLReal_fmod((float)inst->direction, 360.0f);
 
     // Speed
     inst->speed = (float) GMLReal_sqrt(inst->hspeed * inst->hspeed + inst->vspeed * inst->vspeed);

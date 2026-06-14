@@ -202,7 +202,7 @@ static void executeCode(Runner* runner, Instance* instance, int32_t codeId) {
     // the nested execution overwrite the caller's stack slot values)
     RValue* savedStackValues = nullptr;
     if (savedStackTop > 0) {
-        savedStackValues = safeMalloc((uint32_t) savedStackTop * sizeof(RValue));
+        savedStackValues = (RValue*)safeMalloc((uint32_t) savedStackTop * sizeof(RValue));
         memcpy(savedStackValues, vm->stack.slots, (uint32_t) savedStackTop * sizeof(RValue));
     }
 
@@ -657,8 +657,12 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
         int32_t instanceCount = (int32_t) arrlen(runner->instances);
         repeat(instanceCount, i) {
             Instance* inst = runner->instances[i];
-            Drawable d = {0};
-            d.type = DRAWABLE_INSTANCE;
+            #ifdef PLATFORM_XBOX360_XDK
+			Drawable d;
+            #else
+			Drawable d = {0};
+			#endif
+			d.type = DRAWABLE_INSTANCE;
             d.depth = inst->depth;
             d.instance = inst;
             arrput(runner->cachedDrawables, d);
@@ -667,7 +671,11 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
         if (!DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0)) {
             repeat(room->tileCount, i) {
                 RoomTile* tile = &room->tiles[i];
-                Drawable d = {0};
+                #ifdef PLATFORM_XBOX360_XDK
+				Drawable d;
+				#else
+				Drawable d = {0};
+				#endif
                 d.type = DRAWABLE_TILE;
                 d.depth = tile->tileDepth;
                 d.tileIndex = (int32_t) i;
@@ -677,7 +685,11 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
             size_t runtimeLayersCount = arrlenu(runner->runtimeLayers);
             repeat(runtimeLayersCount, i) {
                 RuntimeLayer* runtimeLayer = &runner->runtimeLayers[i];
-                Drawable d = {0};
+                #ifdef PLATFORM_XBOX360_XDK
+				Drawable d;
+				#else
+				Drawable d = {0};
+				#endif
                 d.type = DRAWABLE_LAYER;
                 d.depth = runtimeLayer->depth;
                 d.runtimeLayerId = (int32_t) runtimeLayer->id;
@@ -1387,7 +1399,7 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         RuntimeLayer* runtimeLayer = &runner->runtimeLayers[i];
         repeat(assets->spriteCount, j) {
             SpriteInstance* src = &assets->sprites[j];
-            RuntimeSpriteElement* spriteElement = safeMalloc(sizeof(RuntimeSpriteElement));
+            RuntimeSpriteElement* spriteElement = (RuntimeSpriteElement*)safeMalloc(sizeof(RuntimeSpriteElement));
             spriteElement->spriteIndex = src->spriteIndex;
             spriteElement->x = src->x;
             spriteElement->y = src->y;
@@ -1728,7 +1740,9 @@ static void cleanupState(Runner* runner) {
             free(file->content);
             free(file->writeBuffer);
             free(file->filePath);
+			#ifndef PLATFORM_XBOX360_XDK
             *file = (OpenTextFile) {0};
+			#endif
         }
     }
 
@@ -1738,7 +1752,9 @@ static void cleanupState(Runner* runner) {
         OpenBinaryFile* file = &runner->openBinaryFiles[i];
         if (file->isOpen) {
             runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-            *file = (OpenBinaryFile) {0};
+            #ifndef PLATFORM_XBOX360_XDK
+			*file = (OpenBinaryFile) {0};
+			#endif
         }
     }
 
@@ -1778,17 +1794,17 @@ void Runner_reset(Runner* runner) {
     runner->currentRoomIndex = -1;
     runner->currentRoomOrderPosition = -1;
     runner->nextInstanceId = runner->dataWin->gen8.lastObj + 1;
-    runner->savedRoomStates = safeCalloc(runner->dataWin->room.count, sizeof(SavedRoomState));
+    runner->savedRoomStates = (SavedRoomState*)safeCalloc(runner->dataWin->room.count, sizeof(SavedRoomState));
     runner->nextLayerId = 1;
     runner->audioSystem->vtable->stopAll(runner->audioSystem);
 
     // Allocate the per-object instance list array once.
     // We don't need to reinitialize the list because the objt.count is fixed for this data.win.
     if (runner->instancesByObject == nullptr) {
-        runner->instancesByObject = safeCalloc(runner->dataWin->objt.count, sizeof(Instance**));
+        runner->instancesByObject = (Instance***)safeCalloc(runner->dataWin->objt.count, sizeof(Instance**));
     }
     if (runner->instancesByExactObject == nullptr) {
-        runner->instancesByExactObject = safeCalloc(runner->dataWin->objt.count, sizeof(Instance**));
+        runner->instancesByExactObject = (Instance***)safeCalloc(runner->dataWin->objt.count, sizeof(Instance**));
     }
 
     // Create the instance used for "self" in GLOB scripts
@@ -1813,7 +1829,7 @@ void Runner_reset(Runner* runner) {
 static void flattenCollisionEvents(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     int32_t count = (int32_t) dataWin->objt.count;
-    runner->flattenedCollisionEvents = safeCalloc((size_t) (count > 0 ? count : 1), sizeof(FlattenedCollisionEventList));
+    runner->flattenedCollisionEvents = (FlattenedCollisionEventList*)safeCalloc((size_t) (count > 0 ? count : 1), sizeof(FlattenedCollisionEventList));
     if (0 >= count) return;
 
     repeat(count, i) {
@@ -1822,7 +1838,7 @@ static void flattenCollisionEvents(Runner* runner) {
         FlattenedCollisionEventList* dst = &runner->flattenedCollisionEvents[i];
 
         if (src->eventCount > 0) {
-            dst->events = safeMalloc(src->eventCount * sizeof(FlattenedCollisionEvent));
+            dst->events = (FlattenedCollisionEvent*)safeMalloc(src->eventCount * sizeof(FlattenedCollisionEvent));
             repeat(src->eventCount, e) {
                 ObjectEvent* srcEvt = &src->events[e];
                 int32_t srcCodeId = (srcEvt->actionCount > 0) ? srcEvt->actions[0].codeId : -1;
@@ -1852,7 +1868,7 @@ static void flattenCollisionEvents(Runner* runner) {
 
                 int32_t ancCodeId = (ancEvt->actionCount > 0) ? ancEvt->actions[0].codeId : -1;
                 uint32_t newCount = dst->eventCount + 1;
-                dst->events = safeRealloc(dst->events, newCount * sizeof(FlattenedCollisionEvent));
+                dst->events = (FlattenedCollisionEvent*)safeRealloc(dst->events, newCount * sizeof(FlattenedCollisionEvent));
                 FlattenedCollisionEvent fce = {0};
                 fce.targetObjectIndex = target;
                 fce.codeId = ancCodeId;
@@ -1870,10 +1886,10 @@ static void flattenCollisionEvents(Runner* runner) {
 // Used by collision dispatch to skip non-collision objects in the outer loop, mirroring how the native obj_has_event table partitions instance iteration by event class.
 static void populateObjectsWithAnyEventOfType(Runner* runner) {
     int32_t objectCount = (int32_t) runner->dataWin->objt.count;
-    runner->objectsWithAnyEventOfType = safeCalloc(OBJT_EVENT_TYPE_COUNT, sizeof(int32_t*));
+    runner->objectsWithAnyEventOfType = (int32_t**)safeCalloc(OBJT_EVENT_TYPE_COUNT, sizeof(int32_t*));
     if (objectCount == 0) return;
 
-    uint8_t* seen = safeCalloc((size_t) objectCount, 1);
+    uint8_t* seen = (uint8_t*)safeCalloc((size_t) objectCount, 1);
 
     repeat(OBJT_EVENT_TYPE_COUNT, t) {
         int16_t* dense = runner->eventSlotMap.denseLookup[t];
@@ -1971,7 +1987,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     requireNotNull(audioSystem);
     validateRendererVtable(renderer);
 
-    Runner* runner = safeCalloc(1, sizeof(Runner));
+    Runner* runner = (Runner*)safeCalloc(1, sizeof(Runner));
     runner->dataWin = dataWin;
     runner->vmContext = vm;
     runner->renderer = renderer;
@@ -2309,7 +2325,7 @@ void Runner_initFirstRoom(Runner* runner) {
         }
     }
     runner->vmContext->currentInstance = nullptr;
-    
+
     // Fire Game Start for all instances
     Runner_executeEventForAll(runner, EVENT_OTHER, OTHER_GAME_START);
     runner->gameStartFired = true;
@@ -2634,6 +2650,10 @@ static void fireLocalMouseSubtype(Runner* runner, int32_t subtype, int32_t slot,
     }
 }
 
+#ifdef PLATFORM_XBOX360_XDK
+#include <malloc.h>
+#endif
+
 static void dispatchMouseEvents(Runner* runner) {
     RunnerMouseState* mouse = runner->mouse;
     DataWin* dataWin = runner->dataWin;
@@ -2705,7 +2725,11 @@ static void dispatchMouseEvents(Runner* runner) {
     memcpy(&runner->instanceSnapshots[snapshotBase], runner->instances, (size_t) instCount * sizeof(Instance*));
 
     // Per-instance mouse-over flags (stack-allocated for typical room sizes, heap for large rooms)
+	#ifdef PLATFORM_XBOX360_XDK
+	bool* isOver = (bool*) _alloca((size_t) instCount * sizeof(bool));
+	#else
     bool* isOver = (bool*) alloca((size_t) instCount * sizeof(bool));
+	#endif
 
     // Compute whether the mouse is currently over each instance's mask.
     // Enter / Leave edge detection also updates inst->mouseOver here.
@@ -3409,10 +3433,10 @@ void Runner_step(Runner* runner) {
                     inst->imageIndex += inst->imageSpeed * sprite->gms2PlaybackSpeed;
                 } else {
                     inst->imageIndex += (1.0/runner->currentRoom->speed) * sprite->gms2PlaybackSpeed * inst->imageSpeed;
-                }   
+                }
             }
         } else {
-            inst->imageIndex += inst->imageSpeed;    
+            inst->imageIndex += inst->imageSpeed;
         }
         float frameCount = (float) sprite->textureCount;
         bool wrapped = false;
@@ -4131,7 +4155,7 @@ void Runner_free(Runner* runner) {
         free(runner->flattenedCollisionEvents);
         runner->flattenedCollisionEvents = nullptr;
     }
-    
+
     arrfree(runner->cachedDrawables);
     runner->cachedDrawables = nullptr;
     arrfree(runner->instanceSnapshots);

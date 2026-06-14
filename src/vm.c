@@ -459,7 +459,7 @@ static uint32_t growGlobalSlotSparse(VMContext* ctx, int32_t varKey) {
         if (slot >= ctx->globalVarCapacity) {
             uint32_t newCap = ctx->globalVarCapacity == 0 ? 64 : ctx->globalVarCapacity * 2;
             while (slot >= newCap) newCap *= 2;
-            ctx->globalVars = safeRealloc(ctx->globalVars, newCap * sizeof(RValue));
+            ctx->globalVars = (RValue*)safeRealloc(ctx->globalVars, newCap * sizeof(RValue));
             ctx->globalVarCapacity = newCap;
         }
         for (uint32_t i = ctx->globalVarCount; slot >= i; i++) {
@@ -937,8 +937,7 @@ static inline void writeIntoSlot(RValue* dest, RValue val) {
 }
 
 // Force out-of-line so the OP_POP fast path in executeLoop doesn't inline this, because we already have an "optimized" version for common writes
-__attribute__((noinline))
-static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t varRef, RValue val) {
+NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t varRef, RValue val) {
     Variable* varDef = resolveVarDef(ctx, varRef);
 
     // Fast path: When the varType==VARTYPE_NORMAL...
@@ -1586,15 +1585,14 @@ static void handlePopz(VMContext* ctx) {
     RValue_free(&val);
 }
 
-__attribute__((noinline))
-static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
+NOINLINE static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
     if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
         // String concatenation
         const char* sa = a.string != nullptr ? a.string : "";
         const char* sb = b.string != nullptr ? b.string : "";
         size_t lenA = strlen(sa);
         size_t lenB = strlen(sb);
-        char* result = safeMalloc(lenA + lenB + 1);
+        char* result = (char*)safeMalloc(lenA + lenB + 1);
         memcpy(result, sa, lenA);
         memcpy(result + lenA, sb, lenB + 1);
         RValue_free(&a);
@@ -1627,8 +1625,7 @@ static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t resultTy
     }
 }
 
-__attribute__((noinline))
-static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
+NOINLINE static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
     // a.type == RVALUE_STRING; b is the repetition count.
     int count = RValue_toInt32(b);
     const char* str = a.string != nullptr ? a.string : "";
@@ -1638,7 +1635,7 @@ static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultTy
         RValue_free(&b);
         stackPushTyped(ctx, RValue_makeOwnedString(safeStrdup("")), resultType);
     } else {
-        char* result = safeMalloc(len * count + 1);
+        char* result = (char*)safeMalloc(len * count + 1);
         repeat(count, i) {
             memcpy(result + i * len, str, len);
         }
@@ -2053,7 +2050,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     RValue stackArgs[GML_MAX_ARGUMENTS];
     RValue* args = nullptr;
     if (argCount > 0) {
-        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : safeMalloc(argCount * sizeof(RValue));
+        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : (RValue*)safeMalloc(argCount * sizeof(RValue));
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -2069,7 +2066,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             char* display = RValue_toStringFancy(args[i]);
 
             if (i > 0) {
-                char* tmp = safeMalloc(strlen(functionArgumentList) + 2 + strlen(display) + 1);
+                char* tmp = (char*)safeMalloc(strlen(functionArgumentList) + 2 + strlen(display) + 1);
                 sprintf(tmp, "%s, %s", functionArgumentList, display);
                 free(functionArgumentList);
                 functionArgumentList = tmp;
@@ -2183,7 +2180,7 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
     RValue stackArgs[GML_MAX_ARGUMENTS];
     RValue* args = nullptr;
     if (argCount > 0) {
-        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : safeMalloc(argCount * sizeof(RValue));
+        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : (RValue*)safeMalloc(argCount * sizeof(RValue));
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -2311,7 +2308,7 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     }
 
     // Create env frame, save current context
-    EnvFrame* frame = safeMalloc(sizeof(EnvFrame));
+    EnvFrame* frame = (EnvFrame*)safeMalloc(sizeof(EnvFrame));
     frame->savedInstance = (Instance*) ctx->currentInstance;
     frame->savedOtherInstance = (Instance*) ctx->otherInstance;
     frame->instanceList = nullptr;
@@ -3487,7 +3484,7 @@ VMContext* VM_create(DataWin* dataWin) {
     VMContext* ctx = (VMContext*) 0x70000000;
     memset(ctx, 0, sizeof(VMContext));
 #else
-    VMContext* ctx = safeCalloc(1, sizeof(VMContext));
+    VMContext* ctx = (VMContext*)safeCalloc(1, sizeof(VMContext));
 #endif
     ctx->dataWin = dataWin;
     ctx->stack.top = 0;
@@ -3552,7 +3549,7 @@ VMContext* VM_create(DataWin* dataWin) {
 
     ctx->globalVarCount = maxGlobalVarID;
     ctx->globalVarCapacity = maxGlobalVarID;
-    ctx->globalVars = maxGlobalVarID == 0 ? nullptr : safeCalloc(maxGlobalVarID, sizeof(RValue));
+    ctx->globalVars = maxGlobalVarID == 0 ? nullptr : (RValue*)safeCalloc(maxGlobalVarID, sizeof(RValue));
     repeat(maxGlobalVarID, i) {
         ctx->globalVars[i].type = RVALUE_UNDEFINED;
     }
@@ -3561,8 +3558,8 @@ VMContext* VM_create(DataWin* dataWin) {
 
     // V17+ static initialization tracking
     if (dataWin->gen8.wadVersion >= 17) {
-        ctx->staticInitialized = safeCalloc(dataWin->code.count, sizeof(bool));
-        ctx->staticStructs = safeCalloc(dataWin->code.count, sizeof(Instance*));
+        ctx->staticInitialized = (bool*)safeCalloc(dataWin->code.count, sizeof(bool));
+        ctx->staticStructs = (Instance**)safeCalloc(dataWin->code.count, sizeof(Instance*));
     } else {
         ctx->staticInitialized = nullptr;
         ctx->staticStructs = nullptr;
@@ -3648,7 +3645,7 @@ VMContext* VM_create(DataWin* dataWin) {
     // BC13/BC14 NEEDS the per-code map because BC<=14 has no CodeLocals chunk at all, so slots are allocated on first reference.
     ctx->codeLocalsSlotMaps = nullptr;
     if (dataWin->gen8.wadVersion >= 17 || 14 >= dataWin->gen8.wadVersion) {
-        ctx->codeLocalsSlotMaps = safeCalloc(dataWin->code.count, sizeof(*ctx->codeLocalsSlotMaps));
+        ctx->codeLocalsSlotMaps = (IntIntHashMap*)safeCalloc(dataWin->code.count, sizeof(*ctx->codeLocalsSlotMaps));
     }
 
     // Register built-in functions
@@ -3657,7 +3654,7 @@ VMContext* VM_create(DataWin* dataWin) {
     // Pre-resolve all FUNC entries to cached builtin pointers or script code indices.
     // This eliminates per-call string hash lookups in handleCall.
     ctx->funcCallCacheCount = dataWin->func.functionCount;
-    ctx->funcCallCache = safeMalloc(dataWin->func.functionCount * sizeof(FuncCallCache));
+    ctx->funcCallCache = (FuncCallCache*)safeMalloc(dataWin->func.functionCount * sizeof(FuncCallCache));
     repeat(dataWin->func.functionCount, i) {
         const char* name = dataWin->func.functions[i].name;
         BuiltinFunc builtin = VM_findBuiltin(ctx, name);
@@ -3724,8 +3721,8 @@ void VM_reset(VMContext* ctx) {
     if (ctx->dataWin->gen8.wadVersion >= 17) {
         free(ctx->staticInitialized);
         free(ctx->staticStructs);
-        ctx->staticInitialized = safeCalloc(ctx->dataWin->code.count, sizeof(bool));
-        ctx->staticStructs = safeCalloc(ctx->dataWin->code.count, sizeof(Instance*));
+        ctx->staticInitialized = (bool*)safeCalloc(ctx->dataWin->code.count, sizeof(bool));
+        ctx->staticStructs = (Instance**)safeCalloc(ctx->dataWin->code.count, sizeof(Instance*));
     }
 
     fprintf(stderr, "VM: Reset complete (%u global vars cleared)\n", ctx->globalVarCount);

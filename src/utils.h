@@ -232,6 +232,7 @@ inline void* _safeMemalignHelper(size_t alignment, size_t size, const char* file
 }
 #define safeMemalign(alignment, size) _safeMemalignHelper((alignment), (size), __FILE__, __LINE__)
 
+#include <windows.h>
 inline char* _safeStrdupHelper(const char* str, const char* file, int line) {
     // MSVC standardizes on _strdup to avoid deprecation warnings
     char* ptr = _strdup(str);
