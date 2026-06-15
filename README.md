@@ -14,7 +14,7 @@
   <a href="https://play.google.com/store/apps/details?id=net.perfectdreams.butterscotch&referrer=utm_source%3Dgithub%26utm_medium%3Dreferral%26utm_content%3Dgithub-readme"><img width="239" height="71" alt="GetItOnGooglePlay_Badge_Web_color_English" src="https://github.com/user-attachments/assets/c6be56cb-68ca-41d6-b479-3bf2a95f0ba6" /></a>
 </div>
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > Butterscotch is still VERY early in development and it is NOT that good yet.
 
 When you create a game in GameMaker: Studio and export it, GameMaker: Studio exports the game code as bytecode instead of native compiled code, and that bytecode is compatible with any other GameMaker: Studio runner (also known as YoYo runner), as long as they have matching GameMaker: Studio versions. This is similar to how Java applications work.
@@ -56,7 +56,7 @@ However, that doesn't mean that a game that uses a compatible version WILL run! 
 
 Of course, there are exceptions that break game compatibility altogether:
 
-* Games compiled with YYC, because they use native code instead of bytecode. 
+* Games compiled with YYC, because they use native code instead of bytecode.
 * Games compiled with the new [GMRT](https://github.com/YoYoGames/GMRT-Beta/tree/main), because they use native code instead of bytecode.
 
 ## Supported Platforms
@@ -83,6 +83,19 @@ mkdir build && cd build
 cmake -DPLATFORM=desktop -DDESKTOP_BACKEND=glfw3 -DCMAKE_BUILD_TYPE=Debug ..
 make
 ```
+
+For the 360, install the leaked XDK (no linkies sorry) and VS2010 (not required for building, but XDK wants it to install).
+Then, add this to your ~/.bashrc, and execute it in your current shell as well
+```bash
+export XEDK="/wherever/you/put/the/xdk"
+```
+(you also need to replace the path on the right with wherever you put the xdk, in case that wasnt obvious enough)
+Then, after cloning recursively:
+```bash
+cmake . -DPLATFORM=xbox360-xdk -B build-x360-xdk -DCMAKE_BUILD_TYPE=Release
+make -C build-x360-xdk -j$(nproc)
+```
+Then, to use it, put a data.win on a USB drive, under its root dir, or "butterscotch" directory, and put the built butterscotch.xex in the same directory, and launch butterscotch.exe your favourite way.
 
 If you are using CLion, set the platform in `Settings` > `Build, Execution, Deployment` > `CMake` and add `-DPLATFORM=glfw`
 
@@ -146,7 +159,7 @@ Performance is pretty good on any modern computer, but when running on low end t
 
 ## Then why not have a transpiler?
 
-The issue with a transpiler is that, if you try transpiling the game in the "naive" way, that is, emitting VM calls like it was the original bytecode, you won't get any 
+The issue with a transpiler is that, if you try transpiling the game in the "naive" way, that is, emitting VM calls like it was the original bytecode, you won't get any
 *improvement* from it, you would need to create a *good* transpiler that actually transpiles it into *good* code, and that's way harder.
 
 Having a transpiler also have other disadvantages:

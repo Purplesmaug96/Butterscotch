@@ -1919,7 +1919,7 @@ static void populateObjectsWithAnyEventOfType(Runner* runner) {
 static void validateRendererVtable(Renderer* renderer) {
     RendererVtable* v = requireNotNull(renderer->vtable);
 
-    #define requireNotNullFunction(fn) requireMessage(v->fn != nullptr, "Renderer " #fn " does not have a implementation!")
+    #define requireNotNullFunction(fn) requireMessage(v->fn != nullptr, "Renderer function " #fn " does not have a implementation!")
     requireNotNullFunction(init);
     requireNotNullFunction(destroy);
     requireNotNullFunction(beginFrame);

@@ -140,7 +140,9 @@ else()
 endif()
 
 if(PLATFORM STREQUAL "xbox360-xdk")
+	file(GLOB ATG_SOURCES src/${PLATFORM}/Atg/*.c src/${PLATFORM}/Atg/*.cpp)
 	set(ALL_XENON_SOURCES
+		${ATG_SOURCES}
         ${SOURCES}
         ${PLATFORM_SOURCES}
         ${AUDIO_SOURCES}
@@ -148,7 +150,11 @@ if(PLATFORM STREQUAL "xbox360-xdk")
     )
 	add_xenon_executable(butterscotch cmake/xex-conf.xml ${ALL_XENON_SOURCES})
 	target_sources(butterscotch PRIVATE ${ALL_XENON_SOURCES})
-	target_include_directories(butterscotch PRIVATE vendor/bzip2)
+	target_include_directories(butterscotch PRIVATE vendor/bzip2 src/${PLATFORM}/Atg)
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
+	string(REPLACE "/LTCG" "" CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
+	string(REPLACE "/LTCG" "" CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}")
+	string(REPLACE "/LTCG" "" CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
 else()
 	add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()

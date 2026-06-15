@@ -125,6 +125,15 @@ _val; \
 
 #else
 
+void diagLog(const char* fmt, ...);
+void fdiagLog(FILE* file, const char* fmt, ...);
+
+#define printf diagLog
+#define fprintf fdiagLog
+
+#define exit(errcode) diagLog("exit(%d) called at %s:%d!", errcode, __FILE__, __LINE__);
+#define abort() diagLog("abort() called at %s:%d!\n", __FILE__, __LINE__);
+
 #ifndef __cplusplus
 #error Things must be compiled as C++ for xbox 360 xdk to avoid C89
 #endif
