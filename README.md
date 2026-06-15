@@ -95,7 +95,7 @@ Then, after cloning recursively:
 cmake . -DPLATFORM=xbox360-xdk -B build-x360-xdk -DCMAKE_BUILD_TYPE=Release
 make -C build-x360-xdk -j$(nproc)
 ```
-Then, to use it, put a data.win on a USB drive, under its root dir, or "butterscotch" directory, and put the built butterscotch.xex in the same directory, and launch butterscotch.exe your favourite way.
+Then, to use it, put a data.win on a USB drive, under its root dir, or "butterscotch" directory, and put the built butterscotch.xex in the same directory, and launch butterscotch.xex your favourite way.
 
 If you are using CLion, set the platform in `Settings` > `Build, Execution, Deployment` > `CMake` and add `-DPLATFORM=glfw`
 
