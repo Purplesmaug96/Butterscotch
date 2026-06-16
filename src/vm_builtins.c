@@ -33,6 +33,8 @@
 #include "base64.h"
 #include "gettime.h"
 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 #define MAX_BACKGROUNDS 8
 
 // See GameMaker-HTML's Function_Layers.js
@@ -862,12 +864,24 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
         case BUILTIN_VAR_ROOM_LAST:
             return RValue_makeReal((GMLReal) runner->dataWin->gen8.roomOrder[runner->dataWin->gen8.roomOrderCount - 1]);
         case BUILTIN_VAR_ROOM_SPEED:
+            if (runner->currentRoom == nullptr)
+                return RValue_makeReal((GMLReal) runner->dataWin->gen8.gms2FPS);
+
             return RValue_makeReal((GMLReal) runner->currentRoom->speed);
         case BUILTIN_VAR_ROOM_WIDTH:
+            if (runner->currentRoom == nullptr)
+                return RValue_makeReal((GMLReal) -1.0);
+
             return RValue_makeReal((GMLReal) runner->currentRoom->width);
         case BUILTIN_VAR_ROOM_HEIGHT:
+            if (runner->currentRoom == nullptr)
+                return RValue_makeReal((GMLReal) -1.0);
+
             return RValue_makeReal((GMLReal) runner->currentRoom->height);
         case BUILTIN_VAR_ROOM_PERSISTENT:
+            if (runner->currentRoom == nullptr)
+                return RValue_makeReal((GMLReal) -1.0);
+
             return RValue_makeBool(runner->currentRoom->persistent);
 
         // View properties
@@ -2069,6 +2083,27 @@ static RValue builtin_is_callable(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeBool(false);
 }
 #endif
+
+static RValue builtin_typeof(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+
+    RValue arg = args[0];
+
+    switch (arg.type) {
+        // TODO: RVALUE_POINTER, RVALUE_NULL
+        case RVALUE_REAL: return RValue_makeString("number");
+        case RVALUE_STRING: return RValue_makeString("string");
+        case RVALUE_ARRAY: return RValue_makeString("array");
+        case RVALUE_BOOL: return RValue_makeString("bool");
+        case RVALUE_INT32: return RValue_makeString("int32");
+        case RVALUE_INT64: return RValue_makeString("int64");
+        case RVALUE_UNDEFINED: return RValue_makeString("undefined");
+        case RVALUE_METHOD: return RValue_makeString("method");
+        case RVALUE_STRUCT: return RValue_makeString("struct");
+        case RVALUE_ASSETREF: return RValue_makeString("ref");
+        default: return RValue_makeString("default");
+    }
+}
 
 // ===[ STRING FUNCTIONS ]===
 
@@ -8819,6 +8854,17 @@ static RValue builtin_base64_decode(MAYBE_UNUSED VMContext* ctx, RValue* args, M
     return RValue_makeOwnedString((char*) out);
 }
 
+// Converts the "digest" to a hex string
+static char* convertToHexString(unsigned char* digest, int32_t digestLength) {
+    int32_t stringLength = digestLength * 2;
+    char* hex = (char*)safeMalloc(stringLength + 1);
+    for (int32_t i = 0; digestLength > i; i++) {
+        sprintf(&hex[i * 2], "%02x", digest[i]);
+    }
+    hex[stringLength] = '\0';
+    return hex;
+}
+
 // buffer_md5(buffer, offset, size) -> hex string (32 chars, lowercase). Uses the RFC 1321 reference impl in vendor/md5.
 static RValue builtin_buffer_md5(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
@@ -8836,13 +8882,7 @@ static RValue builtin_buffer_md5(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYB
     if (size > 0) MD5Update(&mctx, buf->data + offset, (unsigned int) size);
     unsigned char digest[16];
     MD5Final(digest, &mctx);
-
-    char* hex = (char*)safeMalloc(33);
-    for (int32_t i = 0; 16 > i; i++) {
-        sprintf(&hex[i * 2], "%02x", digest[i]);
-    }
-    hex[32] = '\0';
-    return RValue_makeOwnedString(hex);
+    return RValue_makeOwnedString(convertToHexString(digest, 16));
 }
 
 // buffer_sha1(buffer, offset, size) -> hex string (40 chars, lowercase). Uses Steve Reid's C implementation in vendor/sha1.
@@ -8863,12 +8903,34 @@ static RValue builtin_buffer_sha1(MAYBE_UNUSED VMContext* ctx, RValue* args, MAY
     unsigned char digest[20];
     SHA1Final(digest, &sctx);
 
-    char* hex = (char*)safeMalloc(41);
-    for (int32_t i = 0; 20 > i; i++) {
-        sprintf(&hex[i * 2], "%02x", digest[i]);
-    }
-    hex[40] = '\0';
-    return RValue_makeOwnedString(hex);
+    return RValue_makeOwnedString(convertToHexString(digest, 20));
+}
+
+// sha1_file(file) - hex string (40 chars, lowercase).
+static RValue builtin_sha1_file(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    FileSystem* fs = runner->fileSystem;
+
+    char* filePath = RValue_toString(args[0]);
+    const char* resolvedPath = fs->vtable->resolvePath(fs, filePath);
+    uint8_t* fileData = nullptr;
+    int32_t fileSize = 0;
+    bool ok = fs->vtable->readFileBinary(fs, resolvedPath, &fileData, &fileSize);
+    free(filePath);
+
+    // GameMaker 2023.4.0.113 returns an empty string if the file doesn't exist
+    if (!ok)
+        return RValue_makeString("");
+
+    SHA1_CTX sctx;
+    SHA1Init(&sctx);
+    if (fileSize > 0)
+        SHA1Update(&sctx, fileData, (unsigned int) fileSize);
+
+    unsigned char digest[20];
+    SHA1Final(digest, &sctx);
+
+    return RValue_makeOwnedString(convertToHexString(digest, 20));
 }
 
 // buffer_get_surface(buffer, surface, offset) -> bool
@@ -10508,6 +10570,9 @@ static RValue builtin_place_meeting(VMContext* ctx, RValue* args, int32_t argCou
     int32_t target = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
     if (target == INSTANCE_NOONE) return RValue_makeBool(false);
 
+    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
     // Save current position and temporarily move to test position
     GMLReal savedX = caller->x;
     GMLReal savedY = caller->y;
@@ -10516,8 +10581,6 @@ static RValue builtin_place_meeting(VMContext* ctx, RValue* args, int32_t argCou
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool found = false;
-
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
     if (callerBBox.valid) {
         SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, target);
@@ -11038,6 +11101,9 @@ static RValue builtin_instance_place(VMContext* ctx, RValue* args, int32_t argCo
     int32_t targetObjIndex = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
     if (targetObjIndex == INSTANCE_NOONE) return RValue_makeReal((GMLReal) INSTANCE_NOONE);
 
+    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
     GMLReal savedX = caller->x;
     GMLReal savedY = caller->y;
     caller->x = testX;
@@ -11045,8 +11111,6 @@ static RValue builtin_instance_place(VMContext* ctx, RValue* args, int32_t argCo
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     int32_t resultId = INSTANCE_NOONE;
-
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
     if (callerBBox.valid) {
         SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, targetObjIndex);
@@ -11100,6 +11164,9 @@ static RValue builtin_instance_place_list(VMContext* ctx, RValue* args, int32_t 
     DsList* list = dsListGet(runner, listId);
     if (list == nullptr) return RValue_makeReal(0.0);
 
+    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
     GMLReal savedX = caller->x;
     GMLReal savedY = caller->y;
     caller->x = testX;
@@ -11107,8 +11174,6 @@ static RValue builtin_instance_place_list(VMContext* ctx, RValue* args, int32_t 
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     int32_t count = 0;
-
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
     if (callerBBox.valid) {
         SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, targetObjIndex);
@@ -11236,9 +11301,9 @@ static RValue builtin_action_set_alarm(VMContext* ctx, MAYBE_UNUSED RValue* args
 
     if (ctx->currentInstance != nullptr) {
         Instance* inst = ctx->currentInstance;
-        Runner* runner = ctx->runner;
 
 #ifdef ENABLE_VM_TRACING
+        Runner* runner = ctx->runner;
         if (shgeti(ctx->alarmsToBeTraced, "*") != -1 || shgeti(ctx->alarmsToBeTraced, runner->dataWin->objt.objects[inst->objectIndex].name) != -1) {
             fprintf(stderr, "VM: [%s] Setting Alarm[%d] = %d (instanceId=%d)\n", runner->dataWin->objt.objects[inst->objectIndex].name, alarmIndex, steps, inst->instanceId);
         }
@@ -12322,6 +12387,8 @@ static RuntimeBackgroundElement* findBackgroundElement(Runner* runner, int32_t e
     return el->backgroundElement;
 }
 
+#if IS_WAD17_OR_HIGHER_ENABLED
+
 // Resolves a tilemap element id to its tiles data + owning runtime layer.
 static RoomLayerTilesData* findTilemapData(Runner* runner, int32_t elementId, RuntimeLayer** outLayer) {
     if (outLayer != nullptr) *outLayer = nullptr;
@@ -12332,6 +12399,8 @@ static RoomLayerTilesData* findTilemapData(Runner* runner, int32_t elementId, Ru
     if (outLayer != nullptr) *outLayer = owner;
     return el->tilemapData;
 }
+
+#endif
 
 #define setBackgroundLayerField(id, value, targetParameter) \
     RuntimeBackgroundElement* bg = findBackgroundElement(runner, id); \
@@ -12844,7 +12913,7 @@ static int32_t tilemapGetCellIndexAtPixel(DataWin* dw, RoomLayerTilesData* data,
 
     int32_t cellX = (int32_t) GMLReal_floor(x / (GMLReal) tileW);
     int32_t cellY = (int32_t) GMLReal_floor(y / (GMLReal) tileH);
-    return data->tileData[coerceTileCellsToTilemapBoundsAndConvertToArrayIndex(data, cellX, cellY)];
+    return coerceTileCellsToTilemapBoundsAndConvertToArrayIndex(data, cellX, cellY);
 }
 
 static RValue builtin_tilemap_get(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -14052,7 +14121,7 @@ static RValue builtin_json_encode(VMContext* ctx, RValue* args, int32_t argCount
     Runner* runner = ctx->runner;
     int32_t mapIndex = RValue_toInt32(args[0]);
     // TODO: Implement prettify!
-    bool prettify = argCount == 2 ? RValue_toBool(args[1]) : false;
+    //bool prettify = argCount == 2 ? RValue_toBool(args[1]) : false;
     DsMapEntry** mapPtr = dsMapGet(runner, mapIndex);
     bool useFloatMarkers = DataWin_isVersionAtLeast(ctx->dataWin, 2023, 2, 0, 0);
 
@@ -14289,9 +14358,9 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
     uint32_t glyphCount = charCount;
     if (glyphCount > sprite->textureCount) glyphCount = sprite->textureCount;
 
-    // GM 2023.2 changed sprite-font glyph placement to subtract the source sprite's origin.
-    // (See GameMaker-HTML5's commit a7c5b909209d5a28602fedfe2031965386a99921)
-    bool spriteFontSubtractsOrigin = DataWin_isVersionAtLeast(dw, 2023, 2, 0, 0);
+    // GM 2023.4 changed sprite-font glyph placement to subtract the source sprite's origin.
+    // (See GameMaker-HTML5's commit a7c5b909209d5a28602fedfe2031965386a99921, this behavior can first be seen in 2023.4.0.113)
+    bool spriteFontSubtractsOrigin = DataWin_isVersionAtLeast(dw, 2023, 4, 0, 0);
 
     // Compute emSize (max bounding height across all frames) and biggestShift
     uint32_t maxHeight = 0;
@@ -14659,7 +14728,7 @@ static RValue builtin_shader_get_name(VMContext* ctx, RValue* args, MAYBE_UNUSED
 }
 
 static RValue builtin_shaders_are_supported(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    return RValue_makeBool(ctx->runner->renderer->vtable->shadersSupported(ctx->runner->renderer));
+    return RValue_makeBool(ctx->runner->renderer->vtable->shadersSupported());
 }
 
 static RValue builtin_shader_get_uniform(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -14829,15 +14898,6 @@ static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MA
     return RValue_makeArray(out);
 }
 
-static RValue builtin_font_get_texture(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    //see if it works
-    int32_t fontIndex = (int32_t) RValue_toReal(args[0]);
-    Font* font = &ctx->runner->dataWin->font.fonts[fontIndex];
-    int32_t TpagIndex = font->tpagIndex;
-
-    return RValue_makeInt32(ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
-}
-
 static RValue builtin_texture_get_texel_width(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
 
     uint32_t texID = (uint32_t) RValue_toReal(args[0]);
@@ -14900,6 +14960,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // Type functions
     VM_registerBuiltin(ctx, "real", (BuiltinFunc)builtin_real);
+    VM_registerBuiltin(ctx, "typeof", (BuiltinFunc)builtin_typeof);
     VM_registerBuiltin(ctx, "is_string", (BuiltinFunc)builtin_is_string);
     VM_registerBuiltin(ctx, "is_real", (BuiltinFunc)builtin_is_real);
     VM_registerBuiltin(ctx, "is_nan", (BuiltinFunc)builtin_is_nan);
@@ -15400,6 +15461,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "buffer_md5", (BuiltinFunc)builtin_buffer_md5);
     VM_registerBuiltin(ctx, "buffer_sha1", (BuiltinFunc)builtin_buffer_sha1);
     VM_registerBuiltin(ctx, "buffer_get_surface", (BuiltinFunc)builtin_buffer_get_surface);
+    VM_registerBuiltin(ctx, "sha1_file", (BuiltinFunc)builtin_sha1_file);
 
     // PSN
     VM_registerBuiltin(ctx, "psn_init", (BuiltinFunc)builtin_psn_init);
@@ -15811,6 +15873,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "object_get_persistent", (BuiltinFunc)builtin_object_get_persistent);
     VM_registerBuiltin(ctx, "object_get_solid", (BuiltinFunc)builtin_object_get_solid);
     VM_registerBuiltin(ctx, "object_get_sprite", (BuiltinFunc)builtin_object_get_sprite);
+    VM_registerBuiltin(ctx, "object_get_visible", (BuiltinFunc)builtin_object_get_visible);
     VM_registerBuiltin(ctx, "object_set_parent", (BuiltinFunc)builtin_object_set_parent);
     VM_registerBuiltin(ctx, "object_set_persistent", (BuiltinFunc)builtin_object_set_persistent);
     VM_registerBuiltin(ctx, "object_set_solid", (BuiltinFunc)builtin_object_set_solid);

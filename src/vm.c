@@ -15,9 +15,6 @@
 
 #include "stb_ds.h"
 
-// Maximum number of local variables per code entry (stack-allocated arrays in VM_executeCode/VM_callCodeIndex)
-#define MAX_CODE_LOCALS 128
-
 // ===[ Stack Operations ]===
 
 #ifdef ENABLE_VM_TRACING
@@ -104,10 +101,14 @@ static int32_t stackPopInt32(VMContext* ctx) {
     return value;
 }
 
+#if IS_WAD17_OR_HIGHER_ENABLED
+
 static RValue* stackPeek(VMContext* ctx) {
     require(ctx->stack.top > 0);
     return &ctx->stack.slots[ctx->stack.top - 1];
 }
+
+#endif
 
 // ===[ Instruction Decoding ]===
 
@@ -267,6 +268,7 @@ static GMLArray* VM_arraySetWithCoW(VMContext* ctx, RValue* slot, int32_t index,
 #if IS_WAD17_OR_HIGHER_ENABLED
     intendedOwner = IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : (void*) slot;
 #else
+    (void)ctx;
     intendedOwner = (void*) slot;
 #endif
 
@@ -418,10 +420,14 @@ static ArrayAccess popArrayAccess(VMContext* ctx, uint32_t varRef) {
 // ===[ Variable Resolution ]===
 
 // Returns the object name for an instance, or "<global_scope>" for the global scope dummy instance
+#ifdef ENABLE_VM_TRACING
+
 static const char* instanceObjectName(VMContext* ctx, Instance* inst) {
     if (inst->objectIndex == STRUCT_OBJECT_INDEX) return "<global_scope>";
     return ctx->dataWin->objt.objects[inst->objectIndex].name;
 }
+
+#endif
 
 static Variable* resolveVarDef(VMContext* ctx, uint32_t varRef) {
     uint32_t varIndex = varRef & 0x07FFFFFF;
@@ -470,16 +476,14 @@ static uint32_t resolveLocalSlot(VMContext* ctx, int32_t varID) {
 
     // BC13/BC14 and BC17+: allocate the slot dynamically because the data.win CANNOT be trusted to know how many localVars the script has
     uint32_t slot = IntIntHashMap_getOrInsertSequential(ctx->currentCodeLocalsSlotMap, varID);
-    // Even though we are dynamically allocating the slots, we are still bound to whatever localVars is allocated to
-    // So, if a script goes over the MAX_CODE_LOCALS, it would cause unforeseen consequences...
-    requireMessage(MAX_CODE_LOCALS > slot, "resolveLocalSlot: exceeded MAX_CODE_LOCALS while allocating a slot for an array-only local");
 
     // Grow this frame's localVars window to cover `slot` whether the entry is pre-existing or freshly allocated.
     // Pre-existing entries can still be past ctx->localVarCount if a nested call to the same code extended the slot map while the outer frame was suspended (the outer frame's localVarCount is captured at call entry and doesn't follow later growth).
     if (slot >= ctx->localVarCount) {
-        for (uint32_t i = ctx->localVarCount; slot >= i; i++) {
-            ctx->localVars[i] = RValue_makeUndefined();
-        }
+        RValue* resizedLocalVars = (RValue*)safeCalloc(slot + 1, sizeof(RValue));
+        memcpy(resizedLocalVars, ctx->localVars, sizeof(RValue) * ctx->localVarCount);
+        free(ctx->localVars);
+        ctx->localVars = resizedLocalVars;
         ctx->localVarCount = slot + 1;
     }
     return slot;
@@ -638,6 +642,8 @@ static bool tryReadInstanceVarOrStatic(VMContext* ctx, Instance* instance, int32
         *out = staticVal;
         return true;
     }
+#else
+    (void)ctx;
 #endif
     return false;
 }
@@ -1025,13 +1031,21 @@ NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, 
         } else {
             fprintf(stderr, "VM: [%s] INSTANCE_ARG write on unknown variable '%s' (builtinVarId=%d)\n", ctx->currentCodeName, varDef->name, bid);
         }
-        if (writeIndex >= 0 && GML_MAX_ARGUMENTS > writeIndex && ctx->scriptArgs != nullptr) {
+        if (writeIndex >= 0) {
             RValue independent = RValue_makeIndependent(val);
-            RValue_free(&ctx->scriptArgs[writeIndex]);
-            ctx->scriptArgs[writeIndex] = independent;
+            // You CAN write to the builtin argumentX variables even though the function does not "have" it as a function argument
+            // So we'll need to check if we need to resize the scriptArgs manually...
             if (writeIndex >= ctx->scriptArgCount) {
+                RValue* newScriptArgs = (RValue*)safeCalloc(writeIndex + 1, sizeof(RValue));
+                if (ctx->scriptArgCount > 0) {
+                    memcpy(newScriptArgs, ctx->scriptArgs, ctx->scriptArgCount * sizeof(RValue));
+                    free(ctx->scriptArgs);
+                }
+                ctx->scriptArgs = newScriptArgs;
                 ctx->scriptArgCount = writeIndex + 1;
             }
+            RValue_free(&ctx->scriptArgs[writeIndex]); // no-op if we are writing to a resized array that was (originally) out of bounds
+            ctx->scriptArgs[writeIndex] = independent;
         }
         RValue_free(&val);
         return;
@@ -1359,7 +1373,7 @@ static inline RValue coerceIntStoreToReal(RValue val, uint8_t type2) {
     return val;
 }
 
-static void handlePop(VMContext* ctx, uint32_t instr, uint8_t type1, uint8_t type2, uint32_t varRef, uint8_t varType, int32_t instanceType) {
+static void handlePop(VMContext* ctx, uint8_t type1, uint8_t type2, uint32_t varRef, uint8_t varType, int32_t instanceType) {
     RValue val;
     int32_t arrayIndex = -1;
 
@@ -1995,11 +2009,9 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     require(ctx->dataWin->func.functionCount > funcIndex);
 
     // Pop arguments from stack (args pushed right-to-left, so first arg is on top)
-    // Use stack-allocated buffer for small arg counts (GMS 1.4 supports up to 16 arguments)
-    RValue stackArgs[GML_MAX_ARGUMENTS];
     RValue* args = nullptr;
     if (argCount > 0) {
-        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : (RValue*)safeMalloc(argCount * sizeof(RValue));
+        args = (RValue*)safeCalloc(argCount, sizeof(RValue));
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -2042,7 +2054,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             repeat(argCount, i) {
                 RValue_free(&args[i]);
             }
-            if (args != stackArgs) free(args);
+            free(args);
         }
 
 #ifdef ENABLE_VM_TRACING
@@ -2076,7 +2088,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             repeat(argCount, i) {
                 RValue_free(&args[i]);
             }
-            if (args != stackArgs) free(args);
+            free(args);
         }
 
         stackPushTyped(ctx, result, GML_TYPE_VARIABLE);
@@ -2104,7 +2116,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         repeat(argCount, i) {
             RValue_free(&args[i]);
         }
-        if (args != stackArgs) free(args);
+        free(args);
     }
 
 #ifdef ENABLE_VM_TRACING
@@ -2126,10 +2138,9 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
     RValue function = stackPop(ctx);
     RValue instance = stackPop(ctx);
 
-    RValue stackArgs[GML_MAX_ARGUMENTS];
     RValue* args = nullptr;
     if (argCount > 0) {
-        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : (RValue*)safeMalloc(argCount * sizeof(RValue));
+        args = (RValue*)safeCalloc(argCount, sizeof(RValue));
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -2200,7 +2211,7 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
         repeat(argCount, i) {
             RValue_free(&args[i]);
         }
-        if (args != stackArgs) free(args);
+        free(args);
     }
 
     stackPushTyped(ctx, result, GML_TYPE_VARIABLE);
@@ -3013,7 +3024,7 @@ static RValue executeLoop(VMContext* ctx) {
                     val = coerceIntStoreToReal(val, type2);
                     resolveVariableWrite(ctx, instanceType, varRef, val);
                 } else {
-                    handlePop(ctx, instr, type1, type2, varRef, varType, instanceType);
+                    handlePop(ctx, type1, type2, varRef, varType, instanceType);
                 }
                 break;
             }
@@ -3449,12 +3460,6 @@ VMContext* VM_create(DataWin* dataWin) {
         rewriteBytecode14To16(ctx);
     }
 
-    // Validate that no code entry exceeds MAX_CODE_LOCALS (the VM uses stack-allocated arrays of this size)
-    repeat(dataWin->code.count, i) {
-        CodeEntry* entry = &dataWin->code.entries[i];
-        requireMessageFormatted(__FILE__, __LINE__, MAX_CODE_LOCALS > entry->localsCount, "Code %s has too many locals!", entry->name);
-    }
-
     VMBuiltins_checkIfBuiltinVarTableIsSorted();
 
     // Pre-resolve built-in variable IDs (replaces runtime strcmp chains with O(1) switch dispatch)
@@ -3710,7 +3715,7 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     setCurrentCodeLocalsSlotMap(ctx);
 
     uint32_t localsCount = computeLocalsCount(ctx, code);
-    RValue localVars[MAX_CODE_LOCALS] = {0};
+    RValue* localVars = (RValue*)safeCalloc(localsCount, sizeof(RValue));
     ctx->localVars = localVars;
     ctx->localVarCount = localsCount;
 
@@ -3735,6 +3740,7 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     repeat(ctx->localVarCount, i) {
         RValue_free(&ctx->localVars[i]);
     }
+    free(ctx->localVars);
     ctx->localVars = nullptr;
     ctx->localVarCount = 0;
 
@@ -3773,24 +3779,23 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     setCurrentCodeLocalsSlotMap(ctx);
 
     uint32_t localsCount = computeLocalsCount(ctx, code);
-    // We use fixed-size arrays instead of VLAs because it seems that using multiple VLAs in a single function things get corrupted somehow?
-    // So when you see this MAX_CODE_LOCALS and GML_MAX_ARGUMENTS, you can shake your fist in the air and say "damn you MIPS!!1"
-    RValue localVars[MAX_CODE_LOCALS] = {0};
+    RValue* localVars = (RValue*)safeCalloc(localsCount, sizeof(RValue));
     ctx->localVars = localVars;
     ctx->localVarCount = localsCount;
 
     // Store arguments in scriptArgs (mirrors GMS 1.4's global argument stack).
     // Callee takes an INDEPENDENT reference for strings (strdup) and arrays (incRef) so
     // the caller's original args remain valid and owner-tracked by the caller.
-    RValue scriptArgs[GML_MAX_ARGUMENTS] = {0};
-    ctx->scriptArgs = scriptArgs;
-    ctx->scriptArgCount = argCount;
+    RValue* scriptArgs = nullptr;
     if (argCount > 0 && args != nullptr) {
+        scriptArgs = (RValue*)safeCalloc(argCount, sizeof(RValue));
         repeat(argCount, argIdx) {
             RValue argCopy = RValue_makeIndependent(args[argIdx]);
-            ctx->scriptArgs[argIdx] = argCopy;
+            scriptArgs[argIdx] = argCopy;
         }
     }
+    ctx->scriptArgs = scriptArgs;
+    ctx->scriptArgCount = argCount;
 
     ctx->savearefBalance = 0;
 
@@ -3820,10 +3825,14 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
         RValue_free(&ctx->localVars[i]);
     }
 
+    free(ctx->localVars);
+
     // Free callee script args
     repeat(ctx->scriptArgCount, i) {
         RValue_free(&ctx->scriptArgs[i]);
     }
+
+    free(ctx->scriptArgs);
 
     ctx->localVars = saved->savedLocals;
     ctx->localVarCount = saved->savedLocalsCount;
@@ -3923,7 +3932,7 @@ static void disasmFormatVar(VMContext* ctx, const uint8_t* extraData, const char
 }
 
 // Returns stack effect comment for a variable access instruction
-static void disasmFormatVarComment(VMContext* ctx, const uint8_t* extraData, bool isPop, char* buf, size_t bufSize) {
+static void disasmFormatVarComment(const uint8_t* extraData, bool isPop, char* buf, size_t bufSize) {
     uint32_t varRef = resolveVarOperand(extraData);
     uint8_t varType = (varRef >> 24) & 0xF8;
     if (isPop) {
@@ -4035,7 +4044,7 @@ static void formatInstruction(VMContext* ctx, const uint8_t* bytecodeBase, uint3
                 case GML_TYPE_VARIABLE:
                     snprintf(opcodeStr, opcodeSize, "Push.v");
                     disasmFormatVar(ctx, extraData, nullptr, (int32_t) instType, operandStr, operandSize);
-                    disasmFormatVarComment(ctx, extraData, false, commentStr, commentSize);
+                    disasmFormatVarComment(extraData, false, commentStr, commentSize);
                     break;
                 case GML_TYPE_INT16:
                     snprintf(opcodeStr, opcodeSize, "Push.e");
@@ -4054,17 +4063,17 @@ static void formatInstruction(VMContext* ctx, const uint8_t* bytecodeBase, uint3
         case OP_PUSHLOC:
             snprintf(opcodeStr, opcodeSize, "PushLoc.v");
             disasmFormatVar(ctx, extraData, "local", (int32_t) instType, operandStr, operandSize);
-            disasmFormatVarComment(ctx, extraData, false, commentStr, commentSize);
+            disasmFormatVarComment(extraData, false, commentStr, commentSize);
             break;
         case OP_PUSHGLB:
             snprintf(opcodeStr, opcodeSize, "PushGlb.v");
             disasmFormatVar(ctx, extraData, "global", (int32_t) instType, operandStr, operandSize);
-            disasmFormatVarComment(ctx, extraData, false, commentStr, commentSize);
+            disasmFormatVarComment(extraData, false, commentStr, commentSize);
             break;
         case OP_PUSHBLTN:
             snprintf(opcodeStr, opcodeSize, "PushBltn.v");
             disasmFormatVar(ctx, extraData, nullptr, (int32_t) instType, operandStr, operandSize);
-            disasmFormatVarComment(ctx, extraData, false, commentStr, commentSize);
+            disasmFormatVarComment(extraData, false, commentStr, commentSize);
             break;
 
         // PushI (int16 immediate)
@@ -4078,7 +4087,7 @@ static void formatInstruction(VMContext* ctx, const uint8_t* bytecodeBase, uint3
         case OP_POP:
             snprintf(opcodeStr, opcodeSize, "Pop.%c.%c", gmlTypeChar(type1), gmlTypeChar(type2));
             disasmFormatVar(ctx, extraData, nullptr, (int32_t) instType, operandStr, operandSize);
-            disasmFormatVarComment(ctx, extraData, true, commentStr, commentSize);
+            disasmFormatVarComment(extraData, true, commentStr, commentSize);
             break;
 
         // Unconditional branch

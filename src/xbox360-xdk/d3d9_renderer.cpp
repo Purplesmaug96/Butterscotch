@@ -1714,7 +1714,7 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
     d3d9DiagLimited(&logged, 64, "D3D9: texture_set_stage stub slot=%d tex=%u", slot, (unsigned)texID);
 }
 static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) { (void)renderer; (void)shader; return false; }
-static bool d3d9ShadersSupported(Renderer* renderer) { (void)renderer; return false; }
+static bool d3d9ShadersSupported() { return false; }
 
 // ===[ Vtable ]===
 

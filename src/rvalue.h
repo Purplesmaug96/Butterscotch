@@ -36,6 +36,7 @@ uint32_t Instance_getInstanceId(struct Instance* inst);
 #define GML_TYPE_INT16    0xF
 
 // ===[ Asset Reference Types ]===
+// See yyTypes.js for reference
 typedef enum {
     ASSET_TYPE_OBJECT = 0,
     ASSET_TYPE_SPRITE = 1,
@@ -49,11 +50,14 @@ typedef enum {
     ASSET_TYPE_SEQUENCE = 9,
     ASSET_TYPE_ANIMCURVE = 10,
     ASSET_TYPE_PARTICLESYSTEM = 11,
-    ASSET_TYPE_UNKNOWN = 12,
+    ASSET_TYPE_TILEMAP = 12,
     ASSET_TYPE_TILESET = 13,
+    ASSET_TYPE_INSTANCE = 14,
+    ASSET_TYPE_PARTICLESYSTEMINSTANCE = 15
 } AssetRefType;
 
 // ===[ RValue - Tagged Union ]===
+// When adding new elements to here, don't forget to update the "typeof" builtin!
 typedef enum {
     RVALUE_UNDEFINED = 0,
     RVALUE_STRING = 1,

@@ -1926,6 +1926,16 @@ void Runner_reset(Runner* runner) {
     runner->drawableListSortDirty = false;
 }
 
+static int compareTargetObjectIndexAscending(const void *a, const void *b) {
+    FlattenedCollisionEvent* flat1 = (FlattenedCollisionEvent*) a;
+    FlattenedCollisionEvent* flat2 = (FlattenedCollisionEvent*) b;
+    if (flat1->targetObjectIndex > flat2->targetObjectIndex)
+        return 1;
+    else if (flat2->targetObjectIndex > flat1->targetObjectIndex)
+        return -1;
+    else return 0;
+}
+
 // Flattens collision-event inheritance into one list per object: Child-defined collision events override the parent's events
 //
 // (The YoYo Runner calls it "ExpandCollisionEvents")
@@ -1982,6 +1992,8 @@ static void flattenCollisionEvents(Runner* runner) {
             ancestor = anc->parentId;
             depth++;
         }
+
+        qsort(dst->events, dst->eventCount, sizeof(FlattenedCollisionEvent), compareTargetObjectIndexAscending);
     }
 }
 
@@ -2176,7 +2188,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     repeat(shlen(vm->builtinMap), i) {
         bool isRegistered = shgeti(vm->codeIndexByName, vm->builtinMap[i].key) != -1;
         if (isRegistered) {
-            fprintf(stderr, "Builtin function %s has the same name as a GML script! The script may be a compatibility script provided by GM:S 2+, and the game may have issues due to the builtin overriding it!\n", vm->builtinMap[i].key);
+            fprintf(stderr, "Runner: Builtin function %s has the same name as a GML script! The script may be a compatibility script provided by GM:S 2+, and the game may have issues due to the builtin overriding it!\n", vm->builtinMap[i].key);
         }
     }
 
@@ -2401,9 +2413,6 @@ void Runner_initFirstRoom(Runner* runner) {
 
     int32_t firstRoomIndex = dataWin->gen8.roomOrder[0];
 
-    // Initialize the first room
-    initRoom(runner, firstRoomIndex);
-
     // Run global init scripts with the global scope instance as "self"
     // In GMS 2.3+ (BC17), GLOB scripts store function declarations on "self" via Pop.v.v
     runner->vmContext->currentInstance = runner->globalScopeInstance;
@@ -2438,6 +2447,9 @@ void Runner_initFirstRoom(Runner* runner) {
         }
     }
     runner->vmContext->currentInstance = nullptr;
+
+    // Initialize the first room
+    initRoom(runner, firstRoomIndex);
 
     // Fire Game Start for all instances
     Runner_executeEventForAll(runner, EVENT_OTHER, OTHER_GAME_START);
@@ -2922,6 +2934,15 @@ static void dispatchMouseEvents(Runner* runner) {
     arrsetlen(runner->instanceSnapshots, snapshotBase);
 }
 
+static int sortInstancesByObjectIndexThenInstanceIdAscending(const void* element1, const void* element2) {
+    Instance* instance1 = *(Instance**) element1;
+    Instance* instance2 = *(Instance**) element2;
+
+    if (instance1->objectIndex != instance2->objectIndex) return instance1->objectIndex > instance2->objectIndex ? 1 : -1;
+    if (instance1->instanceId != instance2->instanceId) return instance1->instanceId > instance2->instanceId ? 1 : -1;
+    return 0;
+}
+
 static void dispatchCollisionEvents(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     // Iterate only the objects that have any collision event in their parent chain.
@@ -2958,12 +2979,12 @@ static void dispatchCollisionEvents(Runner* runner) {
 
                 // Iterate only the descendant-inclusive list for the target object via a snapshot, so nested user code (collision handlers calling instance_exists, with (...), etc.) can push/pop their own snapshots above ours without corrupting this iteration.
                 int32_t snapBase = Runner_pushInstancesOfObject(runner, targetObjIndex);
-                int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
-                // TODO: This is a STUPID HACKY HACK to fix phasing through the pillar in the long corridor section in Undertale
-                //  I DO NOT THINK THAT THIS IS CORRECT, and this CAN and WILL cause iteration order issues in the future
-                //  But at the same time I couldn't figure out HOW the YoYo collision iteration order works to NOT have this issue
-                //  (The stupid hack is iterating in reverse order)
-                for (int32_t snapIdx = snapEnd - 1; snapIdx >= snapBase; snapIdx--) {
+                int32_t snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+
+                // The YoYo Runner sorts it by the object index THEN by the instanceId
+                qsort(runner->instanceSnapshots + snapBase, snapEnd - snapBase, sizeof(Instance*), sortInstancesByObjectIndexThenInstanceIdAscending);
+
+                for (int32_t snapIdx = snapBase; snapEnd > snapIdx; snapIdx++) {
                     Instance* other = runner->instanceSnapshots[snapIdx];
                     if (!other->active) continue;
                     if (other == self) continue;
@@ -3041,7 +3062,8 @@ static void dispatchCollisionEvents(Runner* runner) {
                     // Because if we don't, the OTHER collision may never happen again because
                     // * GML code may have pushed it away
                     // * Solid collision resolution may have also pushed it away
-                    if (other->active && self->active) {
+                    // This ONLY happens if one of them was solid
+                    if (hadSolid && other->active && self->active) {
                         FlattenedCollisionEvent* reverseEvt = findSymmetricCollisionEvent(runner, other, self);
 #ifdef ENABLE_VM_TRACING
                         if (traceThisPair) {
