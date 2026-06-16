@@ -52,6 +52,9 @@
 // Also used as the initial value of Runner.applicationSurfaceId before the first ensure call.
 #define APPLICATION_SURFACE_ID (-1)
 
+// Sentinel used when beginGUI should render to the host framebuffer.
+#define RENDER_TARGET_HOST_FRAMEBUFFER (-1)
+
 // Nine-slice tile mode constants
 #define NS_STRETCH    0
 #define NS_REPEAT     1
@@ -77,7 +80,10 @@ typedef struct {
     void (*endView)(Renderer* renderer);
     void (*applyProjection)(Renderer* renderer, const Matrix4f* worldToClip);
     // GUI pass: coordinates are (0,0)..(guiW,guiH) mapped to the current view's port rect. Called after endView.
-    void (*beginGUI)(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH);
+    // targetSurfaceId is the surface the pass renders into, or RENDER_TARGET_HOST_FRAMEBUFFER.
+    void (*beginGUI)(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId);
+    // Sets the GUI-space projection matrix without rebinding the target/viewport/scissor for the current GUI pass.
+    void (*setGuiProjection)(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface);
     void (*endGUI)(Renderer* renderer);
     void (*drawSprite)(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
     void (*drawSpritePart)(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, float angleDeg, float pivotX, float pivotY, uint32_t color, float alpha);
@@ -105,13 +111,14 @@ typedef struct {
     void (*gpuSetFog)(Renderer* renderer, bool enable, uint32_t color);
     // Optional: platform-specific tile rendering (nullptr = use default drawSpritePart path)
     void (*drawTile)(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY);
-    // Optional: platform-specific tiled draw (nullptr = use default per-tile drawSprite loop).
     void (*drawTiled)(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha);
     // Surface Functions
     int32_t (*createSurface)(Renderer* renderer, int32_t width, int32_t height);
     bool (*surfaceExists)(Renderer* renderer, int32_t surfaceID);
     // Bind the given surface as the active render target. Pass renderer->runner->applicationSurfaceId to bind the application surface.
-    bool (*setRenderTarget)(Renderer* renderer, int32_t surfaceID);
+    // implicitApplicationSurface is only valid if the surfaceID is the runner->applicationSurfaceId, it means that it was implicitly set (example: stack was empty) instead of explicitly (example: GML code using surface_set_target(application_surface))
+    // The idea is that when implicitApplicationSurface is set AND the surfaceId is runner->applicationSurfaceId, you MUST restore the previousViewMatrix
+    bool (*setRenderTarget)(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface);
     // Lazy allocation hook called every frame by Runner_beginFrame.
     // Creates the application_surface on the first frame (and after application_surface_enable(false) -> true cycles).
     // Resizes in place if the requested dimensions changed.
@@ -133,6 +140,7 @@ typedef struct {
     int32_t (*shaderGetUniform)(Renderer* renderer, int32_t shaderIndex, char* uniform);
     int32_t (*shaderGetSamplerIndex)(Renderer* renderer, int32_t shaderIndex, char* uniform);
     void (*shaderSetUniformF)(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4);
+    void (*shaderSetUniformFArray)(Renderer* renderer, int32_t handle, float* values, uint32_t count);
     void (*shaderSetUniformI)(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4);
     // Returns a texture pointer for a specific sprite, where 0 = "no texture".
     uint32_t (*spriteGetTexture)(Renderer* renderer, int32_t tpagIndex);
@@ -522,54 +530,12 @@ static inline int32_t Renderer_resolveObjectTPAGIndex(DataWin* dataWin, RoomTile
         return Renderer_resolveSpriteTPAGIndex(dataWin, tile->backgroundDefinition);
 }
 
-// Tiled draws.
-// This will use a specialized vtable->drawTiled implementation, but if it doesn't, it will fall back to "manual" tiled rendering.
-static inline void Renderer_drawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
-    // Use the renderer's fast drawTiled path if it has one
-    if (renderer->vtable->drawTiled != nullptr) {
-        renderer->vtable->drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, tileX, tileY, roomW, roomH, color, alpha);
-        return;
-    }
-
-    TexturePageItem* tpag = &renderer->dataWin->tpag.items[tpagIndex];
-
-    float axScale = fabsf(xscale);
-    float ayScale = fabsf(yscale);
-    float tileW = (float) tpag->boundingWidth * axScale;
-    float tileH = (float) tpag->boundingHeight * ayScale;
-    if (0 >= tileW || 0 >= tileH) return;
-
-    float startX, endX, startY, endY;
-    if (tileX) {
-        startX = fmodf(x - originX * axScale, tileW);
-        if (startX > 0) startX -= tileW;
-        endX = roomW;
-    } else {
-        startX = x - originX * axScale;
-        endX = startX + tileW;
-    }
-    if (tileY) {
-        startY = fmodf(y - originY * ayScale, tileH);
-        if (startY > 0) startY -= tileH;
-        endY = roomH;
-    } else {
-        startY = y - originY * ayScale;
-        endY = startY + tileH;
-    }
-
-    for (float dy = startY; endY > dy; dy += tileH) {
-        for (float dx = startX; endX > dx; dx += tileW) {
-            renderer->vtable->drawSprite(renderer, tpagIndex, dx + originX * axScale, dy + originY * ayScale, originX, originY, xscale, yscale, 0.0f, color, alpha);
-        }
-    }
-}
-
 // Draws a tiled background
 static inline void Renderer_drawBackgroundTiled(Renderer* renderer, int32_t tpagIndex, float bgX, float bgY, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, float alpha) {
     DataWin* dw = renderer->dataWin;
     if (0 > tpagIndex || (uint32_t) tpagIndex >= dw->tpag.count) return;
 
-    Renderer_drawTiled(renderer, tpagIndex, 0.0f, 0.0f, bgX, bgY, xscale, yscale, tileX, tileY, roomW, roomH, 0xFFFFFFu, alpha);
+    renderer->vtable->drawTiled(renderer, tpagIndex, 0.0f, 0.0f, bgX, bgY, xscale, yscale, tileX, tileY, roomW, roomH, 0xFFFFFFu, alpha);
 }
 
 // Draws a tiled sprite across the room
@@ -582,7 +548,7 @@ static inline void Renderer_drawSpriteTiled(Renderer* renderer, int32_t spriteIn
     float originX = (float) sprite->originX;
     float originY = (float) sprite->originY;
 
-    Renderer_drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
+    renderer->vtable->drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
 }
 
 // Default draw: draws instance's sprite using its image_* properties

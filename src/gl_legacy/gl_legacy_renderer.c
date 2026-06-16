@@ -196,18 +196,20 @@ static void glApplyProjection(Renderer* renderer, const Matrix4f* worldToClip) {
     renderer->previousViewMatrix = projection;
 }
 
-static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH) {
+static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId) {
     GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
 
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    GLint boundFbo = 0;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFbo);
-    if (boundFbo == 0) {
+    if (targetSurfaceId == RENDER_TARGET_HOST_FRAMEBUFFER) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, portW, portH);
         glEnable(GL_SCISSOR_TEST);
         glScissor(0, 0, portW, portH);
     } else {
+        require(targetSurfaceId >= 0 && (uint32_t) targetSurfaceId < gl->surfaceCount);
+        require(gl->surfaces[targetSurfaceId] != 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, gl->surfaces[targetSurfaceId]);
         glApplyViewport(gl, portX, portY, portW, portH);
     }
 
@@ -219,6 +221,18 @@ static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t p
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glActiveTexture(GL_TEXTURE0);
+}
+
+static void glSetGuiProjection(MAYBE_UNUSED Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
+    Matrix4f projection;
+    Matrix4f_guiProjection(&projection, (float) guiW, (float) guiH, (float) portW, (float) portH);
+    // GL surfaces are stored bottom-up and draw_surface samples them with vertical flip.
+    // Flip the projection when we are rendering to a user surface so it comes back upright.
+    if (renderingToUserSurface) Matrix4f_flipClipY(&projection);
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(projection.m);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
 }
 
 static void glEndGUI(MAYBE_UNUSED Renderer* renderer) {
@@ -241,6 +255,7 @@ static void glEndFrameEnd(Renderer* renderer) {
         return;
     }
     int32_t appId = gl->base.runner->applicationSurfaceId;
+    GLCommon_beginLetterboxBlit(gl->surfaces[appId], 0);
     GLCommon_endLetterboxBlit(gl->surfaceWidth[appId], gl->surfaceHeight[appId], gl->gameW, gl->gameH, gl->windowW, gl->windowH, 0);
 }
 
@@ -871,8 +886,10 @@ static bool glResolveGlyph(GLLegacyRenderer* gl, DataWin* dw, GlFontState* state
         *outU1 = (float) (glyphTpag->sourceX + glyphTpag->sourceWidth) / (float) tw;
         *outV1 = (float) (glyphTpag->sourceY + glyphTpag->sourceHeight) / (float) th;
 
+        // Sprite-font glyphs sit at the cell offset. GM 2023.2+ subtracts the sprite origin, pre-2023.2 it cancels.
+        // (See GameMaker-HTML5's commit a7c5b909209d5a28602fedfe2031965386a99921)
         *outLocalX0 = cursorX + (float) glyph->offset;
-        *outLocalY0 = cursorY + (float) ((int32_t) glyphTpag->targetY - sprite->originY);
+        *outLocalY0 = cursorY + (float) (int32_t) glyphTpag->targetY - (float) font->spriteOriginYAdjust;
     } else {
         *outTexId = state->texId;
         *outTpagIdx = state->fontTpagIndex;
@@ -1473,7 +1490,7 @@ static void glLegacySurfaceFree(Renderer* renderer, int32_t surfaceId) {
     fprintf(stderr, "GL: Freed Surface %d\n", surfaceId);
 }
 
-static bool glLegacySetRenderTarget(Renderer* renderer, int32_t surfaceId) {
+static bool glLegacySetRenderTarget(Renderer* renderer, int32_t surfaceId, bool implicitApplicationSurface) {
     GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
 
     if (0 > surfaceId || (uint32_t) surfaceId >= gl->surfaceCount) return false;
@@ -1481,7 +1498,7 @@ static bool glLegacySetRenderTarget(Renderer* renderer, int32_t surfaceId) {
 
     glBindFramebuffer(GL_FRAMEBUFFER, gl->surfaces[surfaceId]);
 
-    if (surfaceId == renderer->runner->applicationSurfaceId) {
+    if (surfaceId == renderer->runner->applicationSurfaceId && implicitApplicationSurface) {
         glViewport(gl->base.CPortX, gl->base.CPortY, gl->base.CPortW, gl->base.CPortH);
         glMatrixMode(GL_PROJECTION);
         glLoadMatrixf(renderer->previousViewMatrix.m);
@@ -1660,6 +1677,7 @@ static void glGpuResetShader(MAYBE_UNUSED Renderer* renderer) {}
 static int32_t glShaderGetUniform(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t shaderIndex, MAYBE_UNUSED char* uniform) { return -1; }
 static int32_t glShaderGetSamplerIndex(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t shaderIndex, MAYBE_UNUSED char* uniform) { return -1; }
 static void glShaderSetUniformF(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t handle, MAYBE_UNUSED int32_t count, MAYBE_UNUSED float value1, MAYBE_UNUSED float value2, MAYBE_UNUSED float value3, MAYBE_UNUSED float value4) {}
+static void glShaderSetUniformFArray(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t handle, MAYBE_UNUSED float* values, MAYBE_UNUSED uint32_t count) {}
 static void glShaderSetUniformI(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t handle, MAYBE_UNUSED int32_t count, MAYBE_UNUSED int32_t value1, MAYBE_UNUSED int32_t value2, MAYBE_UNUSED int32_t value3, MAYBE_UNUSED int32_t value4) {}
 static bool glShaderIsCompiled(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t shader) { return false; }
 static bool glShadersSupported(MAYBE_UNUSED Renderer* renderer) { return false; }
@@ -1680,6 +1698,7 @@ Renderer* GLLegacyRenderer_create(void) {
     glVtable.endView = glEndView;
     glVtable.applyProjection = glApplyProjection;
     glVtable.beginGUI = glBeginGUI;
+    glVtable.setGuiProjection = glSetGuiProjection;
     glVtable.endGUI = glEndGUI;
     glVtable.drawSprite = glDrawSprite;
     glVtable.drawSpritePos = glDrawSpritePos;
@@ -1727,6 +1746,7 @@ Renderer* GLLegacyRenderer_create(void) {
     glVtable.shaderGetUniform = glShaderGetUniform;
     glVtable.shaderGetSamplerIndex = glShaderGetSamplerIndex;
     glVtable.shaderSetUniformF = glShaderSetUniformF;
+    glVtable.shaderSetUniformFArray = glShaderSetUniformFArray;
     glVtable.shaderSetUniformI = glShaderSetUniformI;
     glVtable.shaderIsCompiled = glShaderIsCompiled;
     glVtable.shadersSupported = glShadersSupported;

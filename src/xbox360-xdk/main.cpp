@@ -48,7 +48,7 @@ static bool xdkGetWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 static void xdkSetWindowSize(int32_t width, int32_t height) {
-    diagLog("BS: window_set_size ignored on fixed 720p backbuffer requested=%dx%d", width, height);
+    diagLog("BS: window_set_size ignored on fixed %dx%d backbuffer requested=%dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, width, height);
 }
 
 static HANDLE gDiagLog = INVALID_HANDLE_VALUE;
@@ -178,13 +178,13 @@ static void diagOpenFallback(void) {
     gDiagTriedFallback = true;
 
     static const char* paths[] = {
-        "game:\\bs360_refresh.log",
-        "d:\\bs360_refresh.log",
-        "hdd:\\bs360_refresh.log",
-        "cache:\\bs360_refresh.log",
-        "uda:\\bs360_refresh.log",
-        "uda:/bs360_refresh.log",
-        "usb0:\\bs360_refresh.log",
+        "game:\\butterscotch.log",
+        "d:\\butterscotch.log",
+        "hdd:\\butterscotch.log",
+        "cache:\\butterscotch.log",
+        "uda:\\butterscotch.log",
+        "uda:/butterscotch.log",
+        "usb0:\\butterscotch.log",
         NULL,
     };
     for (int i = 0; paths[i]; i++) {
@@ -209,9 +209,9 @@ static void diagOpenNextToDataWin(const char* dataWinPath) {
         size_t dirLen = (size_t)(lastSlash - dataWinPath + 1);
         if (dirLen >= sizeof(logPath) - 32) return;
         memcpy(logPath, dataWinPath, dirLen);
-        strcpy(logPath + dirLen, "bs360_refresh.log");
+        strcpy(logPath + dirLen, "butterscotch.log");
     } else {
-        strcpy(logPath, "bs360_refresh.log");
+        strcpy(logPath, "butterscotch.log");
     }
 
     if (diagOpenPath(logPath, true)) {
@@ -823,6 +823,10 @@ static void pollGamepadApi(Runner* runner, const XINPUT_STATE* state, WORD butto
     }
 }
 
+Renderer* renderer;
+
+extern float _offx;
+
 static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, int32_t gameH) {
     int32_t frameW = gameW;
     int32_t frameH = gameH;
@@ -833,14 +837,15 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
         frameH = (int32_t)runner->currentRoom->height;
     }
 
-    float displayScaleX;
-    float displayScaleY;
-    runner->renderGameW = frameW;
-    runner->renderGameH = frameH;
+    const float displayScale = (float)SCREEN_HEIGHT / (float)frameH;
+	((D3D9Renderer*)renderer)->renderScale = displayScale;
+	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) / 2.0f;
+	((D3D9Renderer*)renderer)->renderOffsetY = 0.0f;
+	((D3D9Renderer*)renderer)->renderingToApplicationSurface = false;
+	diagLog("%f", ((D3D9Renderer*)renderer)->renderOffsetX);
     Runner_drawPre(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
-    Runner_computeViewDisplayScale(runner, frameW, frameH, &displayScaleX, &displayScaleY);
-    Runner_beginFrame(runner, frameW, frameH, SCREEN_WIDTH, SCREEN_HEIGHT);
-    Runner_drawViews(runner, frameW, frameH, displayScaleX, displayScaleY, false);
+    Runner_beginFrame(runner, gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
+	Runner_drawViews(runner, frameW, frameH, false);
     renderer->vtable->endFrameInit(renderer);
     Runner_drawPost(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
     Runner_drawGUI(runner, SCREEN_WIDTH, SCREEN_HEIGHT, frameW, frameH);
@@ -994,7 +999,7 @@ VOID __cdecl main() {
     FileSystem* fileSystem = (FileSystem*)xdkFs;
 
     diagLog("BS: 09 creating renderer");
-    Renderer* renderer = D3D9Renderer_create(pd3dDevice);
+    renderer = D3D9Renderer_create(pd3dDevice);
 
     diagLog("BS: 10 creating audio");
     XdkAudioSystem* xdkAudio = XdkAudioSystem_create();

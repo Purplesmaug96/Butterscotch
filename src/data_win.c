@@ -488,7 +488,8 @@ static void parseEXTN(BinaryReader* reader, DataWin* dw) {
             extStringCount = 3;
 
         // 2023.4+: an extra Version string sits between name and className, shifting everything by 4 bytes
-        } else if (peekUint32At(reader, firstExt + 16, chunkEnd) == firstExt + 24) {
+        // We also verify that firstExt + 12 is >= 0x1000 to avoid a false positive with old extensions that have exactly 2 files (where firstExt + 12 is fileCount = 2).
+        } else if (peekUint32At(reader, firstExt + 16, chunkEnd) == firstExt + 24 && peekUint32At(reader, firstExt + 12, chunkEnd) >= 0x1000) {
             extStringCount = 4;
         }
     }
@@ -658,11 +659,37 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
     if (count == 0) { free(ptrs); a->audioGroups = nullptr; return; }
 
     a->audioGroups = (AudioGroup*)safeCalloc(count, sizeof(AudioGroup));
+
+    // GM 2024.14+ added a "path" parameter for each AudioGroup
+    // To detect it, we'll check if the difference between two pointers is 8 (two int32)
+    // We CAN'T figure out if there aren't at least two AudioGroups, but for any meaningful purposes any game that has external AudioGroups WILL have
+    // at least two entries, one for the default AudioGroup and another for the external AudioGroup
+    if (count >= 2) {
+        uint32_t diff = ptrs[1] - ptrs[0];
+
+        if (diff >= 8) {
+            DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
+        }
+    } else if (count == 1) {
+        // If there's only one entry, we CAN'T figure out easily based on the pointer diffs
+        // But here's the trick: We can read it twice, if the path is null for the FIRST audiogroup, then it is NOT 2024.14
+        BinaryReader_seek(reader, ptrs[0]);
+        const char* name = readStringPtr(reader, dw);
+        const char* path = readStringPtr(reader, dw);
+
+        if (strcmp(name, "audiogroup_default") == 0 && path != nullptr) {
+            DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
+        }
+    }
+
     repeat(count, i) {
         if (ptrs[i] == 0) continue;
         BinaryReader_seek(reader, ptrs[i]);
         a->audioGroups[i].present = true;
         a->audioGroups[i].name = readStringPtr(reader, dw);
+        if (DataWin_isVersionAtLeast(dw, 2024, 14, 0, 0)) {
+            a->audioGroups[i].path = readStringPtr(reader, dw);
+        }
     }
     free(ptrs);
 }
@@ -1204,6 +1231,7 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
         }
         font->isSpriteFont = false;
         font->spriteIndex = -1;
+        font->spriteOriginYAdjust = 0;
 
         // Glyphs PointerList
         uint32_t glyphCount;

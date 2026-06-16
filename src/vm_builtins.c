@@ -35,6 +35,25 @@
 
 #define MAX_BACKGROUNDS 8
 
+// See GameMaker-HTML's Function_Layers.js
+#define TILEINHERIT_SHIFT 31
+#define TILEFLIP_SHIFT 29
+#define TILEMIRROR_SHIFT 28
+#define TILEROTATE_SHIFT 30
+
+#define TILEINHERIT_MASK (1 << TILEINHERIT_SHIFT) // don't care about this bit in the runner
+#define TILEFLIP_MASK (1 << TILEFLIP_SHIFT)
+#define TILEMIRROR_MASK (1 << TILEMIRROR_SHIFT)
+#define TILEROTATE_MASK (1 << TILEROTATE_SHIFT)
+
+#define TILESCALEROT_SHIFT TILEMIRROR_SHIFT
+#define TILESCALEROT_MASK (0x7 << TILESCALEROT_SHIFT)
+#define TILESCALEROT_SHIFTEDMASK 0x7
+
+#define TILEINDEX_SHIFT 0
+#define TILEINDEX_MASK (0x7ffff << TILEINDEX_SHIFT)
+#define TILEINDEX_SHIFTEDMASK (0x7ffff)
+
 // ===[ STUBS MACROS ]===
 
 #define STUB_RETURN_ZERO(name) \
@@ -446,9 +465,113 @@ void VMBuiltins_checkIfBuiltinVarTableIsSorted(void) {
 #if defined(PLATFORM_PS3)
 #include <sys/systime.h>
 #endif
+// Indicates when a variable should be routed via structGet/structSet instead of resolving it using the default path.
+// See GameMaker-HTML5's "g_instance_names" table for reference (GameMaker-HTML5/scripts/yyVariable.js),
+static bool isInstanceScopedBuiltinVar(int16_t builtinVarId) {
+    switch (builtinVarId) {
+        case BUILTIN_VAR_X:
+        case BUILTIN_VAR_Y:
+        case BUILTIN_VAR_XPREVIOUS:
+        case BUILTIN_VAR_YPREVIOUS:
+        case BUILTIN_VAR_XSTART:
+        case BUILTIN_VAR_YSTART:
+        case BUILTIN_VAR_HSPEED:
+        case BUILTIN_VAR_VSPEED:
+        case BUILTIN_VAR_DIRECTION:
+        case BUILTIN_VAR_SPEED:
+        case BUILTIN_VAR_FRICTION:
+        case BUILTIN_VAR_GRAVITY:
+        case BUILTIN_VAR_GRAVITY_DIRECTION:
+        case BUILTIN_VAR_OBJECT_INDEX:
+        case BUILTIN_VAR_ID:
+        case BUILTIN_VAR_ALARM:
+        case BUILTIN_VAR_SOLID:
+        case BUILTIN_VAR_VISIBLE:
+        case BUILTIN_VAR_PERSISTENT:
+        case BUILTIN_VAR_DEPTH:
+        case BUILTIN_VAR_BBOX_LEFT:
+        case BUILTIN_VAR_BBOX_RIGHT:
+        case BUILTIN_VAR_BBOX_TOP:
+        case BUILTIN_VAR_BBOX_BOTTOM:
+        case BUILTIN_VAR_SPRITE_INDEX:
+        case BUILTIN_VAR_IMAGE_SINGLE:
+        case BUILTIN_VAR_IMAGE_NUMBER:
+        case BUILTIN_VAR_SPRITE_WIDTH:
+        case BUILTIN_VAR_SPRITE_HEIGHT:
+        case BUILTIN_VAR_SPRITE_XOFFSET:
+        case BUILTIN_VAR_SPRITE_YOFFSET:
+        case BUILTIN_VAR_IMAGE_XSCALE:
+        case BUILTIN_VAR_IMAGE_YSCALE:
+        case BUILTIN_VAR_IMAGE_ANGLE:
+        case BUILTIN_VAR_IMAGE_ALPHA:
+        case BUILTIN_VAR_IMAGE_BLEND:
+        case BUILTIN_VAR_IMAGE_SPEED:
+        case BUILTIN_VAR_IMAGE_INDEX:
+        case BUILTIN_VAR_MASK_INDEX:
+        case BUILTIN_VAR_PATH_INDEX:
+        case BUILTIN_VAR_PATH_POSITION:
+        case BUILTIN_VAR_PATH_POSITIONPREVIOUS:
+        case BUILTIN_VAR_PATH_SPEED:
+        case BUILTIN_VAR_PATH_SCALE:
+        case BUILTIN_VAR_PATH_ORIENTATION:
+        case BUILTIN_VAR_PATH_ENDACTION:
+        case BUILTIN_VAR_TIMELINE_INDEX:
+        case BUILTIN_VAR_TIMELINE_POSITION:
+        case BUILTIN_VAR_TIMELINE_SPEED:
+        case BUILTIN_VAR_TIMELINE_RUNNING:
+        case BUILTIN_VAR_TIMELINE_LOOP:
+        case BUILTIN_VAR_LAYER:
+        // case BUILTIN_VAR_MANAGED:
+        // case BUILTIN_VAR_IN_COLLISION_TREE:
+        // case BUILTIN_VAR_EVENT_DATA:
+        // case BUILTIN_VAR_IAP_DATA:
+        // case BUILTIN_VAR_PHY_ROTATION:
+        // case BUILTIN_VAR_PHY_POSITION_X:
+        // case BUILTIN_VAR_PHY_POSITION_Y:
+        // case BUILTIN_VAR_PHY_ANGULAR_VELOCITY:
+        // case BUILTIN_VAR_PHY_LINEAR_VELOCITY_X:
+        // case BUILTIN_VAR_PHY_LINEAR_VELOCITY_Y:
+        // case BUILTIN_VAR_PHY_SPEED_X:
+        // case BUILTIN_VAR_PHY_SPEED_Y:
+        // case BUILTIN_VAR_PHY_SPEED:
+        // case BUILTIN_VAR_PHY_ANGULAR_DAMPING:
+        // case BUILTIN_VAR_PHY_LINEAR_DAMPING:
+        // case BUILTIN_VAR_PHY_BULLET:
+        // case BUILTIN_VAR_PHY_FIXED_ROTATION:
+        // case BUILTIN_VAR_PHY_ACTIVE:
+        // case BUILTIN_VAR_PHY_MASS:
+        // case BUILTIN_VAR_PHY_INERTIA:
+        // case BUILTIN_VAR_PHY_COM_X:
+        // case BUILTIN_VAR_PHY_COM_Y:
+        // case BUILTIN_VAR_PHY_DYNAMIC:
+        // case BUILTIN_VAR_PHY_KINEMATIC:
+        // case BUILTIN_VAR_PHY_SLEEPING:
+        // case BUILTIN_VAR_PHY_POSITION_XPREVIOUS:
+        // case BUILTIN_VAR_PHY_POSITION_YPREVIOUS:
+        // case BUILTIN_VAR_PHY_COLLISION_POINTS:
+        // case BUILTIN_VAR_PHY_COLLISION_X:
+        // case BUILTIN_VAR_PHY_COLLISION_Y:
+        // case BUILTIN_VAR_PHY_COL_NORMAL_X:
+        // case BUILTIN_VAR_PHY_COL_NORMAL_Y:
+        // case BUILTIN_VAR_IN_SEQUENCE:
+        // case BUILTIN_VAR_SEQUENCE_INSTANCE:
+        // case BUILTIN_VAR_DRAWN_BY_SEQUENCE:
+        // case BUILTIN_VAR_DISPLAY_AA:
+        // case BUILTIN_VAR_WEBGL_ENABLED:
+            return true;
+        default:
+            return false;
+    }
+}
+
 RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId, const char* name, int32_t arrayIndex) {
     Runner* runner = ctx->runner;
     requireNotNull(runner);
+
+    // Structs: instance builtins are ordinary members.
+    if (inst != nullptr && inst->objectIndex == STRUCT_OBJECT_INDEX && isInstanceScopedBuiltinVar(builtinVarId)) {
+        return VM_structGet(ctx, inst, name, arrayIndex);
+    }
 
     // In the past Butterscotch used cascading ifs for this, which in my opinion looked nicer AND GCC was converting the ifs into a jump table, so it was all well...
     // ...until the code changed enough and the GCC heuristic thought "you know what? let's drop the jump table!"
@@ -1119,6 +1242,12 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
     Runner* runner = requireNotNullMessage(ctx->runner, "VM: setVariable called but no runner!");
     requireNotNull(runner);
 
+    // Structs: instance builtins are ordinary members.
+    if (inst != nullptr && inst->objectIndex == STRUCT_OBJECT_INDEX && isInstanceScopedBuiltinVar(builtinVarId)) {
+        VM_structSet(ctx, inst, name, val, arrayIndex);
+        return;
+    }
+
     switch (builtinVarId) {
         // Per-instance properties
         case BUILTIN_VAR_IMAGE_SPEED:
@@ -1321,7 +1450,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
                 int32_t newValue = RValue_toInt32(val);
 
 #ifdef ENABLE_VM_TRACING
-                if (shgeti(ctx->alarmsToBeTraced, "*") != -1 || shgeti(ctx->alarmsToBeTraced, runner->dataWin->objt.objects[inst->objectIndex].name) != -1) {
+                if (inst->objectIndex >= 0 && (shgeti(ctx->alarmsToBeTraced, "*") != -1 || shgeti(ctx->alarmsToBeTraced, runner->dataWin->objt.objects[inst->objectIndex].name) != -1)) {
                     fprintf(stderr, "VM: [%s] Setting Alarm[%d] = %d (instanceId=%d)\n", runner->dataWin->objt.objects[inst->objectIndex].name, arrayIndex, newValue, inst->instanceId);
                 }
 #endif
@@ -1570,7 +1699,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
         case BUILTIN_VAR_ARGUMENT:
             if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > arrayIndex && arrayIndex >= 0) {
                 RValue_free(&ctx->scriptArgs[arrayIndex]);
-                ctx->scriptArgs[arrayIndex] = val;
+                ctx->scriptArgs[arrayIndex] = RValue_makeIndependent(val);
             }
             return;
 
@@ -1595,7 +1724,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             int argNumber = builtinVarId - BUILTIN_VAR_ARGUMENT0;
             if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > argNumber) {
                 RValue_free(&ctx->scriptArgs[argNumber]);
-                ctx->scriptArgs[argNumber] = val;
+                ctx->scriptArgs[argNumber] = RValue_makeIndependent(val);
             }
             return;
         }
@@ -2185,6 +2314,27 @@ static RValue builtin_string_char_at(MAYBE_UNUSED VMContext* ctx, RValue* args, 
     return RValue_makeOwnedString(out);
 }
 
+static RValue builtin_string_ord_at(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeReal(-1.0);
+    char* str = RValue_toString(args[0]);
+    int32_t pos = RValue_toInt32(args[1]) - 1; // 1-based
+    int32_t strLen = (int32_t) strlen(str);
+    if (strLen == 0) {
+        free(str);
+        return RValue_makeReal(-1.0);
+    }
+    if (0 > pos) pos = 0; // native clamps negative indices to the first character
+    int32_t byteStart = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
+    if (byteStart >= strLen) {
+        free(str);
+        return RValue_makeReal(-1.0);
+    }
+    int32_t offset = byteStart;
+    uint16_t codepoint = TextUtils_decodeUtf8(str, strLen, &offset);
+    free(str);
+    return RValue_makeReal((GMLReal) codepoint);
+}
+
 static RValue builtin_string_delete(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
     char* str = RValue_toString(args[0]);
@@ -2500,11 +2650,31 @@ static RValue builtin_distance_to_object(VMContext* ctx, RValue* args, int32_t a
     return RValue_makeReal(GMLReal_sqrt(minDistSq));
 }
 
+// See GameMaker-HTML5's Function_Maths.js
 static RValue builtin_point_direction(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (4 > argCount) return RValue_makeReal(0.0);
-    GMLReal dx = RValue_toReal(args[2]) - RValue_toReal(args[0]);
-    GMLReal dy = RValue_toReal(args[3]) - RValue_toReal(args[1]);
-    return RValue_makeReal(GMLReal_atan2(-dy, dx) * (180.0 / M_PI));
+
+    GMLReal x1 = RValue_toReal(args[0]);
+    GMLReal y1 = RValue_toReal(args[1]);
+    GMLReal x2 = RValue_toReal(args[2]);
+    GMLReal y2 = RValue_toReal(args[3]);
+
+    GMLReal x = x2 - x1;
+    GMLReal y = y2 - y1;
+
+    if (x == 0) {
+        if (y > 0) return RValue_makeReal(270.0);
+        else if (y < 0) return RValue_makeReal(90.0);
+        else return RValue_makeReal(0.0);
+    } else {
+        GMLReal dd = 180.0 * GMLReal_atan2(y, x) / M_PI;
+        dd = GMLReal_bankersRound(dd * 1000000.0) / 1000000.0;
+        if (dd <= 0.0) {
+            return RValue_makeReal(-dd);
+        } else {
+            return RValue_makeReal(360.0 - dd);
+        }
+    }
 }
 
 static RValue builtin_angle_difference(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -2875,44 +3045,44 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
     DataWin_loadRoomPayload(ctx->dataWin, roomId);
 
     Instance* ret = Runner_createStruct(ctx->runner);
-    VM_structSet(ctx, ret, "width", RValue_makeInt32((int32_t) room->width));
-    VM_structSet(ctx, ret, "height", RValue_makeInt32((int32_t) room->height));
-    VM_structSet(ctx, ret, "persistent", RValue_makeBool(room->persistent));
-    VM_structSet(ctx, ret, "colour", RValue_makeInt32((int32_t) room->backgroundColor));
-    VM_structSet(ctx, ret, "creationCode", RValue_makeInt32(room->creationCodeId));
-    VM_structSet(ctx, ret, "physicsWorld", RValue_makeBool(room->world));
+    VM_structSetAndFreeVal(ctx, ret, "width", RValue_makeInt32((int32_t) room->width), -1);
+    VM_structSetAndFreeVal(ctx, ret, "height", RValue_makeInt32((int32_t) room->height), -1);
+    VM_structSetAndFreeVal(ctx, ret, "persistent", RValue_makeBool(room->persistent), -1);
+    VM_structSetAndFreeVal(ctx, ret, "colour", RValue_makeInt32((int32_t) room->backgroundColor), -1);
+    VM_structSetAndFreeVal(ctx, ret, "creationCode", RValue_makeInt32(room->creationCodeId), -1);
+    VM_structSetAndFreeVal(ctx, ret, "physicsWorld", RValue_makeBool(room->world), -1);
     if (room->world) {
-        VM_structSet(ctx, ret, "physicsGravityX", RValue_makeReal(room->gravityX));
-        VM_structSet(ctx, ret, "physicsGravityY", RValue_makeReal(room->gravityY));
-        VM_structSet(ctx, ret, "physicsPixToMeters", RValue_makeReal(room->metersPerPixel));
+        VM_structSetAndFreeVal(ctx, ret, "physicsGravityX", RValue_makeReal(room->gravityX), -1);
+        VM_structSetAndFreeVal(ctx, ret, "physicsGravityY", RValue_makeReal(room->gravityY), -1);
+        VM_structSetAndFreeVal(ctx, ret, "physicsPixToMeters", RValue_makeReal(room->metersPerPixel), -1);
     }
-    VM_structSet(ctx, ret, "enableViews", RValue_makeBool((room->flags & 1) != 0));
-    VM_structSet(ctx, ret, "clearDisplayBuffer", RValue_makeBool(true));
-    VM_structSet(ctx, ret, "clearViewportBackground", RValue_makeBool(true));
+    VM_structSetAndFreeVal(ctx, ret, "enableViews", RValue_makeBool((room->flags & 1) != 0), -1);
+    VM_structSetAndFreeVal(ctx, ret, "clearDisplayBuffer", RValue_makeBool(true), -1);
+    VM_structSetAndFreeVal(ctx, ret, "clearViewportBackground", RValue_makeBool(true), -1);
 
     if (wantViews && room->views != nullptr) {
         GMLArray* views = GMLArray_create(MAX_VIEWS);
         repeat(MAX_VIEWS, i) {
             RoomView* v = &room->views[i];
             Instance* vs = Runner_createStruct(ctx->runner);
-            VM_structSet(ctx, vs, "visible", RValue_makeBool(v->enabled));
-            VM_structSet(ctx, vs, "xview", RValue_makeInt32(v->viewX));
-            VM_structSet(ctx, vs, "yview", RValue_makeInt32(v->viewY));
-            VM_structSet(ctx, vs, "wview", RValue_makeInt32(v->viewWidth));
-            VM_structSet(ctx, vs, "hview", RValue_makeInt32(v->viewHeight));
-            VM_structSet(ctx, vs, "xport", RValue_makeInt32(v->portX));
-            VM_structSet(ctx, vs, "yport", RValue_makeInt32(v->portY));
-            VM_structSet(ctx, vs, "wport", RValue_makeInt32(v->portWidth));
-            VM_structSet(ctx, vs, "hport", RValue_makeInt32(v->portHeight));
-            VM_structSet(ctx, vs, "hborder", RValue_makeInt32((int32_t) v->borderX));
-            VM_structSet(ctx, vs, "vborder", RValue_makeInt32((int32_t) v->borderY));
-            VM_structSet(ctx, vs, "hspeed", RValue_makeInt32(v->speedX));
-            VM_structSet(ctx, vs, "vspeed", RValue_makeInt32(v->speedY));
-            VM_structSet(ctx, vs, "object", RValue_makeInt32(v->objectId));
-            VM_structSet(ctx, vs, "cameraID", RValue_makeInt32(-1));
+            VM_structSetAndFreeVal(ctx, vs, "visible", RValue_makeBool(v->enabled), -1);
+            VM_structSetAndFreeVal(ctx, vs, "xview", RValue_makeInt32(v->viewX), -1);
+            VM_structSetAndFreeVal(ctx, vs, "yview", RValue_makeInt32(v->viewY), -1);
+            VM_structSetAndFreeVal(ctx, vs, "wview", RValue_makeInt32(v->viewWidth), -1);
+            VM_structSetAndFreeVal(ctx, vs, "hview", RValue_makeInt32(v->viewHeight), -1);
+            VM_structSetAndFreeVal(ctx, vs, "xport", RValue_makeInt32(v->portX), -1);
+            VM_structSetAndFreeVal(ctx, vs, "yport", RValue_makeInt32(v->portY), -1);
+            VM_structSetAndFreeVal(ctx, vs, "wport", RValue_makeInt32(v->portWidth), -1);
+            VM_structSetAndFreeVal(ctx, vs, "hport", RValue_makeInt32(v->portHeight), -1);
+            VM_structSetAndFreeVal(ctx, vs, "hborder", RValue_makeInt32((int32_t) v->borderX), -1);
+            VM_structSetAndFreeVal(ctx, vs, "vborder", RValue_makeInt32((int32_t) v->borderY), -1);
+            VM_structSetAndFreeVal(ctx, vs, "hspeed", RValue_makeInt32(v->speedX), -1);
+            VM_structSetAndFreeVal(ctx, vs, "vspeed", RValue_makeInt32(v->speedY), -1);
+            VM_structSetAndFreeVal(ctx, vs, "object", RValue_makeInt32(v->objectId), -1);
+            VM_structSetAndFreeVal(ctx, vs, "cameraID", RValue_makeInt32(-1), -1);
             *GMLArray_slot(views, i) = RValue_makeStructAndIncRef(vs);
         }
-        VM_structSet(ctx, ret, "views", RValue_makeArray(views));
+        VM_structSetAndFreeVal(ctx, ret, "views", RValue_makeArray(views), -1);
     }
 
     if (wantInsts) {
@@ -2921,22 +3091,22 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
         repeat(count, i) {
             RoomGameObject* go = &room->gameObjects[i];
             Instance* is = Runner_createStruct(ctx->runner);
-            VM_structSet(ctx, is, "x", RValue_makeInt32(go->x));
-            VM_structSet(ctx, is, "y", RValue_makeInt32(go->y));
+            VM_structSetAndFreeVal(ctx, is, "x", RValue_makeInt32(go->x), -1);
+            VM_structSetAndFreeVal(ctx, is, "y", RValue_makeInt32(go->y), -1);
             const char* objName = (go->objectDefinition >= 0 && (uint32_t) go->objectDefinition < ctx->dataWin->objt.count) ? ctx->dataWin->objt.objects[go->objectDefinition].name : "";
-            VM_structSet(ctx, is, "object_index", RValue_makeOwnedString(safeStrdup(objName)));
-            VM_structSet(ctx, is, "id", RValue_makeInt32((int32_t) go->instanceID));
-            VM_structSet(ctx, is, "angle", RValue_makeReal(go->rotation));
-            VM_structSet(ctx, is, "xscale", RValue_makeReal(go->scaleX));
-            VM_structSet(ctx, is, "yscale", RValue_makeReal(go->scaleY));
-            VM_structSet(ctx, is, "image_speed", RValue_makeReal(go->imageSpeed));
-            VM_structSet(ctx, is, "image_index", RValue_makeInt32(go->imageIndex));
-            VM_structSet(ctx, is, "colour", RValue_makeInt32((int32_t) go->color));
-            VM_structSet(ctx, is, "creation_code", RValue_makeInt32(go->creationCode));
-            VM_structSet(ctx, is, "pre_creation_code", RValue_makeInt32(go->preCreateCode));
+            VM_structSetAndFreeVal(ctx, is, "object_index", RValue_makeOwnedString(safeStrdup(objName)), -1);
+            VM_structSetAndFreeVal(ctx, is, "id", RValue_makeInt32((int32_t) go->instanceID), -1);
+            VM_structSetAndFreeVal(ctx, is, "angle", RValue_makeReal(go->rotation), -1);
+            VM_structSetAndFreeVal(ctx, is, "xscale", RValue_makeReal(go->scaleX), -1);
+            VM_structSetAndFreeVal(ctx, is, "yscale", RValue_makeReal(go->scaleY), -1);
+            VM_structSetAndFreeVal(ctx, is, "image_speed", RValue_makeReal(go->imageSpeed), -1);
+            VM_structSetAndFreeVal(ctx, is, "image_index", RValue_makeInt32(go->imageIndex), -1);
+            VM_structSetAndFreeVal(ctx, is, "colour", RValue_makeInt32((int32_t) go->color), -1);
+            VM_structSetAndFreeVal(ctx, is, "creation_code", RValue_makeInt32(go->creationCode), -1);
+            VM_structSetAndFreeVal(ctx, is, "pre_creation_code", RValue_makeInt32(go->preCreateCode), -1);
             *GMLArray_slot(insts, i) = RValue_makeStructAndIncRef(is);
         }
-        VM_structSet(ctx, ret, "instances", RValue_makeArray(insts));
+        VM_structSetAndFreeVal(ctx, ret, "instances", RValue_makeArray(insts), -1);
     }
 
     if (wantLayers && room->layers != nullptr) {
@@ -2945,15 +3115,15 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
         repeat(count, i) {
             RoomLayer* lay = &room->layers[i];
             Instance* ls = Runner_createStruct(ctx->runner);
-            VM_structSet(ctx, ls, "name", RValue_makeOwnedString(safeStrdup(lay->name != nullptr ? lay->name : "")));
-            VM_structSet(ctx, ls, "id", RValue_makeInt32((int32_t) lay->id));
-            VM_structSet(ctx, ls, "type", RValue_makeInt32((int32_t) lay->type));
-            VM_structSet(ctx, ls, "depth", RValue_makeInt32(lay->depth));
-            VM_structSet(ctx, ls, "xoffset", RValue_makeReal(lay->xOffset));
-            VM_structSet(ctx, ls, "yoffset", RValue_makeReal(lay->yOffset));
-            VM_structSet(ctx, ls, "hspeed", RValue_makeReal(lay->hSpeed));
-            VM_structSet(ctx, ls, "vspeed", RValue_makeReal(lay->vSpeed));
-            VM_structSet(ctx, ls, "visible", RValue_makeBool(lay->visible));
+            VM_structSetAndFreeVal(ctx, ls, "name", RValue_makeOwnedString(safeStrdup(lay->name != nullptr ? lay->name : "")), -1);
+            VM_structSetAndFreeVal(ctx, ls, "id", RValue_makeInt32((int32_t) lay->id), -1);
+            VM_structSetAndFreeVal(ctx, ls, "type", RValue_makeInt32((int32_t) lay->type), -1);
+            VM_structSetAndFreeVal(ctx, ls, "depth", RValue_makeInt32(lay->depth), -1);
+            VM_structSetAndFreeVal(ctx, ls, "xoffset", RValue_makeReal(lay->xOffset), -1);
+            VM_structSetAndFreeVal(ctx, ls, "yoffset", RValue_makeReal(lay->yOffset), -1);
+            VM_structSetAndFreeVal(ctx, ls, "hspeed", RValue_makeReal(lay->hSpeed), -1);
+            VM_structSetAndFreeVal(ctx, ls, "vspeed", RValue_makeReal(lay->vSpeed), -1);
+            VM_structSetAndFreeVal(ctx, ls, "visible", RValue_makeBool(lay->visible), -1);
 
             if (wantLayerEls) {
                 GMLArray* elements = nullptr;
@@ -2963,17 +3133,17 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                         GMLArray_growTo(elements, 1);
                         Instance* es = Runner_createStruct(ctx->runner);
                         RoomLayerBackgroundData* bg = lay->backgroundData;
-                        VM_structSet(ctx, es, "type", RValue_makeInt32((int32_t) lay->type));
+                        VM_structSetAndFreeVal(ctx, es, "type", RValue_makeInt32((int32_t) lay->type), -1);
                         if (bg != nullptr) {
-                            VM_structSet(ctx, es, "visible", RValue_makeBool(bg->visible));
-                            VM_structSet(ctx, es, "foreground", RValue_makeBool(bg->foreground));
-                            VM_structSet(ctx, es, "sprite_index", RValue_makeInt32(bg->spriteIndex));
-                            VM_structSet(ctx, es, "htiled", RValue_makeBool(bg->hTiled));
-                            VM_structSet(ctx, es, "vtiled", RValue_makeBool(bg->vTiled));
-                            VM_structSet(ctx, es, "stretch", RValue_makeBool(bg->stretch));
-                            VM_structSet(ctx, es, "image_speed", RValue_makeReal(bg->animSpeed));
-                            VM_structSet(ctx, es, "image_index", RValue_makeReal(bg->firstFrame));
-                            VM_structSet(ctx, es, "speed_type", RValue_makeInt32((int32_t) bg->animSpeedType));
+                            VM_structSetAndFreeVal(ctx, es, "visible", RValue_makeBool(bg->visible), -1);
+                            VM_structSetAndFreeVal(ctx, es, "foreground", RValue_makeBool(bg->foreground), -1);
+                            VM_structSetAndFreeVal(ctx, es, "sprite_index", RValue_makeInt32(bg->spriteIndex), -1);
+                            VM_structSetAndFreeVal(ctx, es, "htiled", RValue_makeBool(bg->hTiled), -1);
+                            VM_structSetAndFreeVal(ctx, es, "vtiled", RValue_makeBool(bg->vTiled), -1);
+                            VM_structSetAndFreeVal(ctx, es, "stretch", RValue_makeBool(bg->stretch), -1);
+                            VM_structSetAndFreeVal(ctx, es, "image_speed", RValue_makeReal(bg->animSpeed), -1);
+                            VM_structSetAndFreeVal(ctx, es, "image_index", RValue_makeReal(bg->firstFrame), -1);
+                            VM_structSetAndFreeVal(ctx, es, "speed_type", RValue_makeInt32((int32_t) bg->animSpeedType), -1);
                         }
                         *GMLArray_slot(elements, 0) = RValue_makeStructAndIncRef(es);
                         break;
@@ -2985,8 +3155,8 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                         if (ic > 0) GMLArray_growTo(elements, ic);
                         for (int32_t j = 0; ic > j; j++) {
                             Instance* es = Runner_createStruct(ctx->runner);
-                            VM_structSet(ctx, es, "type", RValue_makeInt32((int32_t) lay->type));
-                            VM_structSet(ctx, es, "inst_id", RValue_makeInt32((int32_t) id->instanceIds[j]));
+                            VM_structSetAndFreeVal(ctx, es, "type", RValue_makeInt32((int32_t) lay->type), -1);
+                            VM_structSetAndFreeVal(ctx, es, "inst_id", RValue_makeInt32((int32_t) id->instanceIds[j]), -1);
                             *GMLArray_slot(elements, j) = RValue_makeStructAndIncRef(es);
                         }
                         break;
@@ -2996,13 +3166,13 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                         GMLArray_growTo(elements, 1);
                         Instance* es = Runner_createStruct(ctx->runner);
                         RoomLayerTilesData* td = lay->tilesData;
-                        VM_structSet(ctx, es, "type", RValue_makeInt32((int32_t) lay->type));
-                        VM_structSet(ctx, es, "x", RValue_makeInt32(0));
-                        VM_structSet(ctx, es, "y", RValue_makeInt32(0));
+                        VM_structSetAndFreeVal(ctx, es, "type", RValue_makeInt32((int32_t) lay->type), -1);
+                        VM_structSetAndFreeVal(ctx, es, "x", RValue_makeInt32(0), -1);
+                        VM_structSetAndFreeVal(ctx, es, "y", RValue_makeInt32(0), -1);
                         if (td != nullptr) {
-                            VM_structSet(ctx, es, "width", RValue_makeInt32((int32_t) td->tilesX));
-                            VM_structSet(ctx, es, "height", RValue_makeInt32((int32_t) td->tilesY));
-                            VM_structSet(ctx, es, "tileset_index", RValue_makeInt32(td->backgroundIndex));
+                            VM_structSetAndFreeVal(ctx, es, "width", RValue_makeInt32((int32_t) td->tilesX), -1);
+                            VM_structSetAndFreeVal(ctx, es, "height", RValue_makeInt32((int32_t) td->tilesY), -1);
+                            VM_structSetAndFreeVal(ctx, es, "tileset_index", RValue_makeInt32(td->backgroundIndex), -1);
                             if (wantTilemap && td->tileData != nullptr) {
                                 int32_t total = (int32_t) (td->tilesX * td->tilesY);
                                 GMLArray* tiles = GMLArray_create(total > 0 ? total : 1);
@@ -3010,7 +3180,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                                 for (int32_t k = 0; total > k; k++) {
                                     *GMLArray_slot(tiles, k) = RValue_makeInt32((int32_t) td->tileData[k]);
                                 }
-                                VM_structSet(ctx, es, "tiles", RValue_makeArray(tiles));
+                                VM_structSetAndFreeVal(ctx, es, "tiles", RValue_makeArray(tiles), -1);
                             }
                         }
                         *GMLArray_slot(elements, 0) = RValue_makeStructAndIncRef(es);
@@ -3021,12 +3191,12 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                         elements = GMLArray_create(1);
                         break;
                 }
-                if (elements != nullptr) VM_structSet(ctx, ls, "elements", RValue_makeArray(elements));
+                if (elements != nullptr) VM_structSetAndFreeVal(ctx, ls, "elements", RValue_makeArray(elements), -1);
             }
 
             *GMLArray_slot(layers, i) = RValue_makeStructAndIncRef(ls);
         }
-        VM_structSet(ctx, ret, "layers", RValue_makeArray(layers));
+        VM_structSetAndFreeVal(ctx, ret, "layers", RValue_makeArray(layers), -1);
     }
 
     return RValue_makeStructAndIncRef(ret);
@@ -3713,7 +3883,7 @@ static RValue builtin_variable_struct_get(VMContext* ctx, RValue* args, int32_t 
 
 static RValue builtin_variable_struct_set(VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount || args[1].type != RVALUE_STRING) return RValue_makeUndefined();
-    // We can't use VM_structSet directly here because we DO NOT resolve builtin variables from VM_structSet
+    // We can't use VM_structSetAndFreeVal directly here because we DO NOT resolve builtin variables from VM_structSetAndFreeVal
     variableScopedSet(ctx, RValue_toInt32(args[0]), args[1].string, args[2], true, "variable_struct_set");
     return RValue_makeUndefined();
 }
@@ -3749,7 +3919,7 @@ static RValue builtin_method(VMContext* ctx, MAYBE_UNUSED RValue* args, int32_t 
         boundInstance = ctx->currentInstance->instanceId;
     }
 
-    return RValue_makeMethod(codeIndex, boundInstance);
+    return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndex, boundInstance);
 }
 #endif
 
@@ -4475,6 +4645,18 @@ static RValue builtin_ds_list_write(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     return dsStreamFinishToHexString(buf);
 }
 
+static RValue builtin_ds_list_replace(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t pos = RValue_toInt32(args[1]);
+    DsList* list = dsListGet(runner, id);
+    if (list == nullptr) return RValue_makeUndefined();
+    if (0 > pos || pos >= (int32_t) arrlen(list->items)) return RValue_makeUndefined();
+    RValue_free(&list->items[pos]);
+    list->items[pos] = RValue_makeIndependent(args[2]);
+    return RValue_makeUndefined();
+}
+
 // ===[ DS_STACK FUNCTIONS ]===
 
 static RValue builtin_ds_stack_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -4819,6 +5001,365 @@ static RValue builtin_ds_queue_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
         first--;
     }
 
+    free(bytes);
+    return RValue_makeBool(true);
+}
+
+// ===[ DS_PRIORITY FUNCTIONS ]===
+
+static int32_t dsPriorityCreate(Runner* runner) {
+    int32_t poolSize = (int32_t) arrlen(runner->dsPriorityPool);
+    repeat(poolSize, i) {
+        if (runner->dsPriorityPool[i].freed) {
+            runner->dsPriorityPool[i].freed = false;
+            return i;
+        }
+    }
+    DsPriority p = {0};
+    int32_t id = poolSize;
+    arrput(runner->dsPriorityPool, p);
+    return id;
+}
+
+static DsPriority* dsPriorityGet(Runner* runner, int32_t id) {
+    if (0 > id || id >= (int32_t) arrlen(runner->dsPriorityPool)) return nullptr;
+    if (runner->dsPriorityPool[id].freed) return nullptr;
+    return &runner->dsPriorityPool[id];
+}
+
+static RValue builtin_ds_priority_create(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    return RValue_makeReal((GMLReal) dsPriorityCreate(ctx->runner));
+}
+
+static RValue builtin_ds_priority_destroy(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    repeat(arrlen(pQueue->items), i) {
+        RValue_free(&pQueue->items[i].item);
+        pQueue->items[i].depth = 0;
+    }
+    arrfree(pQueue->items);
+    pQueue->items = nullptr;
+    pQueue->freed = true;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_clear(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    repeat(arrlen(pQueue->items), i) {
+        RValue_free(&pQueue->items[i].item);
+        pQueue->items[i].depth = 0;
+    }
+    arrfree(pQueue->items);
+    pQueue->items = nullptr;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_copy(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t destId = RValue_toInt32(args[0]);
+    int32_t srcId = RValue_toInt32(args[1]);
+    DsPriority* dest = dsPriorityGet(runner, destId);
+    DsPriority* src = dsPriorityGet(runner, srcId);
+    if (dest == nullptr || src == nullptr) return RValue_makeUndefined();
+    repeat(arrlen(dest->items), i) {
+        RValue_free(&dest->items[i].item);
+        dest->items[i].depth = 0;
+    }
+    arrfree(dest->items);
+    dest->items = nullptr;
+    repeat(arrlen(src->items), i) {
+        DsPriorityItem item;
+        item.item = RValue_makeIndependent(src->items[i].item);
+        item.depth = src->items[i].depth;
+        arrput(dest->items, item);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_size(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) arrlen(pQueue->items));
+}
+
+static RValue builtin_ds_priority_empty(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeBool(true);
+    return RValue_makeBool(arrlen(pQueue->items) == 0);
+}
+
+static RValue builtin_ds_priority_add(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t prio = RValue_toInt32(args[2]);
+
+    DsPriorityItem item;
+    item.depth = prio;
+    item.item = RValue_makeIndependent(args[1]);
+
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    arrput(pQueue->items, item);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_change_priority(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    RValue val = args[1];
+    int32_t prio = RValue_toInt32(args[2]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    for (int32_t i = 0; i < (int32_t) arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (&item->item == &val) {
+            arrdel(pQueue->items, i);
+            item->depth = prio;
+            arrput(pQueue->items, *item);
+            break;
+        }
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_find_priority(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    RValue value = RValue_makeIndependent(args[1]);
+    for (int32_t i = 0; i < (int32_t) arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->item.type == RVALUE_REAL && value.type == RVALUE_REAL) {
+            if (GML_MATH_EPSILON > GMLReal_fabs(item->item.real - value.real)) {
+                return RValue_makeReal((GMLReal) item->depth);
+            }
+        } else if (memcmp(&item->item, &value, sizeof(RValue)) == 0) {
+            return RValue_makeReal((GMLReal) item->depth);
+        }
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_delete_value(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    RValue value = RValue_makeIndependent(args[1]);
+    for (int32_t i = 0; i < (int32_t) arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->item.type == RVALUE_REAL && value.type == RVALUE_REAL) {
+            if (GML_MATH_EPSILON > GMLReal_fabs(item->item.real - value.real)) {
+                arrdel(pQueue->items, i);
+                return RValue_makeUndefined();
+            }
+        } else if (memcmp(&item->item, &value, sizeof(RValue)) == 0) {
+            arrdel(pQueue->items, i);
+            return RValue_makeUndefined();
+        }
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_priority_delete_min(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = (int32_t) RValue_toReal(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    if (arrlen(pQueue->items) <= 0) return RValue_makeUndefined();
+    GMLReal minDepth = (GMLReal) INT32_MAX;
+    DsPriorityItem* minNode = nullptr;
+    int32_t minIndex = -1;
+    for (int32_t i = 0; i < arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->depth < minDepth) {
+            minDepth = (GMLReal) item->depth;
+            minNode = item;
+            minIndex = i;
+        }
+    }
+    RValue result = RValue_makeIndependent(minNode->item);
+    arrdel(pQueue->items, minIndex);
+    return result;
+}
+
+static RValue builtin_ds_priority_find_min(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = (int32_t) RValue_toReal(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    if (arrlen(pQueue->items) <= 0) return RValue_makeUndefined();
+    GMLReal minDepth = (GMLReal) INT32_MAX;
+    DsPriorityItem* minNode = nullptr;
+    for (int32_t i = 0; i < arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->depth < minDepth) {
+            minDepth = (GMLReal) item->depth;
+            minNode = item;
+        }
+    }
+    return RValue_makeIndependent(minNode->item);
+}
+
+static RValue builtin_ds_priority_delete_max(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = (int32_t) RValue_toReal(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    if (arrlen(pQueue->items) <= 0) return RValue_makeUndefined();
+    GMLReal maxDepth = (GMLReal) INT32_MIN;
+    DsPriorityItem* maxNode = nullptr;
+    int32_t maxIndex = -1;
+    for (int32_t i = 0; i < arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->depth > maxDepth) {
+            maxDepth = (GMLReal) item->depth;
+            maxNode = item;
+            maxIndex = i;
+        }
+    }
+    RValue result = RValue_makeIndependent(maxNode->item);
+    arrdel(pQueue->items, maxIndex);
+    return result;
+}
+
+static RValue builtin_ds_priority_find_max(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = (int32_t) RValue_toReal(args[0]);
+    DsPriority* pQueue = dsPriorityGet(ctx->runner, id);
+    if (pQueue == nullptr) return RValue_makeUndefined();
+    if (arrlen(pQueue->items) <= 0) return RValue_makeUndefined();
+    GMLReal maxDepth = (GMLReal) INT32_MIN;
+    DsPriorityItem* maxNode = nullptr;
+    for (int32_t i = 0; i < arrlen(pQueue->items); i++) {
+        DsPriorityItem* item = &pQueue->items[i];
+        if (item->depth > maxDepth) {
+            maxDepth = (GMLReal) item->depth;
+            maxNode = item;
+        }
+    }
+    return RValue_makeIndependent(maxNode->item);
+}
+
+static RValue builtin_ds_priority_write(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+    DsPriority* q = dsPriorityGet(ctx->runner, id);
+    if (q == nullptr) return RValue_makeOwnedString(safeStrdup(""));
+
+    uint8_t* buf = nullptr;
+    int32_t len = (int32_t) arrlen(q->items);
+
+    dsStreamAppendU32(&buf, 503);
+    dsStreamAppendU32(&buf, (uint32_t) len);
+
+    if (len > 0) {
+        RValue* priArr = (RValue*) safeMalloc((size_t) len * sizeof(RValue));
+        RValue* valArr = (RValue*) safeMalloc((size_t) len * sizeof(RValue));
+
+        repeat(len, i) {
+            priArr[i] = RValue_makeReal((double) q->items[i].depth);
+            valArr[i] = q->items[i].item;
+        }
+
+        dsStreamAppendValues(&buf, priArr, len);
+        dsStreamAppendValues(&buf, valArr, len);
+
+        free(priArr);
+        free(valArr);
+    }
+    return dsStreamFinishToHexString(buf);
+}
+
+static RValue builtin_ds_priority_read(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t id = RValue_toInt32(args[0]);
+
+    if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
+        return RValue_makeBool(false);
+    }
+
+    DsPriority* q = dsPriorityGet(ctx->runner, id);
+    if (q == nullptr) return RValue_makeBool(false);
+
+    const char* hex = args[1].string;
+    int32_t hexLen = (int32_t) strlen(hex);
+    if (2 > hexLen || (hexLen & 1) != 0) return RValue_makeBool(false);
+
+    int32_t byteLen = hexLen / 2;
+    uint8_t* bytes = (uint8_t*) safeMalloc((size_t) byteLen);
+    repeat(byteLen, i) {
+        int hi = dsHexNibble(hex[i * 2]);
+        int lo = dsHexNibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) {
+            free(bytes);
+            return RValue_makeBool(false);
+        }
+        bytes[i] = (uint8_t) ((hi << 4) | lo);
+    }
+
+    DsReadStream s = {0};
+    s.data = bytes;
+    s.size = byteLen;
+
+    uint32_t magic = dsStreamReadU32(&s);
+    int32_t version;
+    if (magic == 502) {
+        version = 3;
+    } else if (magic == 503) {
+        version = 0;
+    } else {
+        free(bytes);
+        return RValue_makeBool(false);
+    }
+
+    int32_t len = dsStreamReadS32(&s);
+    if (s.error || 0 > len) {
+        free(bytes);
+        return RValue_makeBool(false);
+    }
+
+    int32_t* tempPri = (int32_t*) safeMalloc((size_t) len * sizeof(int32_t));
+    RValue* tempVal = (RValue*) safeMalloc((size_t) len * sizeof(RValue));
+
+    repeat(len, i) {
+        RValue p = dsStreamReadValue(&s, version);
+        if (s.error) {
+            RValue_free(&p);
+            free(tempPri);
+            free(tempVal);
+            free(bytes);
+            return RValue_makeBool(false);
+        }
+        tempPri[i] = RValue_toInt32(p);
+        RValue_free(&p);
+    }
+
+    repeat(len, i) {
+        RValue v = dsStreamReadValue(&s, version);
+        if (s.error) {
+            RValue_free(&v);
+            repeat(i, j) RValue_free(&tempVal[j]);
+            free(tempPri);
+            free(tempVal);
+            free(bytes);
+            return RValue_makeBool(false);
+        }
+        tempVal[i] = v;
+    }
+
+    repeat((int32_t) arrlen(q->items), i) {
+        RValue_free(&q->items[i].item);
+    }
+    arrfree(q->items);
+    q->items = nullptr;
+
+    repeat(len, i) {
+        DsPriorityItem pitem;
+        pitem.depth = tempPri[i];
+        pitem.item = tempVal[i];
+        arrput(q->items, pitem);
+    }
+
+    free(tempPri);
+    free(tempVal);
     free(bytes);
     return RValue_makeBool(true);
 }
@@ -6803,13 +7344,23 @@ static RValue builtin_window_set_caption(VMContext* ctx, MAYBE_UNUSED RValue* ar
     char* val = RValue_toString(args[0]);
 
     Runner* runner = ctx->runner;
-    if (runner->setWindowTitle) {
-        runner->setWindowTitle(val);
-        printf("GL: Window title set to: %s\n", val);
+    bool changed = runner->windowTitle == nullptr || strcmp(runner->windowTitle, val) != 0;
+    if (changed) {
+        free(runner->windowTitle);
+        runner->windowTitle = strdup(val);
+        if (runner->setWindowTitle) {
+            runner->setWindowTitle(val);
+            printf("Runner: Window title set to: %s\n", val);
+        }
     }
 
     free(val);
     return RValue_makeUndefined();
+}
+
+static RValue builtin_window_get_caption(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    return RValue_makeOwnedString(strdup(runner->windowTitle ? runner->windowTitle : ""));
 }
 
 static RValue builtin_window_has_focus(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -6819,6 +7370,24 @@ static RValue builtin_window_has_focus(VMContext* ctx, MAYBE_UNUSED RValue* args
     }
 
     return RValue_makeBool(true);
+}
+
+static RValue builtin_window_set_cursor(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount < 1) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+    if (runner == nullptr) return RValue_makeUndefined();
+    int32_t cursorType = RValue_toInt32(args[0]);
+    runner->currentCursor = cursorType;
+    if (runner->setCursor != nullptr) {
+        runner->setCursor(cursorType);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_window_get_cursor(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner == nullptr) return RValue_makeReal(0);
+    return RValue_makeReal(runner->currentCursor);
 }
 
 // ===[ Game State Functions ]===
@@ -7185,6 +7754,18 @@ static RValue builtin_instance_deactivate_region(VMContext* ctx, RValue* args, i
         if (outside != wantInside) Runner_setActiveState(ctx->runner, inst, false);
     }
     return RValue_makeUndefined();
+}
+
+// instance_id_get(index) - gets the instance ID of a specific instance index
+static RValue builtin_instance_id_get(VMContext* ctx, MAYBE_UNUSED RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    int32_t index = RValue_toInt32(args[0]);
+    Runner* runner = ctx->runner;
+
+    if (0 > index || index >= arrlen(runner->instances))
+        return RValue_makeReal(INSTANCE_NOONE); // Tested against GameMaker 2026.0.0.23
+
+    return RValue_makeReal(runner->instances[index]->instanceId);
 }
 
 static RValue builtin_event_inherited(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -8741,26 +9322,6 @@ static RValue builtin_draw_text_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     return RValue_makeUndefined();
 }
 
-static RValue builtin_draw_text_ext_color(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    Runner* runner = ctx->runner;
-    if (runner->renderer == nullptr) return RValue_makeUndefined();
-
-    float x = (float) RValue_toReal(args[0]);
-    float y = (float) RValue_toReal(args[1]);
-    char* str = RValue_toString(args[2]);
-    int32_t separation = RValue_toInt32(args[3]);
-    int32_t width = RValue_toInt32(args[4]);
-
-    int32_t c1 = (float) RValue_toInt32(args[5]);
-    int32_t c2 = (float) RValue_toInt32(args[6]);
-    int32_t c3 = (float) RValue_toInt32(args[7]);
-    int32_t c4 = (float) RValue_toInt32(args[8]);
-
-    drawTextExtCommonColor(runner, str, x, y, 1.0f, 1.0f, 0.0f, separation, width, c1, c2, c3, c4);
-    free(str);
-    return RValue_makeUndefined();
-}
-
 static RValue builtin_draw_text_ext_transformed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner->renderer == nullptr) return RValue_makeUndefined();
@@ -8934,6 +9495,25 @@ static RValue builtin_draw_background_stretched(VMContext* ctx, RValue* args, MA
     return RValue_makeUndefined();
 }
 
+static RValue builtin_draw_background_part(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr || 7 > argCount) return RValue_makeUndefined();
+
+    int32_t bgIndex = RValue_toInt32(args[0]);
+    int32_t left = RValue_toInt32(args[1]);
+    int32_t top = RValue_toInt32(args[2]);
+    int32_t width = RValue_toInt32(args[3]);
+    int32_t height = RValue_toInt32(args[4]);
+    float x = (float) RValue_toReal(args[5]);
+    float y = (float) RValue_toReal(args[6]);
+
+    int32_t tpagIndex = Renderer_resolveBackgroundTPAGIndex(runner->dataWin, bgIndex);
+    if (0 > tpagIndex) return RValue_makeUndefined();
+
+    runner->renderer->vtable->drawSpritePart(runner->renderer, tpagIndex, left, top, width, height, x, y, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFF, runner->renderer->drawAlpha);
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_draw_background_part_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner->renderer == nullptr || 11 > argCount) return RValue_makeUndefined();
@@ -8970,7 +9550,7 @@ static RValue builtin_draw_background_tiled(VMContext* ctx, RValue* args, MAYBE_
 
     float roomW = (float) runner->currentRoom->width;
     float roomH = (float) runner->currentRoom->height;
-    Renderer_drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, 1.0f, 1.0f, true, true, roomW, roomH, 0xFFFFFFu, runner->renderer->drawAlpha);
+    runner->renderer->vtable->drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, 1.0f, 1.0f, true, true, roomW, roomH, 0xFFFFFFu, runner->renderer->drawAlpha);
     return RValue_makeUndefined();
 }
 
@@ -8991,7 +9571,7 @@ static RValue builtin_draw_background_tiled_ext(VMContext* ctx, RValue* args, MA
 
     float roomW = (float) runner->currentRoom->width;
     float roomH = (float) runner->currentRoom->height;
-    Renderer_drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
+    runner->renderer->vtable->drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
     return RValue_makeUndefined();
 }
 
@@ -9364,7 +9944,7 @@ static RValue builtin_draw_surface(VMContext* ctx, RValue* args, MAYBE_UNUSED in
     float y = (float) RValue_toReal(args[2]);
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
-        runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, 0, 0, -1, -1, x, y, 1.0, 1.0, 0.0, 0xFFFFFFFF, 1.0);
+        runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, 0, 0, -1, -1, x, y, 1.0, 1.0, 0.0, 0xFFFFFFFF, runner->renderer->drawAlpha);
     }
     return RValue_makeUndefined();
 }
@@ -9402,7 +9982,7 @@ static RValue builtin_draw_surface_part(VMContext* ctx, RValue* args, MAYBE_UNUS
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
 
-        runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, (int32_t) left, (int32_t) top, (int32_t) w, (int32_t) h, x, y, 1.0, 1.0, 0.0, 0xFFFFFFFF, 1.0);
+        runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, (int32_t) left, (int32_t) top, (int32_t) w, (int32_t) h, x, y, 1.0, 1.0, 0.0, 0xFFFFFFFF, runner->renderer->drawAlpha);
     }
     return RValue_makeUndefined();
 }
@@ -9445,6 +10025,25 @@ static RValue builtin_draw_surface_stretched(VMContext* ctx, RValue* args, MAYBE
         float xscale = surfW > 0.0f ? width  / surfW : 1.0f;
         float yscale = surfH > 0.0f ? height / surfH : 1.0f;
         runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, 0, 0, -1, -1, x, y, xscale, yscale, 0.0, 0xFFFFFFFF, 1.0);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_surface_stretched_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t surfaceId = (int32_t) RValue_toReal(args[0]);
+    float x = (float) RValue_toReal(args[1]);
+    float y = (float) RValue_toReal(args[2]);
+    float width = (float) RValue_toReal(args[3]);
+    float height = (float) RValue_toReal(args[4]);
+    uint32_t color = (uint32_t) RValue_toInt32(args[5]);
+    float alpha = (float) RValue_toReal(args[6]);
+    Runner* runner = ctx->runner;
+    if (runner->renderer != nullptr) {
+        float surfW = Renderer_getSurfaceWidth(runner->renderer, surfaceId);
+        float surfH = Renderer_getSurfaceHeight(runner->renderer, surfaceId);
+        float xscale = surfW > 0.0f ? width  / surfW : 1.0f;
+        float yscale = surfH > 0.0f ? height / surfH : 1.0f;
+        runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, 0, 0, -1, -1, x, y, xscale, yscale, 0.0, color, alpha);
     }
     return RValue_makeUndefined();
 }
@@ -9883,6 +10482,7 @@ static RValue builtin_display_set_gui_size(VMContext* ctx, RValue* args, int32_t
     int32_t h = RValue_toInt32(args[1]);
     runner->guiWidth = w > 0 ? w : 0;
     runner->guiHeight = h > 0 ? h : 0;
+    Runner_guiSizeChanged(runner);
     return RValue_makeUndefined();
 }
 
@@ -9891,6 +10491,7 @@ static RValue builtin_display_set_gui_maximise(VMContext* ctx, MAYBE_UNUSED RVal
     Runner* runner = ctx->runner;
     runner->guiWidth = 0;
     runner->guiHeight = 0;
+    Runner_guiSizeChanged(runner);
     return RValue_makeUndefined();
 }
 
@@ -11675,8 +12276,8 @@ static RValue builtin_layer_background_create(VMContext* ctx, RValue* args, MAYB
     RuntimeBackgroundElement* bg = (RuntimeBackgroundElement*)safeMalloc(sizeof(RuntimeBackgroundElement));
     bg->spriteIndex = spriteIndex;
     bg->visible = true;
-    bg->htiled = false;
-    bg->vtiled = false;
+    bg->hTiled = false;
+    bg->vTiled = false;
     bg->stretch = false;
     bg->xScale = 1.0f;
     bg->yScale = 1.0f;
@@ -11721,14 +12322,6 @@ static RuntimeBackgroundElement* findBackgroundElement(Runner* runner, int32_t e
     return el->backgroundElement;
 }
 
-// Resolves a background element id to a parsed Background layer's data.
-static RoomLayerBackgroundData* findParsedBackgroundData(Runner* runner, int32_t elementId) {
-    RuntimeLayerElement* el = Runner_findLayerElementById(runner, elementId, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Background)
-        return nullptr;
-    return el->parsedBackgroundData;
-}
-
 // Resolves a tilemap element id to its tiles data + owning runtime layer.
 static RoomLayerTilesData* findTilemapData(Runner* runner, int32_t elementId, RuntimeLayer** outLayer) {
     if (outLayer != nullptr) *outLayer = nullptr;
@@ -11740,16 +12333,15 @@ static RoomLayerTilesData* findTilemapData(Runner* runner, int32_t elementId, Ru
     return el->tilemapData;
 }
 
+#define setBackgroundLayerField(id, value, targetParameter) \
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id); \
+    if (bg != nullptr) bg->targetParameter = value;
+
 static RValue builtin_layer_background_visible(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     bool visible = RValue_toBool(args[1]);
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
-    if (bg != nullptr)
-        bg->visible = visible;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr)
-        parsed->visible = visible;
+    setBackgroundLayerField(id, visible, visible);
     return RValue_makeUndefined();
 }
 
@@ -11757,12 +12349,7 @@ static RValue builtin_layer_background_htiled(VMContext* ctx, RValue* args, MAYB
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     bool tiled = RValue_toBool(args[1]);
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
-    if (bg != nullptr)
-        bg->htiled = tiled;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr)
-        parsed->hTiled = tiled;
+    setBackgroundLayerField(id, tiled, hTiled);
     return RValue_makeUndefined();
 }
 
@@ -11770,12 +12357,7 @@ static RValue builtin_layer_background_vtiled(VMContext* ctx, RValue* args, MAYB
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     bool tiled = RValue_toBool(args[1]);
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
-    if (bg != nullptr)
-        bg->vtiled = tiled;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr)
-        parsed->vTiled = tiled;
+    setBackgroundLayerField(id, tiled, vTiled);
     return RValue_makeUndefined();
 }
 
@@ -11799,12 +12381,7 @@ static RValue builtin_layer_background_stretch(VMContext* ctx, RValue* args, MAY
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     bool stretch = RValue_toBool(args[1]);
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
-    if (bg != nullptr)
-        bg->stretch = stretch;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr)
-        parsed->stretch = stretch;
+    setBackgroundLayerField(id, stretch, stretch);
     return RValue_makeUndefined();
 }
 
@@ -11815,9 +12392,6 @@ static RValue builtin_layer_background_blend(VMContext* ctx, RValue* args, MAYBE
     RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
         bg->blend = blend;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr)
-        parsed->color = (parsed->color & 0xFF000000u) | blend;
     return RValue_makeUndefined();
 }
 
@@ -11828,26 +12402,22 @@ static RValue builtin_layer_background_alpha(VMContext* ctx, RValue* args, MAYBE
     RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
         bg->alpha = alpha;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
-    if (parsed != nullptr) {
-        float clamped = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
-        uint32_t alphaByte = (uint32_t) (clamped * 255.0f);
-        parsed->color = (parsed->color & 0x00FFFFFFu) | (alphaByte << 24);
-    }
     return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_background_sprite(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    int32_t elementId = RValue_toInt32(args[0]);
+    int32_t id = RValue_toInt32(args[0]);
     int32_t spriteIndex = RValue_toInt32(args[1]);
+    setBackgroundLayerField(id, spriteIndex, spriteIndex);
+    return RValue_makeUndefined();
+}
 
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, elementId);
-    if (bg != nullptr)
-        bg->spriteIndex = spriteIndex;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, elementId);
-    if (parsed != nullptr)
-        parsed->spriteIndex = spriteIndex;
+static RValue builtin_layer_background_index(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t index = RValue_toInt32(args[1]);
+    setBackgroundLayerField(id, index, imageIndex);
     return RValue_makeUndefined();
 }
 
@@ -11868,18 +12438,13 @@ static RValue builtin_layer_background_get_id(VMContext* ctx, RValue* args, MAYB
     return RValue_makeReal(-1.0);
 }
 
-static RValue builtin_layer_background_index(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+static RValue builtin_layer_background_get_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    int32_t background_element_id = RValue_toInt32(args[0]);
-    int32_t index = RValue_toInt32(args[1]);
-
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, background_element_id);
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->imageIndex = index;
-    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, background_element_id);
-    if (parsed != nullptr)
-        parsed->imageIndex = index;
-    return RValue_makeUndefined();
+        return RValue_makeReal(bg->alpha);
+    return RValue_makeReal(0.0);
 }
 
 static RValue builtin_layer_tile_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -11891,17 +12456,77 @@ static RValue builtin_layer_tile_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSE
     return RValue_makeUndefined();
 }
 
+static RoomTile* findTileElement(Runner* runner, RValue idArg) {
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, RValue_toInt32(idArg), nullptr);
+    if (el == nullptr || el->type != RuntimeLayerElementType_Tile)
+        return nullptr;
+    return el->tileElement;
+}
+
+static RValue builtin_layer_tile_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile != nullptr)
+        tile->x = RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_tile_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile != nullptr)
+        tile->y = RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_tile_get_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile == nullptr)
+        return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) tile->x);
+}
+
+static RValue builtin_layer_tile_get_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile == nullptr)
+        return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) tile->y);
+}
+
+static RValue builtin_layer_tile_get_xscale(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile == nullptr)
+        return RValue_makeReal(1.0);
+    return RValue_makeReal((GMLReal) tile->scaleX);
+}
+
+static RValue builtin_layer_tile_get_yscale(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile == nullptr)
+        return RValue_makeReal(1.0);
+    return RValue_makeReal((GMLReal) tile->scaleY);
+}
+
+static RValue builtin_layer_tile_get_region(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    RoomTile* tile = findTileElement(ctx->runner, args[0]);
+    if (tile == nullptr)
+        return RValue_makeReal(-1.0);
+    RValue arr = RValue_makeArray(GMLArray_create(4));
+    GMLArray_setOnArrayRef(&arr, 0, RValue_makeReal((GMLReal) tile->sourceX));
+    GMLArray_setOnArrayRef(&arr, 1, RValue_makeReal((GMLReal) tile->sourceY));
+    GMLArray_setOnArrayRef(&arr, 2, RValue_makeReal((GMLReal) tile->width));
+    GMLArray_setOnArrayRef(&arr, 3, RValue_makeReal((GMLReal) tile->height));
+    return arr;
+}
+
 #if IS_WAD17_OR_HIGHER_ENABLED
 static RValue builtin_layer_get_all_elements(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = resolveLayerIdArg(runner, args[0]);
 
-    RValue arr = VM_createArray(ctx);
+    RValue arr = RValue_makeArray(GMLArray_create(0));
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
         return arr;
 
-    int32_t i = 0;
     size_t count = arrlenu(runtimeLayer->elements);
     repeat(count, elementIndex) {
         RuntimeLayerElement* el = &runtimeLayer->elements[elementIndex];
@@ -11910,7 +12535,7 @@ static RValue builtin_layer_get_all_elements(VMContext* ctx, RValue* args, MAYBE
             Instance* elInst = hmget(runner->instancesById, el->instanceId);
             if (elInst == nullptr || elInst->destroyed) continue;
         }
-        VM_arraySet(ctx, &arr, i++, RValue_makeReal((GMLReal) el->id));
+        GMLArray_addOnArrayRef(&arr, RValue_makeReal((GMLReal) el->id));
     }
     return arr;
 }
@@ -12077,11 +12702,6 @@ static RValue builtin_layer_background_destroy(VMContext* ctx, RValue* args, MAY
         free(el->backgroundElement);
         el->backgroundElement = nullptr;
     }
-    // The renderer draws parsed Background layers from the parsed data, so destroying the element must hide it there.
-    if (el->parsedBackgroundData != nullptr) {
-        el->parsedBackgroundData->visible = false;
-        el->parsedBackgroundData = nullptr;
-    }
 
     // Remove the element from the owning layer's element array to keep lookup + iteration tidy.
     size_t count = arrlenu(owningLayer->elements);
@@ -12173,31 +12793,43 @@ static RValue builtin_tilemap_get_y(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     return RValue_makeReal((GMLReal) runtimeLayer->yOffset);
 }
 
-// tilemap_get_at_pixel(tilemapElementId, x, y): returns the raw tile cell value (index + mirror/flip/rotate bits) at the given room-space pixel coordinate, or -1 if the coordinate falls outside the tilemap.
-// (see GameMaker-HTML5 Function_Layers.js)
-static RValue builtin_tilemap_get_at_pixel(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    if (3 > argCount) return RValue_makeReal(-1.0);
-    Runner* runner = ctx->runner;
-    RuntimeLayer* runtimeLayer = nullptr;
-    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
-    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
+static void coerceTileCellsToTilemapBounds(RoomLayerTilesData* data, int32_t* cellX, int32_t* cellY) {
+    if (0 > *cellX) *cellX = 0;
+    if (0 > *cellY) *cellY = 0;
+    if (*cellX >= (int32_t) data->tilesX) *cellX = (int32_t) data->tilesX - 1;
+    if (*cellY >= (int32_t) data->tilesY) *cellY = (int32_t) data->tilesY - 1;
+}
 
-    if (data == nullptr || data->tileData == nullptr) return RValue_makeReal(-1.0);
-    if (0 > data->backgroundIndex) return RValue_makeReal(-1.0);
+static int32_t convertTileCellsToArrayIndex(RoomLayerTilesData* data, int32_t cellX, int32_t cellY) {
+    return cellY * ((int32_t) data->tilesX) + cellX;
+}
 
-    DataWin* dw = runner->dataWin;
-    if ((uint32_t) data->backgroundIndex >= dw->bgnd.count) return RValue_makeReal(-1.0);
+static int32_t coerceTileCellsToTilemapBoundsAndConvertToArrayIndex(RoomLayerTilesData* data, int32_t cellX, int32_t cellY) {
+    int32_t coercedCellX = cellX;
+    int32_t coercedCellY = cellY;
+    coerceTileCellsToTilemapBounds(data, &coercedCellX, &coercedCellY);
+    return convertTileCellsToArrayIndex(data, coercedCellX, coercedCellY);
+}
+
+// Maps a room-space pixel coordinate to a flat tileData cell index, applying the owning layer's draw offset.
+// Returns -1 when the tilemap/tileset is invalid or the coordinate falls outside the tilemap.
+static int32_t tilemapGetCellIndexAtPixel(DataWin* dw, RoomLayerTilesData* data, RuntimeLayer* runtimeLayer, GMLReal findX, GMLReal findY, Background** outTileset) {
+    if (data == nullptr || data->tileData == nullptr) return -1;
+    if (0 > data->backgroundIndex) return -1;
+
+    if ((uint32_t) data->backgroundIndex >= dw->bgnd.count) return -1;
 
     Background* tileset = &dw->bgnd.backgrounds[data->backgroundIndex];
+    if (outTileset != nullptr) *outTileset = tileset;
     uint32_t tileW = tileset->gms2TileWidth;
     uint32_t tileH = tileset->gms2TileHeight;
-    if (tileW == 0 || tileH == 0) return RValue_makeReal(-1.0);
+    if (tileW == 0 || tileH == 0) return -1;
 
     float offsetX = runtimeLayer->xOffset; // GameMaker-HTML5: m_x
     float offsetY = runtimeLayer->yOffset; // GameMaker-HTML5: m_y
 
-    GMLReal x = RValue_toReal(args[1]) - (GMLReal) offsetX;
-    GMLReal y = RValue_toReal(args[2]) - (GMLReal) offsetY;
+    GMLReal x = findX - (GMLReal) offsetX;
+    GMLReal y = findY - (GMLReal) offsetY;
 
     GMLReal mapPixelW = (GMLReal) (data->tilesX * tileW);
     GMLReal mapPixelH = (GMLReal) (data->tilesY * tileH);
@@ -12208,26 +12840,114 @@ static RValue builtin_tilemap_get_at_pixel(VMContext* ctx, RValue* args, MAYBE_U
     // if(y>tmph)
     //    return -1;
     // The ORIGINAL runner uses >= for both
-    if (0.0 > x || 0.0 > y || x >= mapPixelW || y >= mapPixelH) return RValue_makeReal(-1.0);
+    if (0.0 > x || 0.0 > y || x >= mapPixelW || y >= mapPixelH) return -1;
 
-    int32_t indexX = (int32_t) GMLReal_floor(x / (GMLReal) tileW);
-    int32_t indexY = (int32_t) GMLReal_floor(y / (GMLReal) tileH);
-    if (0 > indexX) indexX = 0;
-    if (0 > indexY) indexY = 0;
-    if (indexX >= (int32_t) data->tilesX) indexX = (int32_t) data->tilesX - 1;
-    if (indexY >= (int32_t) data->tilesY) indexY = (int32_t) data->tilesY - 1;
+    int32_t cellX = (int32_t) GMLReal_floor(x / (GMLReal) tileW);
+    int32_t cellY = (int32_t) GMLReal_floor(y / (GMLReal) tileH);
+    return data->tileData[coerceTileCellsToTilemapBoundsAndConvertToArrayIndex(data, cellX, cellY)];
+}
 
-    uint32_t cell = data->tileData[indexY * data->tilesX + indexX];
+static RValue builtin_tilemap_get(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(-1.0);
+    Runner* runner = ctx->runner;
+    RuntimeLayer* runtimeLayer = nullptr;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
+
+    int32_t cellX = RValue_toInt32(args[1]);
+    int32_t cellY = RValue_toInt32(args[2]);
+    return RValue_makeReal((GMLReal) data->tileData[coerceTileCellsToTilemapBoundsAndConvertToArrayIndex(data, cellX, cellY)]);
+}
+
+// tilemap_get_at_pixel(tilemapElementId, x, y): returns the raw tile cell value (index + mirror/flip/rotate bits) at the given room-space pixel coordinate, or -1 if the coordinate falls outside the tilemap.
+// (see GameMaker-HTML5 Function_Layers.js)
+static RValue builtin_tilemap_get_at_pixel(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(-1.0);
+    Runner* runner = ctx->runner;
+    RuntimeLayer* runtimeLayer = nullptr;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
+
+    int32_t cellIndex = tilemapGetCellIndexAtPixel(ctx->dataWin, data, runtimeLayer, RValue_toReal(args[1]), RValue_toReal(args[2]), nullptr);
+    if (0 > cellIndex) return RValue_makeReal(-1.0);
+
+    uint32_t cell = data->tileData[cellIndex];
     return RValue_makeReal((GMLReal) cell);
+}
+
+// tilemap_set_at_pixel(tilemapElementId, tiledata, x, y): writes the raw tile cell value at the given room-space pixel coordinate. Returns whether the write happened.
+// (see GameMaker-HTML5 Function_Layers.js)
+static RValue builtin_tilemap_set_at_pixel(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (4 > argCount) return RValue_makeBool(false);
+    Runner* runner = ctx->runner;
+    RuntimeLayer* runtimeLayer = nullptr;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
+
+    Background* tileset = nullptr;
+    int32_t cellIndex = tilemapGetCellIndexAtPixel(ctx->dataWin, data, runtimeLayer, RValue_toReal(args[2]), RValue_toReal(args[3]), &tileset);
+    if (0 > cellIndex) return RValue_makeBool(false);
+
+    uint32_t cell = (uint32_t) RValue_toInt32(args[1]);
+    uint32_t tileIndex = cell & TILEINDEX_SHIFTEDMASK;
+    if (tileset->gms2TileCount != 0 && tileIndex >= tileset->gms2TileCount) {
+        fprintf(stderr, "VM: [%s] tilemap_set_at_pixel() - tile index outside tile set count\n", ctx->currentCodeName);
+        return RValue_makeBool(false);
+    }
+
+    data->tileData[cellIndex] = cell;
+    return RValue_makeBool(true);
+}
+
+// tilemap_get_tileset(tilemapElementId): returns the BGND (tileset) index backing the tilemap, or -1.
+// (see GameMaker-HTML5 Function_Layers.js tilemap_get_tileset)
+static RValue builtin_tilemap_get_tileset(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1.0);
+    RoomLayerTilesData* data = findTilemapData(ctx->runner, RValue_toInt32(args[0]), nullptr);
+    if (data == nullptr) return RValue_makeReal(-1.0);
+    return RValue_makeReal((GMLReal) data->backgroundIndex);
+}
+
+// tile_get_index(tiledata): extracts the tileset cell index from a raw tile cell value, masking off the mirror/flip/rotate bits.
+static RValue builtin_tile_get_index(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1.0);
+    return RValue_makeReal((GMLReal) (RValue_toInt32(args[0]) & TILEINDEX_SHIFTEDMASK));
+}
+
+// tile_get_mirror(tiledata): returns whether the horizontal-mirror bit is set on a raw tile cell value.
+// (see GameMaker-HTML5 Function_Layers.js)
+static RValue builtin_tile_get_mirror(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    return RValue_makeBool((RValue_toInt32(args[0]) & (1 << 28)) != 0);
+}
+
+// tile_get_flip(tiledata): returns whether the vertical-flip bit is set on a raw tile cell value.
+// (see GameMaker-HTML5 Function_Layers.js)
+static RValue builtin_tile_get_flip(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    return RValue_makeBool((RValue_toInt32(args[0]) & (1 << 29)) != 0);
+}
+
+// tile_get_rotate(tiledata): returns whether the 90-degree-rotate bit is set on a raw tile cell value.
+// (see GameMaker-HTML5 Function_Layers.js)
+static RValue builtin_tile_get_rotate(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    return RValue_makeBool((RValue_toInt32(args[0]) & TILEROTATE_MASK) != 0);
+}
+
+// tile_set_empty(tiledata): clears the tileset cell index from a raw tile cell value, keeping the mirror/flip/rotate bits.
+// (see GameMaker-HTML5 Function_Layers.js tile_set_empty)
+static RValue builtin_tile_set_empty(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1.0);
+    return RValue_makeReal((GMLReal) (RValue_toInt32(args[0]) & ~TILEINDEX_SHIFTEDMASK));
 }
 
 static RValue builtin_layer_get_all(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RValue arr = VM_createArray(ctx);
-    int32_t i = 0;
     size_t count = arrlenu(runner->runtimeLayers);
+    RValue arr = RValue_makeArray(GMLArray_create((int32_t) count));
     repeat(count, layerIndex) {
-        VM_arraySet(ctx, &arr, i++, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
+        GMLArray_setOnArrayRef(&arr, layerIndex, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
     }
     return arr;
 }
@@ -12235,17 +12955,18 @@ static RValue builtin_layer_get_all(VMContext* ctx, MAYBE_UNUSED RValue* args, M
 static RValue builtin_layer_get_id_at_depth(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t targetDepth = RValue_toInt32(args[0]);
-    RValue arr = VM_createArray(ctx);
-    int32_t i = 0;
+    RValue arr = RValue_makeArray(GMLArray_create(0));
     size_t count = arrlenu(runner->runtimeLayers);
+    bool found = false;
     repeat(count, layerIndex) {
         if (runner->runtimeLayers[layerIndex].depth == targetDepth) {
-            VM_arraySet(ctx, &arr, i++, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
+            GMLArray_addOnArrayRef(&arr, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
+            found = true;
         }
     }
     // When no layer matches, return [-1] instead of an empty array.
-    if (i == 0)
-        VM_arraySet(ctx, &arr, 0, RValue_makeReal(-1.0));
+    if (!found)
+        GMLArray_setOnArrayRef(&arr, 0, RValue_makeReal(-1.0));
     return arr;
 }
 #endif
@@ -12264,9 +12985,9 @@ static RValue builtin_layer_vspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 // @@NewGMLArray@@ - GMS2 internal function to create a new array literal (e.g. `[1, 2, 3]`).
 // Allocates a fresh GMLArray populated with the argument values.
 static RValue builtin_NewGMLArray(VMContext* ctx, RValue* args, int32_t argCount) {
-    RValue arr = VM_createArray(ctx);
+    RValue arr = RValue_makeArray(GMLArray_create(argCount));
     repeat(argCount, i) {
-        VM_arraySet(ctx, &arr, i, args[i]);
+        GMLArray_setOnArrayRef(&arr, i, args[i]);
     }
     return arr;
 }
@@ -12274,10 +12995,10 @@ static RValue builtin_NewGMLArray(VMContext* ctx, RValue* args, int32_t argCount
 // array_create - GMS2 internal function to create a new array.
 // Allocates a fresh GMLArray populated with the argument values.
 static RValue builtin_array_create(VMContext* ctx, RValue* args, int32_t argCount) {
-    RValue arr = VM_createArray(ctx);
+    RValue arr = RValue_makeArray(GMLArray_create(0));
     RValue fill = (argCount > 1) ? args[1] : RValue_makeUndefined();
     repeat(RValue_toReal(args[0]), i) {
-        VM_arraySet(ctx, &arr, i, fill);
+        GMLArray_setOnArrayRef(&arr, i, fill);
     }
     return arr;
 }
@@ -13568,6 +14289,10 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
     uint32_t glyphCount = charCount;
     if (glyphCount > sprite->textureCount) glyphCount = sprite->textureCount;
 
+    // GM 2023.2 changed sprite-font glyph placement to subtract the source sprite's origin.
+    // (See GameMaker-HTML5's commit a7c5b909209d5a28602fedfe2031965386a99921)
+    bool spriteFontSubtractsOrigin = DataWin_isVersionAtLeast(dw, 2023, 2, 0, 0);
+
     // Compute emSize (max bounding height across all frames) and biggestShift
     uint32_t maxHeight = 0;
     int32_t biggestShift = 0;
@@ -13616,8 +14341,9 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
         int32_t advanceWidth = proportional ? (int32_t) tpag->sourceWidth : (int32_t) tpag->boundingWidth;
         glyph->shift = (int16_t) (advanceWidth + sep);
 
-        // Horizontal offset: for proportional fonts, no offset; for non-proportional, use target offset minus origin
-        glyph->offset = proportional ? 0 : (int16_t) ((int32_t) tpag->targetX - sprite->originX);
+        // Horizontal offset: proportional fonts have none. Non-proportional uses the cell offset targetX, minus the sprite origin only on GM 2023.2+ (pre-2023.2 the origin cancels).
+        int32_t xOff = (int32_t) tpag->targetX - (spriteFontSubtractsOrigin ? sprite->originX : 0);
+        glyph->offset = proportional ? 0 : (int16_t) xOff;
     }
 
     // Add synthetic space glyph if space is not in the string map
@@ -13655,9 +14381,13 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
     font->ascenderOffset = 0;
     font->glyphCount = totalGlyphs;
     font->glyphs = glyphs;
-    font->maxGlyphHeight = maxHeight; // match what HTML5 runner uses for line stride
+    // Line height = full frame bounding height (used for line stride and fa_middle/fa_bottom
+    // valign offsets), matching the native runner's sprite-font TextHeight (= sprite height).
+    font->maxGlyphHeight = maxHeight;
     font->isSpriteFont = true;
     font->spriteIndex = spriteIndex;
+    // Precompute the per-glyph Y origin adjustment (the X half is baked into glyph->offset above).
+    font->spriteOriginYAdjust = spriteFontSubtractsOrigin ? (int16_t) sprite->originY : 0;
     Font_buildGlyphLUT(font);
 
     return RValue_makeReal((GMLReal) newFontIndex);
@@ -13672,6 +14402,45 @@ static RValue builtin_font_get_name(VMContext* ctx, RValue* args, int32_t argCou
     int32_t fontIndex = RValue_toInt32(args[0]);
     if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeUndefined();
     return RValue_makeString(ctx->dataWin->font.fonts[fontIndex].name);
+}
+
+// font_get_info(font): returns a struct with the font information.
+static RValue builtin_font_get_info(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    int32_t fontIndex = RValue_toInt32(args[0]);
+    if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeUndefined();
+    Font* font = &ctx->dataWin->font.fonts[fontIndex];
+
+    Instance* ret = Runner_createStruct(ctx->runner);
+    VM_structSetAndFreeVal(ctx, ret, "spriteIndex", RValue_makeInt32(font->isSpriteFont ? font->spriteIndex : -1), -1);
+    VM_structSetAndFreeVal(ctx, ret, "size", RValue_makeInt32((int32_t) font->emSize), -1);
+    VM_structSetAndFreeVal(ctx, ret, "ascender", RValue_makeInt32((int32_t) font->ascender), -1);
+    VM_structSetAndFreeVal(ctx, ret, "ascenderOffset", RValue_makeInt32(font->ascenderOffset), -1);
+    VM_structSetAndFreeVal(ctx, ret, "sdfSpread", RValue_makeInt32((int32_t) font->sdfSpread), -1);
+    VM_structSetAndFreeVal(ctx, ret, "sdfEnabled", RValue_makeBool(font->sdfSpread != 0), -1);
+    VM_structSetAndFreeVal(ctx, ret, "freetype", RValue_makeBool(false), -1);
+    VM_structSetAndFreeVal(ctx, ret, "name", RValue_makeString(font->name ? font->name : ""), -1);
+    VM_structSetAndFreeVal(ctx, ret, "bold", RValue_makeBool(font->bold), -1);
+    VM_structSetAndFreeVal(ctx, ret, "italic", RValue_makeBool(font->italic), -1);
+    VM_structSetAndFreeVal(ctx, ret, "texture", RValue_makeInt32(-1), -1);
+    // glyphs: char -> { char: glyphIndexInSprite }, matching GameMaker-HTML5's SpriteMapDictionary.
+    Instance* glyphs = Runner_createStruct(ctx->runner);
+    if (font->isSpriteFont) {
+        repeat(font->glyphCount, glyphIndex) {
+            uint16_t cp = font->glyphs[glyphIndex].character;
+            char key[8];
+            int32_t klen = TextUtils_utf8EncodeCodepoint(cp, key);
+            key[klen] = '\0';
+            Instance* glyphEntry = Runner_createStruct(ctx->runner);
+            VM_structSetAndFreeVal(ctx, glyphEntry, "char", RValue_makeInt32((int32_t) glyphIndex), -1);
+            RValue glyphEntryRValue = RValue_makeStructAndIncRef(glyphEntry);
+            VM_structSetAndFreeVal(ctx, glyphs, key, glyphEntryRValue, -1);
+        }
+    }
+    RValue glyphsVal = RValue_makeStructAndIncRef(glyphs);
+    VM_structSetAndFreeVal(ctx, ret, "glyphs", glyphsVal, -1);
+
+    return RValue_makeStructAndIncRef(ret);
 }
 
 // font_add_sprite_ext(sprite, string_map, prop, sep)
@@ -13939,6 +14708,31 @@ static RValue builtin_shader_set_uniformF(VMContext* ctx, MAYBE_UNUSED RValue* a
     return RValue_makeUndefined();
 }
 
+static RValue builtin_shader_set_uniform_f_array(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount < 2) return RValue_makeUndefined();
+
+    int32_t handle = (int32_t) RValue_toReal(args[0]);
+    if (args[1].type != RVALUE_ARRAY || args[1].array == nullptr) {
+        return RValue_makeUndefined();
+    }
+
+    GMLArray* arr = args[1].array;
+    uint32_t count = GMLArray_length1D(arr);
+    if (count == 0) return RValue_makeUndefined();
+
+    float* values = (float*)safeMalloc(count * sizeof(float));
+    for (uint32_t i = 0; i < count; i++) {
+        values[i] = (float) RValue_toReal(*GMLArray_slot(arr, i));
+    }
+
+    if (ctx->runner->renderer->vtable->shaderSetUniformFArray != nullptr) {
+        ctx->runner->renderer->vtable->shaderSetUniformFArray(ctx->runner->renderer, handle, values, count);
+    }
+
+    free(values);
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_shader_set_uniformI(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t handle = (int32_t) RValue_toReal(args[0]);
     int32_t value1 = 0, value2 = 0, value3 = 0, value4 = 0;
@@ -13997,6 +14791,13 @@ static RValue builtin_sprite_get_texture(VMContext* ctx, MAYBE_UNUSED RValue* ar
     int32_t TpagIndex = Renderer_resolveTPAGIndex(ctx->dataWin, spriteIndex, subimg);
 
     return RValue_makeInt32(ctx->runner->renderer->vtable->spriteGetTexture(ctx->runner->renderer, TpagIndex));
+}
+
+static RValue builtin_sprite_get_speed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t spriteIndex = (int32_t) RValue_toReal(args[0]);
+    if (0 > spriteIndex || (uint32_t) spriteIndex >= ctx->dataWin->sprt.count)
+        return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) ctx->dataWin->sprt.sprites[spriteIndex].gms2PlaybackSpeed);
 }
 
 static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -14085,6 +14886,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "string_copy", (BuiltinFunc)builtin_string_copy);
     VM_registerBuiltin(ctx, "string_pos", (BuiltinFunc)builtin_string_pos);
     VM_registerBuiltin(ctx, "string_char_at", (BuiltinFunc)builtin_string_char_at);
+    VM_registerBuiltin(ctx, "string_ord_at", (BuiltinFunc)builtin_string_ord_at);
     VM_registerBuiltin(ctx, "string_split", (BuiltinFunc)builtin_string_split);
     VM_registerBuiltin(ctx, "string_delete", (BuiltinFunc)builtin_string_delete);
     VM_registerBuiltin(ctx, "string_insert", (BuiltinFunc)builtin_string_insert);
@@ -14291,6 +15093,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_clear", (BuiltinFunc)builtin_ds_list_clear);
     VM_registerBuiltin(ctx, "ds_list_write", (BuiltinFunc)builtin_ds_list_write);
     VM_registerBuiltin(ctx, "ds_list_read", (BuiltinFunc)builtin_ds_list_read);
+    VM_registerBuiltin(ctx, "ds_list_replace", (BuiltinFunc)builtin_ds_list_replace);
 
     // ds_stack
     VM_registerBuiltin(ctx, "ds_stack_create", (BuiltinFunc)builtin_ds_stack_create);
@@ -14318,6 +15121,24 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_queue_tail", (BuiltinFunc)builtin_ds_queue_tail);
     VM_registerBuiltin(ctx, "ds_queue_write", (BuiltinFunc)builtin_ds_queue_write);
     VM_registerBuiltin(ctx, "ds_queue_read", (BuiltinFunc)builtin_ds_queue_read);
+
+    // ds_priority
+    VM_registerBuiltin(ctx, "ds_priority_create", (BuiltinFunc)builtin_ds_priority_create);
+    VM_registerBuiltin(ctx, "ds_priority_clear", (BuiltinFunc)builtin_ds_priority_clear);
+    VM_registerBuiltin(ctx, "ds_priority_copy", (BuiltinFunc)builtin_ds_priority_copy);
+    VM_registerBuiltin(ctx, "ds_priority_destroy", (BuiltinFunc)builtin_ds_priority_destroy);
+    VM_registerBuiltin(ctx, "ds_priority_size", (BuiltinFunc)builtin_ds_priority_size);
+    VM_registerBuiltin(ctx, "ds_priority_empty", (BuiltinFunc)builtin_ds_priority_empty);
+    VM_registerBuiltin(ctx, "ds_priority_add", (BuiltinFunc)builtin_ds_priority_add);
+    VM_registerBuiltin(ctx, "ds_priority_delete_value", (BuiltinFunc)builtin_ds_priority_delete_value);
+    VM_registerBuiltin(ctx, "ds_priority_change_priority", (BuiltinFunc)builtin_ds_priority_change_priority);
+    VM_registerBuiltin(ctx, "ds_priority_find_priority", (BuiltinFunc)builtin_ds_priority_find_priority);
+    VM_registerBuiltin(ctx, "ds_priority_delete_min", (BuiltinFunc)builtin_ds_priority_delete_min);
+    VM_registerBuiltin(ctx, "ds_priority_delete_max", (BuiltinFunc)builtin_ds_priority_delete_max);
+    VM_registerBuiltin(ctx, "ds_priority_find_min", (BuiltinFunc)builtin_ds_priority_find_min);
+    VM_registerBuiltin(ctx, "ds_priority_find_max", (BuiltinFunc)builtin_ds_priority_find_max);
+    VM_registerBuiltin(ctx, "ds_priority_write", (BuiltinFunc)builtin_ds_priority_write);
+    VM_registerBuiltin(ctx, "ds_priority_read", (BuiltinFunc)builtin_ds_priority_read);
 
     // Array
 
@@ -14359,10 +15180,12 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "audio_master_gain", (BuiltinFunc)builtin_audio_master_gain);
     VM_registerBuiltin(ctx, "audio_group_load", (BuiltinFunc)builtin_audio_group_load);
     VM_registerBuiltin(ctx, "audio_group_is_loaded", (BuiltinFunc)builtin_audio_group_is_loaded);
-    VM_registerBuiltin(ctx, "audio_play_music", (BuiltinFunc)builtin_audio_play_music);
-    VM_registerBuiltin(ctx, "audio_stop_music", (BuiltinFunc)builtin_audio_stop_music);
-    VM_registerBuiltin(ctx, "audio_music_gain", (BuiltinFunc)builtin_audio_music_gain);
-    VM_registerBuiltin(ctx, "audio_music_is_playing", (BuiltinFunc)builtin_audio_music_is_playing);
+    if (!isGMS2) {
+        VM_registerBuiltin(ctx, "audio_play_music", (BuiltinFunc)builtin_audio_play_music);
+        VM_registerBuiltin(ctx, "audio_stop_music", (BuiltinFunc)builtin_audio_stop_music);
+        VM_registerBuiltin(ctx, "audio_music_gain", (BuiltinFunc)builtin_audio_music_gain);
+        VM_registerBuiltin(ctx, "audio_music_is_playing", (BuiltinFunc)builtin_audio_music_is_playing);
+    }
     VM_registerBuiltin(ctx, "audio_pause_sound", (BuiltinFunc)builtin_audio_pause_sound);
     VM_registerBuiltin(ctx, "audio_resume_sound", (BuiltinFunc)builtin_audio_resume_sound);
     VM_registerBuiltin(ctx, "audio_pause_all", (BuiltinFunc)builtin_audio_pause_all);
@@ -14487,11 +15310,14 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "window_get_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
     VM_registerBuiltin(ctx, "window_set_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
     VM_registerBuiltin(ctx, "window_set_caption", (BuiltinFunc)builtin_window_set_caption);
+    VM_registerBuiltin(ctx, "window_get_caption", (BuiltinFunc)builtin_window_get_caption);
     VM_registerBuiltin(ctx, "window_get_width", (BuiltinFunc)builtin_window_get_width);
     VM_registerBuiltin(ctx, "window_get_height", (BuiltinFunc)builtin_window_get_height);
     VM_registerBuiltin(ctx, "window_set_size", (BuiltinFunc)builtin_window_set_size);
     VM_registerBuiltin(ctx, "window_center", (BuiltinFunc)builtin_window_center);
     VM_registerBuiltin(ctx, "window_has_focus", (BuiltinFunc)builtin_window_has_focus);
+    VM_registerBuiltin(ctx, "window_set_cursor", (BuiltinFunc)builtin_window_set_cursor);
+    VM_registerBuiltin(ctx, "window_get_cursor", (BuiltinFunc)builtin_window_get_cursor);
 
     // Game
     VM_registerBuiltin(ctx, "game_restart", (BuiltinFunc)builtin_game_restart);
@@ -14522,6 +15348,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "instance_deactivate_region", (BuiltinFunc)builtin_instance_deactivate_region);
     VM_registerBuiltin(ctx, "instance_activate_layer", (BuiltinFunc)builtin_instance_activate_layer);
     VM_registerBuiltin(ctx, "instance_deactivate_layer", (BuiltinFunc)builtin_instance_deactivate_layer);
+    VM_registerBuiltin(ctx, "instance_id_get", (BuiltinFunc)builtin_instance_id_get);
     if (!isGMS2) {
         VM_registerBuiltin(ctx, "action_kill_object", (BuiltinFunc)builtin_action_kill_object);
         VM_registerBuiltin(ctx, "action_create_object", (BuiltinFunc)builtin_action_create_object);
@@ -14606,25 +15433,26 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_text", (BuiltinFunc)builtin_draw_text);
     VM_registerBuiltin(ctx, "draw_text_transformed", (BuiltinFunc)builtin_draw_text_transformed);
     VM_registerBuiltin(ctx, "draw_text_ext", (BuiltinFunc)builtin_draw_text_ext);
-    VM_registerBuiltin(ctx, "draw_text_ext_color", (BuiltinFunc)builtin_draw_text_ext_color);
+    VM_registerBuiltin(ctx, "draw_text_ext_color", (BuiltinFunc)builtin_draw_text_color_ext);
     VM_registerBuiltin(ctx, "draw_text_ext_transformed", (BuiltinFunc)builtin_draw_text_ext_transformed);
     VM_registerBuiltin(ctx, "draw_text_color", (BuiltinFunc)builtin_draw_text_color);
-    VM_registerBuiltin(ctx, "draw_text_color_transformed", (BuiltinFunc)builtin_draw_text_color_transformed);
-    VM_registerBuiltin(ctx, "draw_text_color_ext", (BuiltinFunc)builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_color_ext_transformed", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_transformed_color", (BuiltinFunc)builtin_draw_text_color_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext_transformed_color", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
     VM_registerBuiltin(ctx, "draw_text_colour", (BuiltinFunc)builtin_draw_text_color);
-    VM_registerBuiltin(ctx, "draw_text_colour_transformed", (BuiltinFunc)builtin_draw_text_color_transformed);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext", (BuiltinFunc)builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext_transformed", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext_colour", (BuiltinFunc)builtin_draw_text_color_ext);
+    VM_registerBuiltin(ctx, "draw_text_transformed_colour", (BuiltinFunc)builtin_draw_text_color_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext_transformed_colour", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
     VM_registerBuiltin(ctx, "draw_surface", (BuiltinFunc)builtin_draw_surface);
     VM_registerBuiltin(ctx, "draw_surface_ext", (BuiltinFunc)builtin_draw_surface_ext);
     VM_registerBuiltin(ctx, "draw_surface_part", (BuiltinFunc)builtin_draw_surface_part);
     VM_registerBuiltin(ctx, "draw_surface_part_ext", (BuiltinFunc)builtin_draw_surface_part_ext);
     VM_registerBuiltin(ctx, "draw_surface_stretched", (BuiltinFunc)builtin_draw_surface_stretched);
+    VM_registerBuiltin(ctx, "draw_surface_stretched_ext", (BuiltinFunc)builtin_draw_surface_stretched_ext);
     if(!isGMS2) {
         VM_registerBuiltin(ctx, "draw_background", (BuiltinFunc)builtin_draw_background);
         VM_registerBuiltin(ctx, "draw_background_ext", (BuiltinFunc)builtin_draw_background_ext);
         VM_registerBuiltin(ctx, "draw_background_stretched", (BuiltinFunc)builtin_draw_background_stretched);
+        VM_registerBuiltin(ctx, "draw_background_part", (BuiltinFunc)builtin_draw_background_part);
         VM_registerBuiltin(ctx, "draw_background_part_ext", (BuiltinFunc)builtin_draw_background_part_ext);
         VM_registerBuiltin(ctx, "draw_background_tiled", (BuiltinFunc)builtin_draw_background_tiled);
         VM_registerBuiltin(ctx, "draw_background_tiled_ext", (BuiltinFunc)builtin_draw_background_tiled_ext);
@@ -14819,7 +15647,15 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "tilemap_y", (BuiltinFunc)builtin_tilemap_y);
     VM_registerBuiltin(ctx, "tilemap_get_x", (BuiltinFunc)builtin_tilemap_get_x);
     VM_registerBuiltin(ctx, "tilemap_get_y", (BuiltinFunc)builtin_tilemap_get_y);
+    VM_registerBuiltin(ctx, "tilemap_get", (BuiltinFunc)builtin_tilemap_get);
     VM_registerBuiltin(ctx, "tilemap_get_at_pixel", (BuiltinFunc)builtin_tilemap_get_at_pixel);
+    VM_registerBuiltin(ctx, "tilemap_get_tileset", (BuiltinFunc)builtin_tilemap_get_tileset);
+    VM_registerBuiltin(ctx, "tile_get_index", (BuiltinFunc)builtin_tile_get_index);
+    VM_registerBuiltin(ctx, "tile_get_mirror", (BuiltinFunc)builtin_tile_get_mirror);
+    VM_registerBuiltin(ctx, "tile_get_flip", (BuiltinFunc)builtin_tile_get_flip);
+    VM_registerBuiltin(ctx, "tile_get_rotate", (BuiltinFunc)builtin_tile_get_rotate);
+    VM_registerBuiltin(ctx, "tile_set_empty", (BuiltinFunc)builtin_tile_set_empty);
+    VM_registerBuiltin(ctx, "tilemap_set_at_pixel", (BuiltinFunc)builtin_tilemap_set_at_pixel);
 #endif
     VM_registerBuiltin(ctx, "layer_create", (BuiltinFunc)builtin_layer_create);
     VM_registerBuiltin(ctx, "layer_destroy", (BuiltinFunc)builtin_layer_destroy);
@@ -14836,8 +15672,16 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_background_sprite", (BuiltinFunc)builtin_layer_background_sprite);
     VM_registerBuiltin(ctx, "layer_background_change", (BuiltinFunc)builtin_layer_background_sprite);
     VM_registerBuiltin(ctx, "layer_background_get_id", (BuiltinFunc)builtin_layer_background_get_id);
+    VM_registerBuiltin(ctx, "layer_background_get_alpha", (BuiltinFunc)builtin_layer_background_get_alpha);
     VM_registerBuiltin(ctx, "layer_background_index", (BuiltinFunc)builtin_layer_background_index);
     VM_registerBuiltin(ctx, "layer_tile_alpha", (BuiltinFunc)builtin_layer_tile_alpha);
+    VM_registerBuiltin(ctx, "layer_tile_x", (BuiltinFunc)builtin_layer_tile_x);
+    VM_registerBuiltin(ctx, "layer_tile_y", (BuiltinFunc)builtin_layer_tile_y);
+    VM_registerBuiltin(ctx, "layer_tile_get_x", (BuiltinFunc)builtin_layer_tile_get_x);
+    VM_registerBuiltin(ctx, "layer_tile_get_y", (BuiltinFunc)builtin_layer_tile_get_y);
+    VM_registerBuiltin(ctx, "layer_tile_get_xscale", (BuiltinFunc)builtin_layer_tile_get_xscale);
+    VM_registerBuiltin(ctx, "layer_tile_get_yscale", (BuiltinFunc)builtin_layer_tile_get_yscale);
+    VM_registerBuiltin(ctx, "layer_tile_get_region", (BuiltinFunc)builtin_layer_tile_get_region);
     VM_registerBuiltin(ctx, "layer_background_destroy", (BuiltinFunc)builtin_layer_background_destroy);
 
     // GMS2 internal
@@ -14959,20 +15803,23 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "font_add_sprite", (BuiltinFunc)builtin_font_add_sprite);
     VM_registerBuiltin(ctx, "font_add_sprite_ext", (BuiltinFunc)builtin_font_add_sprite_ext);
     VM_registerBuiltin(ctx, "font_get_name", (BuiltinFunc)builtin_font_get_name);
+    VM_registerBuiltin(ctx, "font_get_info", (BuiltinFunc)builtin_font_get_info);
     VM_registerBuiltin(ctx, "object_exists", (BuiltinFunc)builtin_object_exists);
-    VM_registerBuiltin(ctx, "object_get_depth", (BuiltinFunc)builtin_object_get_depth);
     VM_registerBuiltin(ctx, "object_get_name", (BuiltinFunc)builtin_object_get_name);
     VM_registerBuiltin(ctx, "object_name", (BuiltinFunc)builtin_object_get_name); // alias for pre-GMS 2.3
     VM_registerBuiltin(ctx, "object_get_parent", (BuiltinFunc)builtin_object_get_parent);
     VM_registerBuiltin(ctx, "object_get_persistent", (BuiltinFunc)builtin_object_get_persistent);
     VM_registerBuiltin(ctx, "object_get_solid", (BuiltinFunc)builtin_object_get_solid);
     VM_registerBuiltin(ctx, "object_get_sprite", (BuiltinFunc)builtin_object_get_sprite);
-    VM_registerBuiltin(ctx, "object_set_depth", (BuiltinFunc)builtin_object_set_depth);
     VM_registerBuiltin(ctx, "object_set_parent", (BuiltinFunc)builtin_object_set_parent);
     VM_registerBuiltin(ctx, "object_set_persistent", (BuiltinFunc)builtin_object_set_persistent);
     VM_registerBuiltin(ctx, "object_set_solid", (BuiltinFunc)builtin_object_set_solid);
     VM_registerBuiltin(ctx, "object_set_sprite", (BuiltinFunc)builtin_object_set_sprite);
     VM_registerBuiltin(ctx, "object_set_visible", (BuiltinFunc)builtin_object_set_visible);
+    if (!isGMS2) {
+        VM_registerBuiltin(ctx, "object_get_depth", (BuiltinFunc)builtin_object_get_depth);
+        VM_registerBuiltin(ctx, "object_set_depth", (BuiltinFunc)builtin_object_set_depth);
+    }
     VM_registerBuiltin(ctx, "object_is_ancestor", (BuiltinFunc)builtin_object_is_ancestor);
     VM_registerBuiltin(ctx, "asset_get_index", (BuiltinFunc)builtin_asset_get_index);
     VM_registerBuiltin(ctx,"gpu_set_blendmode", (BuiltinFunc)builtin_gpu_set_blendmode);
@@ -15006,9 +15853,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "shader_get_uniform", (BuiltinFunc)builtin_shader_get_uniform);
     VM_registerBuiltin(ctx, "shader_get_sampler_index", (BuiltinFunc)builtin_shader_get_sampler_index);
     VM_registerBuiltin(ctx, "shader_set_uniform_f", (BuiltinFunc)builtin_shader_set_uniformF);
+    VM_registerBuiltin(ctx, "shader_set_uniform_f_array", (BuiltinFunc)builtin_shader_set_uniform_f_array);
     VM_registerBuiltin(ctx, "shader_set_uniform_i", (BuiltinFunc)builtin_shader_set_uniformI);
     VM_registerBuiltin(ctx, "sprite_get_uvs", (BuiltinFunc)builtin_sprite_get_uvs);
     VM_registerBuiltin(ctx, "sprite_get_texture", (BuiltinFunc)builtin_sprite_get_texture);
+    VM_registerBuiltin(ctx, "sprite_get_speed", (BuiltinFunc)builtin_sprite_get_speed);
     VM_registerBuiltin(ctx, "font_get_uvs", (BuiltinFunc)builtin_font_get_uvs);
     VM_registerBuiltin(ctx, "texture_get_texel_width", (BuiltinFunc)builtin_texture_get_texel_width);
     VM_registerBuiltin(ctx, "texture_get_texel_height", (BuiltinFunc)builtin_texture_get_texel_height);

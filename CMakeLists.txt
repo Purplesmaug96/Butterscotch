@@ -142,7 +142,7 @@ endif()
 if(PLATFORM STREQUAL "xbox360-xdk")
 	file(GLOB ATG_SOURCES src/${PLATFORM}/Atg/*.c src/${PLATFORM}/Atg/*.cpp)
 	set(ALL_XENON_SOURCES
-		${ATG_SOURCES}
+		# ${ATG_SOURCES}
         ${SOURCES}
         ${PLATFORM_SOURCES}
         ${AUDIO_SOURCES}
@@ -318,6 +318,14 @@ if(PLATFORM STREQUAL "desktop")
         target_include_directories(butterscotch PRIVATE ${SDL2_INCLUDE_DIRS})
         target_link_directories(butterscotch PRIVATE ${SDL2_LIBRARY_DIRS})
         set(BACKEND_LIBRARIES ${SDL2_LIBRARIES})
+    elseif(DESKTOP_BACKEND STREQUAL "sdl3")
+        add_compile_definitions(USE_SDL3)
+
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(SDL3 REQUIRED sdl3)
+        target_include_directories(butterscotch PRIVATE ${SDL3_INCLUDE_DIRS})
+        target_link_directories(butterscotch PRIVATE ${SDL3_LIBRARY_DIRS})
+        set(BACKEND_LIBRARIES ${SDL3_LIBRARIES})
     endif()
     target_link_libraries(butterscotch ${BACKEND_LIBRARIES} ${AUDIO_LIBRARIES} ${PLATFORM_LIBRARIES})
     target_sources(butterscotch PRIVATE src/desktop/backends/${DESKTOP_BACKEND}.c)

@@ -178,13 +178,12 @@ typedef struct {
     float offsetY;
 } TileLayerState;
 
-// Mutable background element on a dynamically-created layer (layer_background_create).
-// For parsed room layers, RoomLayerBackgroundData is used directly and this struct is unused.
+// Runtime background element on a layer
 typedef struct {
     int32_t spriteIndex; // SPRT index (-1 = none)
     bool visible;
-    bool htiled;
-    bool vtiled;
+    bool hTiled;
+    bool vTiled;
     bool stretch;
     float xScale;
     float yScale;
@@ -224,8 +223,7 @@ typedef struct {
     bool visible;
     float alpha; // GameMaker-HTML5's m_imageAlpha
     uint32_t blend; // GameMaker-HTML5's m_imageBlend
-    RuntimeBackgroundElement* backgroundElement; // owned; only set for Background elements created via layer_background_create
-    RoomLayerBackgroundData* parsedBackgroundData; // borrowed, points into the parsed RoomLayer; only set for a parsed Background layer's element
+    RuntimeBackgroundElement* backgroundElement; // owned; set for every background element
     RuntimeSpriteElement* spriteElement; // owned; nullptr if type != Sprite
     RoomTile* tileElement; // borrowed, points into RoomLayerAssetsData->legacyTiles; nullptr if type != Tile
     RoomLayerTilesData* tilemapData; // borrowed, points into the parsed RoomLayer; nullptr if type != Tilemap
@@ -274,6 +272,12 @@ typedef struct {
     RValue value;
 } DsMapEntry;
 
+// ds_priority queue item
+typedef struct {
+    int32_t depth;
+    RValue item;
+} DsPriorityItem;
+
 // ds_list: dynamic array of RValues
 typedef struct {
     RValue* items; // stb_ds dynamic array of RValues
@@ -290,6 +294,11 @@ typedef struct {
     RValue* items; // stb_ds dynamic array of RValues
     bool freed;    // true when the slot is destroyed and available for reuse by ds_stack_create
 } DsStack;
+
+typedef struct {
+    DsPriorityItem* items; // stb_ds dynamic array of DsPriorityItems
+    bool freed;    // true when the slot is destroyed and available for reuse by ds_priority_queue_create
+} DsPriority;
 
 // ===[ GML Buffer System ]===
 
@@ -473,6 +482,8 @@ struct Runner {
     int32_t oldApplicationHeight;
     int32_t widescreenExtraWidth;
     int32_t widescreenExtraHeight;
+    float displayScaleX;
+    float displayScaleY;
     float freeCamPanX, freeCamPanY, freeCamZoom; // Visual-only free camera.
     // ID returned by renderer->vtable->ensureApplicationSurface each frame. Real surface ID on GL/GL-legacy,
     // APPLICATION_SURFACE_ID (-1) on PS2. This is what BUILTIN_VAR_APPLICATION_SURFACE returns to GML.
@@ -481,6 +492,8 @@ struct Runner {
     bool (*getWindowSize)(int32_t* outW, int32_t* outH);
     void (*setWindowSize)(int32_t width, int32_t height);
     bool (*windowHasFocus)(void);
+    void (*setCursor)(int32_t cursorType);
+    int32_t currentCursor;  // last value passed to window_set_cursor
     TileLayerMapEntry* tileLayerMap; // stb_ds hashmap: depth -> tile layer state
     RuntimeLayer* runtimeLayers; // stb_ds array, index-parallel to currentRoom->layers for parsed entries; dynamic entries appended
     uint32_t nextLayerId;        // counter for IDs of layers/elements created at runtime
@@ -516,12 +529,14 @@ struct Runner {
     int32_t forcedDepth;
     // The time between the last frame and the current frame, stored in microseconds.
     double deltaTime;
+    char* windowTitle;
 
     // ===[ Builtin function state ]===
     DsMapEntry** dsMapPool; // stb_ds array of stb_ds hashmaps
     DsList* dsListPool; // stb_ds array of DsList
     DsQueue* dsQueuePool; // stb_ds array of DsQueue
     DsStack* dsStackPool; // stb_ds array of DsStack
+    DsPriority* dsPriorityPool; // stb_ds array of DsPriority
     GmlBuffer* gmlBufferPool; // stb_ds array of GmlBuffer
     MpGrid* mpGridPool; // stb_ds array of motion-planning grids
 
@@ -585,6 +600,12 @@ struct Runner {
     // GameMaker surface "stack".
     int32_t surfaceStack[MAX_SURFACES];
 
+    // GUI-pass state: when inGuiPass is set, popping the surface stack empty must restore the GUI target + projection, not the room view.
+    bool inGuiPass;
+    int32_t guiPassW, guiPassH;
+    int32_t guiPassPortW, guiPassPortH;
+    int32_t guiPassTarget;
+
     // Both must be set
     // The original runner actually spawns a new process when game_change is called
     char* pendingWorkingDirectory;
@@ -617,13 +638,12 @@ void Runner_setHealth(Runner* runner, GMLReal value);
 void Runner_draw(Runner* runner);
 // Ensures the application_surface exists at the right size, mirrors the renderer's ID into runner+renderer state, then
 // invokes renderer->vtable->beginFrame. Every platform main should call this instead of beginFrame directly.
-void Runner_beginFrame(Runner* runner, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH);
+void Runner_beginFrame(Runner* runner, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH, int32_t framebufferW, int32_t framebufferH);
 void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t targetW, int32_t targetH);
 void Runner_drawPre(Runner* runner, int32_t windowW, int32_t windowH);
 void Runner_drawPost(Runner* runner, int32_t windowW, int32_t windowH);
-void Runner_drawBackgrounds(Runner* runner, bool foreground);
 void Runner_computeViewDisplayScale(Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY);
-void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, float displayScaleX, float displayScaleY, bool debugShowCollisionMasks);
+void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugShowCollisionMasks);
 void Runner_updateMousePosition(Runner* runner, int32_t windowWidth, int32_t windowHeight, double mouseXInWindow, double mouseYInWindow);
 // Converts the cached screen-space cursor (RunnerMouseState.screenX/screenY) to room/world coordinates using the LIVE camera/view state.
 void Runner_getMouseRoomPosition(Runner* runner, GMLReal* outX, GMLReal* outY);
@@ -663,6 +683,10 @@ void Runner_popInstanceSnapshot(Runner* runner, int32_t base);
 // Push the surfaceID onto the runner's surface stack and bind it as the active render target.
 // Returns false if the stack is full.
 bool Runner_surfaceSetTarget(Runner* runner, int32_t surfaceID);
+// Tracks when the GUI size has changed.
+// When we are NOT in a GUI pass, we do nothing.
+// When we ARE in a GUI pass, we recalculate the GUI width and height and re-start with beginGUI to match the new dimensions.
+void Runner_guiSizeChanged(Runner* runner);
 // Pops the top of the surface stack and bind whatever is below (or the main framebuffer when the stack is empty).
 // Returns false when there was nothing to pop.
 bool Runner_surfaceResetTarget(Runner* runner);

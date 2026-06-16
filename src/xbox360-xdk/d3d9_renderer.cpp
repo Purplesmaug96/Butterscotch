@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdarg>
 
+float _offx = 0.0f;
+
 // Core headers — compiled as C++ alongside the .c files (via /TP flag)
 #include "utils.h"
 #include "text_utils.h"
@@ -147,20 +149,20 @@ static void setGameTargetTransform(D3D9Renderer* dr) {
 }
 
 static void setWindowSurfaceTransform(D3D9Renderer* dr) {
-    dr->offsetX = 0.0f;
+    dr->offsetX = _offx + 0.0f;
     dr->offsetY = 0.0f;
     dr->portScaleX = (dr->appSurfaceW > 0) ? ((float)dr->screenW / (float)dr->appSurfaceW) : 1.0f;
     dr->portScaleY = (dr->appSurfaceH > 0) ? ((float)dr->screenH / (float)dr->appSurfaceH) : 1.0f;
-    dr->portOffsetX = 0.0f;
+    dr->portOffsetX = _offx + 0.0f;
     dr->portOffsetY = 0.0f;
 }
 
 static void setApplicationSurfaceTransform(D3D9Renderer* dr) {
-    dr->offsetX = 0.0f;
+    dr->offsetX = _offx + 0.0f;
     dr->offsetY = 0.0f;
     dr->portScaleX = 1.0f;
     dr->portScaleY = 1.0f;
-    dr->portOffsetX = 0.0f;
+    dr->portOffsetX = _offx + 0.0f;
     dr->portOffsetY = 0.0f;
 }
 
@@ -255,7 +257,7 @@ static void flushBatch(D3D9Renderer* dr) {
 
 static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* bytes, int byteSize, const char* label);
 static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index);
-static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID);
+static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface);
 static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
 
 static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
@@ -571,12 +573,12 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
     // Fit the game inside the 720p backbuffer. On Xbox 360, 1080p backbuffers
     // can fail to allocate; keep 720p and rely on point sampling for crispness.
-    float scaleX = (float)windowW / (float)gameW;
-    float scaleY = (float)windowH / (float)gameH;
-    float fitScale = (scaleX < scaleY) ? scaleX : scaleY;
-    dr->renderScale = fitScale;
-    dr->renderOffsetX = ((float)windowW - (float)gameW * dr->renderScale) * 0.5f;
-    dr->renderOffsetY = ((float)windowH - (float)gameH * dr->renderScale) * 0.5f;
+    // float scaleX = (float)windowW / (float)gameW;
+    // float scaleY = (float)windowH / (float)gameH;
+    // float fitScale = (scaleX < scaleY) ? scaleX : scaleY;
+    // dr->renderScale = fitScale;
+    // dr->renderOffsetX = ((float)windowW - ((float)gameW * dr->renderScale)) * 0.5f;
+    // dr->renderOffsetY = ((float)windowH - (float)gameH * dr->renderScale) * 0.5f;
 
     // Debug: print once
     static bool printedOnce = false;
@@ -590,7 +592,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     dev->BeginScene();
 
     if (renderer->runner && renderer->runner->usingAppSurface && dr->appSurfaceLevel) {
-        d3d9SetRenderTarget(renderer, APPLICATION_SURFACE_ID);
+        d3d9SetRenderTarget(renderer, APPLICATION_SURFACE_ID, false);
         dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     } else {
         bindBackbuffer(dr);
@@ -724,7 +726,7 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* worldToClip)
     (void)worldToClip;
 }
 
-static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH) {
+static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
 
@@ -1423,7 +1425,7 @@ static bool d3d9SurfaceExists(Renderer* renderer, int32_t surfaceID) {
     return surfaceID == APPLICATION_SURFACE_ID;
 }
 
-static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID) {
+static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
     static int logged = 0;

@@ -163,7 +163,7 @@ static inline RValue RValue_makeUndefined(void) {
 }
 
 // Takes ownership: refCount is NOT bumped (caller hands off its ref). The returned RValue decRefs on free.
-// Use this when you have a freshly-allocated array (GMLArray_alloc) or after a GMLArray_incRef.
+// Use this when you have a freshly-allocated array (GMLArray_create) or after a GMLArray_incRef.
 static inline RValue RValue_makeArray(GMLArray* arr) {
     RValue rv = {0};
     rv.type = RVALUE_ARRAY;
@@ -185,13 +185,18 @@ static inline RValue RValue_makeArrayWeak(GMLArray* arr) {
 
 #if IS_WAD17_OR_HIGHER_ENABLED
 // Takes ownership: refCount is NOT bumped (caller hands off its ref). The returned RValue decRefs on free.
-static inline RValue RValue_makeMethod(int32_t codeIndex, int32_t boundInstanceId) {
+static inline RValue RValue_makeMethod(GMLMethod* gmlMethod) {
     RValue rv = {0};
     rv.type = RVALUE_METHOD;
     rv.ownsReference = true;
     rv.gmlStackType = GML_TYPE_VARIABLE;
-    rv.method = GMLMethod_create(codeIndex, boundInstanceId);
+    rv.method = gmlMethod;
     return rv;
+}
+
+// Takes ownership: refCount is NOT bumped (caller hands off its ref). The returned RValue decRefs on free.
+static inline RValue RValue_makeMethodFromCodeIndexAndInstanceId(int32_t codeIndex, int32_t boundInstanceId) {
+    return RValue_makeMethod(GMLMethod_create(codeIndex, boundInstanceId));
 }
 
 // Weak view: does not own (no decRef on free). Callers that stash the value long-term must incRef + set ownsString.
@@ -262,6 +267,13 @@ static inline RValue RValue_makeIndependent(RValue val) {
     }
     requireMessageFormatted(__FILE__, __LINE__, !val.ownsReference, "Trying to make independent a RValue (type=%d) that owns a reference, but we don't handle it yet! Did you add a new refcounted value to Butterscotch without implementing RValue_makeIndependent for it?", val.type);
     return val;
+}
+
+// Steals the "val" ownership or, if it isn't owned, makes it independent.
+static inline RValue RValue_stealOwnershipOrCopy(RValue val) {
+    if (val.ownsReference)
+        return val;
+    return RValue_makeIndependent(val);
 }
 
 // Converts an RValue to a heap-allocated string representation.
@@ -483,4 +495,20 @@ static inline bool RValue_toBool(RValue val) {
         case RVALUE_ASSETREF: return val.int32 > 0;
         default:            return false;
     }
+}
+
+// Copies "val" into *slot by making the RValue independent. Caller retains "val".
+static inline void RValue_copyIntoSlot(RValue* slot, RValue val) {
+    RValue target = RValue_makeIndependent(val);
+    // Free whatever was there.
+    RValue_free(slot);
+    *slot = target;
+}
+
+// Writes "val" into *slot. If the "val" is owning, we steal it, if it isn't, we copy it. Caller must NOT free "val".
+static inline void RValue_writeIntoSlotStealingOwnershipOrCopying(RValue* slot, RValue val) {
+    RValue target = RValue_stealOwnershipOrCopy(val);
+    // Free whatever was there.
+    RValue_free(slot);
+    *slot = target;
 }

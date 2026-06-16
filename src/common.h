@@ -58,3 +58,25 @@
 #ifndef ALWAYSINLINE
 	#define ALWAYSINLINE __attribute__((always_inline))
 #endif
+
+#if defined(__GNUC__) || defined(__clang__)
+    #if defined(__x86_64__) || defined(__i386__) || defined(__riscv)
+        #define YIELD() __asm__ volatile("rep; nop" : : : "memory")
+    #elif defined(__aarch64__) || (defined(__arm__) && defined(__ARM_ARCH) && (__ARM_ARCH >= 7))
+        #define YIELD() __asm__ volatile("yield" : : : "memory")
+    #else
+        #define YIELD() ((void)0)
+    #endif
+#elif defined(_MSC_VER)
+	#if defined(_M_X64) || defined(_M_IX86)
+		#include <intrin.h>
+        #define YIELD() _mm_pause()
+    #elif defined(_M_ARM64) || defined(_M_ARM)
+		#include <intrin.h>
+        #define YIELD() __yield()
+    #else
+        #define YIELD() ((void)0)
+    #endif
+#else
+    #define YIELD() ((void)0)
+#endif
