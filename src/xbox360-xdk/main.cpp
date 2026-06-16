@@ -842,7 +842,6 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
 	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) / 2.0f;
 	((D3D9Renderer*)renderer)->renderOffsetY = 0.0f;
 	((D3D9Renderer*)renderer)->renderingToApplicationSurface = false;
-	diagLog("%f", ((D3D9Renderer*)renderer)->renderOffsetX);
     Runner_drawPre(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
     Runner_beginFrame(runner, gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
 	Runner_drawViews(runner, frameW, frameH, false);
