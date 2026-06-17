@@ -4,11 +4,11 @@
 #include <xtl.h>
 #include <d3d9.h>
 #include <d3dx9.h>
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cerrno>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 
 // DbgPrint is a C-linkage kernel function — declare it explicitly since
 // we compile .c files as C++ and removed extern "C" wrappers.
@@ -923,11 +923,11 @@ VOID __cdecl main() {
 
     if (!dataWinPath) {
         diagLog("BS: FATAL: data.win not found");
-        for (;;) { } // hang instead of crash for debugging
+        // for (;;) { } // hang instead of crash for debugging
     }
 
     bool loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
-    if (loadingOk) loadingDraw(&gLoadingScreen, 0.02f, "Starting Butterscotch360");
+    if (loadingOk) loadingDraw(&gLoadingScreen, 0.02f, "Starting Butterscotch");
 
     diagLog("BS: 06 parsing data.win");
     if (loadingOk) loadingDraw(&gLoadingScreen, 0.05f, "Opening data.win");
