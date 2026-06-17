@@ -3828,7 +3828,7 @@ static bool variableInstanceExistsOn(VMContext* ctx, Instance* target, const cha
 static RValue variableScopedGet(VMContext* ctx, int32_t id, const char* name, bool structOnly, const char* originBuiltin) {
     Runner* runner = ctx->runner;
 
-    if (id >= 100000) {
+    if (id >= INSTANCE_ID_BASE) {
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) return variableInstanceGetOn(ctx, inst, name, originBuiltin);
         return RValue_makeUndefined();
@@ -3852,7 +3852,7 @@ static RValue variableScopedGet(VMContext* ctx, int32_t id, const char* name, bo
 static void variableScopedSet(VMContext* ctx, int32_t id, const char* name, RValue val, bool structOnly, const char* originBuiltin) {
     Runner* runner = ctx->runner;
 
-    if (id >= 100000) {
+    if (id >= INSTANCE_ID_BASE) {
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) variableInstanceSetOn(ctx, inst, name, val, originBuiltin);
         return;
@@ -3871,7 +3871,7 @@ static void variableScopedSet(VMContext* ctx, int32_t id, const char* name, RVal
 static bool variableScopedExists(VMContext* ctx, int32_t id, const char* name, bool structOnly) {
     Runner* runner = ctx->runner;
 
-    if (id >= 100000) {
+    if (id >= INSTANCE_ID_BASE) {
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) return variableInstanceExistsOn(ctx, inst, name);
         return false;
@@ -3930,27 +3930,30 @@ static RValue builtin_variable_struct_exists(VMContext* ctx, RValue* args, int32
 static RValue builtin_method(VMContext* ctx, MAYBE_UNUSED RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
 
-    int32_t boundInstance = RValue_toInt32(args[0]);
-    int32_t rawArg = RValue_toInt32(args[1]);
+    int32_t instanceToBeBound = RValue_toInt32(args[0]);
+    RValue codeIndexOrMethod = args[1];
 
-    // In GMS2 BC17+, function references are pushed via `Push.i <funcIdx>` where funcIdx is an index into the FUNC chunk (patched in by patchReferenceOperands). Resolve funcIdx -> codeIndex via function name lookup (same flow as Call.i).
-    int32_t codeIndex = rawArg;
-    if (rawArg >= 0 && (uint32_t) rawArg < ctx->dataWin->func.functionCount) {
-        const char* funcName = ctx->dataWin->func.functions[rawArg].name;
-        if (funcName != nullptr) {
-            ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) funcName);
-            if (idx >= 0) {
-                codeIndex = ctx->codeIndexByName[idx].value;
+    if (codeIndexOrMethod.type == RVALUE_METHOD) {
+        // Code wants to REBIND a method to a specific instance
+        // The pattern seems to be the following:
+        // * method(-1, codeIndex)
+        // * method(instanceId, method handle)
+        return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndexOrMethod.method->codeIndex, instanceToBeBound);
+    } else {
+        // In GMS2 BC17+, function references are pushed via `Push.i <funcIdx>` where funcIdx is an index into the FUNC chunk (patched in by patchReferenceOperands). Resolve funcIdx -> codeIndex via function name lookup (same flow as Call.i).
+        int32_t codeIndex = RValue_toInt32(codeIndexOrMethod);
+        if (codeIndex >= 0 && (uint32_t) codeIndex < ctx->dataWin->func.functionCount) {
+            const char* funcName = ctx->dataWin->func.functions[codeIndex].name;
+            if (funcName != nullptr) {
+                ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) funcName);
+                if (idx >= 0) {
+                    codeIndex = ctx->codeIndexByName[idx].value;
+                }
             }
         }
-    }
 
-    // If binding to current self (-1), capture the actual instance ID
-    if (boundInstance == -1 && ctx->currentInstance != nullptr) {
-        boundInstance = ctx->currentInstance->instanceId;
+        return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndex, instanceToBeBound);
     }
-
-    return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndex, boundInstance);
 }
 #endif
 
@@ -12636,12 +12639,51 @@ static RValue builtin_layer_tile_visible(VMContext* ctx, RValue* args, MAYBE_UNU
     return RValue_makeUndefined();
 }
 
+static bool isValidLayerSpriteElement(RuntimeLayerElement* element) {
+    bool isValid = element != nullptr && element->type == RuntimeLayerElementType_Sprite;
+    requireNotNull(element->spriteElement); // If this crashes then something went DEEPLY wrong
+    return isValid;
+}
+
+static RValue builtin_layer_sprite_get_id(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    RValue idOrName = args[0];
+
+    RuntimeLayer* layer;
+    if (idOrName.type == RVALUE_STRING) {
+        char* name = RValue_toString(idOrName);
+        layer = Runner_findRuntimeLayerByName(runner, name);
+        free(name);
+    } else {
+        int32_t id = RValue_toInt32(idOrName);
+        layer = Runner_findRuntimeLayerById(runner, id);
+    }
+
+    if (layer == nullptr)
+        return RValue_makeReal(-1.0);
+
+    char* name = RValue_toString(args[1]);
+
+    repeat(arrlen(layer->elements), i) {
+        RuntimeLayerElement* element = &layer->elements[i];
+        if (isValidLayerSpriteElement(element)) {
+            if (element->spriteElement->name != nullptr && strcmp(element->spriteElement->name, name) == 0) {
+                free(name);
+                return RValue_makeReal(element->id);
+            }
+        }
+    }
+
+    free(name);
+    return RValue_makeReal(-1.0);
+}
+
 static RValue builtin_layer_sprite_get_sprite(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
 
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(-1.0);
 
     return RValue_makeReal((GMLReal) el->spriteElement->spriteIndex);
@@ -12651,7 +12693,7 @@ static RValue builtin_layer_sprite_get_angle(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->rotation);
 }
@@ -12660,7 +12702,7 @@ static RValue builtin_layer_sprite_get_alpha(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal(el->alpha);
 }
@@ -12669,7 +12711,7 @@ static RValue builtin_layer_sprite_get_blend(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->blend);
 }
@@ -12678,7 +12720,7 @@ static RValue builtin_layer_sprite_get_x(VMContext* ctx, RValue* args, MAYBE_UNU
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->x);
 }
@@ -12687,7 +12729,7 @@ static RValue builtin_layer_sprite_get_y(VMContext* ctx, RValue* args, MAYBE_UNU
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->y);
 }
@@ -12696,7 +12738,7 @@ static RValue builtin_layer_sprite_get_xscale(VMContext* ctx, RValue* args, MAYB
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(1.0);
     return RValue_makeReal((GMLReal) el->spriteElement->scaleX);
 }
@@ -12705,7 +12747,7 @@ static RValue builtin_layer_sprite_get_yscale(VMContext* ctx, RValue* args, MAYB
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(1.0);
     return RValue_makeReal((GMLReal) el->spriteElement->scaleY);
 }
@@ -12714,7 +12756,7 @@ static RValue builtin_layer_sprite_get_speed(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->animationSpeed);
 }
@@ -12723,7 +12765,7 @@ static RValue builtin_layer_sprite_get_index(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
-    if (el == nullptr || el->type != RuntimeLayerElementType_Sprite || el->spriteElement == nullptr)
+    if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->frameIndex);
 }
@@ -12734,7 +12776,7 @@ static RValue builtin_layer_sprite_destroy(VMContext* ctx, RValue* args, MAYBE_U
 
     RuntimeLayer* owningLayer = nullptr;
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, &owningLayer);
-    if (el == nullptr || owningLayer == nullptr || el->type != RuntimeLayerElementType_Sprite)
+    if (!isValidLayerSpriteElement(el) || owningLayer == nullptr)
         return RValue_makeUndefined();
 
     if (el->spriteElement != nullptr) {
@@ -13071,9 +13113,8 @@ static RValue builtin_array_create(VMContext* ctx, RValue* args, int32_t argCoun
 // @@This@@ - GMS2 internal function returning the current instance's ID.
 // Emitted by the GMS2 compiler for expressions like `self` when used as a value.
 static RValue builtin_This(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    Instance* inst = ctx->currentInstance;
-    if (inst == nullptr) return RValue_makeInt32(INSTANCE_SELF);
-    return RValue_makeInt32((int32_t) inst->instanceId);
+    Instance* instance = requireNotNullMessage(ctx->currentInstance, "Called @@This@@ while there isn't a current instance on the context!");
+    return RValue_makeInt32((int32_t) instance->instanceId);
 }
 
 // @@Global@@ - GMS2 internal function returning the "global" instance's ID.
@@ -15685,6 +15726,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_instance_get_instance", (BuiltinFunc)builtin_layer_instance_get_instance);
 #endif
     VM_registerBuiltin(ctx, "layer_get_element_type", (BuiltinFunc)builtin_layer_get_element_type);
+    VM_registerBuiltin(ctx, "layer_sprite_get_id", (BuiltinFunc)builtin_layer_sprite_get_id);
     VM_registerBuiltin(ctx, "layer_sprite_get_sprite", (BuiltinFunc)builtin_layer_sprite_get_sprite);
     VM_registerBuiltin(ctx, "layer_sprite_get_x", (BuiltinFunc)builtin_layer_sprite_get_x);
     VM_registerBuiltin(ctx, "layer_sprite_get_y", (BuiltinFunc)builtin_layer_sprite_get_y);

@@ -158,7 +158,7 @@ int32_t Runner_pushInstancesForTarget(Runner* runner, int32_t target) {
         memcpy(&runner->instanceSnapshots[base], runner->instances, (size_t) total * sizeof(Instance*));
         return base;
     }
-    if (target >= 100000) {
+    if (target >= INSTANCE_ID_BASE) {
         Instance* inst = hmget(runner->instancesById, target);
         if (inst != nullptr) arrput(runner->instanceSnapshots, inst);
         return base;
@@ -1493,6 +1493,7 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         repeat(assets->spriteCount, j) {
             SpriteInstance* src = &assets->sprites[j];
             RuntimeSpriteElement* spriteElement = (RuntimeSpriteElement*)safeMalloc(sizeof(RuntimeSpriteElement));
+            spriteElement->name = src->name;
             spriteElement->spriteIndex = src->spriteIndex;
             spriteElement->x = src->x;
             spriteElement->y = src->y;
@@ -2290,6 +2291,15 @@ void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst, bool ru
         fprintf(stderr, "VM: Instance %s (instanceId=%d,objectIndex=%d) destroyed\n", gameObject->name, inst->instanceId, inst->objectIndex);
     }
 #endif
+}
+
+RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, char* name) {
+    size_t count = arrlenu(runner->runtimeLayers);
+    repeat(count, i) {
+        if (strcmp(runner->runtimeLayers[i].dynamicName, name) == 0)
+            return &runner->runtimeLayers[i];
+    }
+    return nullptr;
 }
 
 RuntimeLayer* Runner_findRuntimeLayerById(Runner* runner, int32_t id) {
@@ -3178,7 +3188,7 @@ static void updateViews(Runner* runner) {
         Instance* target = nullptr;
         int32_t targetId = camera->objectId;
 
-        if (targetId >= 100000) {
+        if (targetId >= INSTANCE_ID_BASE) {
             // It's an instance ID - look it up directly
             target = hmget(runner->instancesById, targetId);
             if (target != nullptr && (!target->active || target->destroyed)) {

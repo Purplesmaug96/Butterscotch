@@ -118,8 +118,8 @@ SpatialGridQuery SpatialGrid_prepareQuery(Runner* runner, GMLReal x1, GMLReal y1
     requireMessageFormatted(__FILE__, __LINE__, target >= 0 || target == INSTANCE_ALL, "SpatialGrid: [%s] Query target cannot be instance type %d!", runner->vmContext->currentCodeName, target);
 
     SpatialGridRange callerRange = SpatialGrid_computeCellRange(runner->spatialGrid, x1, y1, x2, y2);
-    bool filterByObject = target >= 0 && 100000 > target;
-    bool filterByInstanceId = target >= 100000;
+    bool filterByObject = target >= 0 && INSTANCE_ID_BASE > target;
+    bool filterByInstanceId = target >= INSTANCE_ID_BASE;
     uint32_t queryId = ++runner->collisionQueryCounter;
     SpatialGridQuery ret = {0};
     ret.range = callerRange;

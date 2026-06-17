@@ -894,6 +894,7 @@ int main(int argc, char* argv[]) {
     arrins(currentGameArgs, 0, safeStrdup(argv[0]));
 
     bool platformInitialized = false;
+    int32_t inputFrameCount = 0;
 
     while (true) {
         printf("Loading %s...\n", args.dataWinPath);
@@ -1371,7 +1372,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Process input recording/playback (must happen after platformHandleEvents, before Runner_step)
-                InputRecording_processFrame(globalInputRecording, runner->keyboard, runner->frameCount);
+                InputRecording_processFrame(globalInputRecording, runner->keyboard, inputFrameCount++);
 
                 // Go to next room
                 if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {

@@ -490,12 +490,12 @@ static uint32_t resolveLocalSlot(VMContext* ctx, int32_t varID) {
 }
 
 // Finds an instance by target value.
-// target >= 100000: instance ID (find specific instance, including recently-destroyed-but-not-cleaned-up-yet ones so GML code can read properties of an instance just after instance_destroy within the same step).
-// target >= 0 && target < 100000: object index (find first ACTIVE instance of that object, checking parent chains)
+// target >= INSTANCE_ID_BASE: instance ID (find specific instance, including recently-destroyed-but-not-cleaned-up-yet ones so GML code can read properties of an instance just after instance_destroy within the same step).
+// target >= 0 && target < INSTANCE_ID_BASE: object index (find first ACTIVE instance of that object, checking parent chains)
 static Instance* findInstanceByTarget(VMContext* ctx, int32_t target) {
     Runner* runner = (Runner*) ctx->runner;
 
-    if (target >= 100000) {
+    if (target >= INSTANCE_ID_BASE) {
         // Instance ID - find specific instance
         return hmget(runner->instancesById, target);
     }
@@ -689,7 +689,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         targetInstance = findInstanceByTarget(ctx, instanceType);
         if (targetInstance == nullptr) {
             const char* varTypeName = varTypeToString((varRef >> 24) & 0xF8);
-            if (instanceType < 100000 && (uint32_t) instanceType < ctx->dataWin->objt.count) {
+            if (instanceType < INSTANCE_ID_BASE && (uint32_t) instanceType < ctx->dataWin->objt.count) {
                 GameObject* gameObject = &ctx->dataWin->objt.objects[instanceType];
                 fprintf(stderr, "VM: [%s] READ var '%s' on object index %d (%s) but no instance found (varType=%s, isArray=%s, originalInstanceType=%d, hasInstanceType=%s, varID=%d)\n", ctx->currentCodeName, varDef->name, instanceType, gameObject->name, varTypeName, access.isArray ? "true" : "false", originalInstanceType, access.hasInstanceType ? "true" : "false", varDef->varID);
             } else {
@@ -745,50 +745,8 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         return result;
     }
 
-#if IS_WAD17_OR_HIGHER_ENABLED
-    // BC17+: instanceType == INSTANCE_BUILTIN (-6) on a Push.v means "look up this name as a function reference" (emitted for CallV dispatch paths like `@@This@@(); texture_set_interpolation_ext; CallV`).
-    // Intercept before the builtin-variable path: only treat it as a function if the VARI entry isn't a real built-in variable (varID == -6 with a resolved builtinVarId).
-    if (IS_WAD17_OR_HIGHER(ctx) && instanceType == INSTANCE_BUILTIN && !(varDef->varID == -6 && varDef->builtinVarId != -1)) {
-        // `@@This@@(); push.v bltn.<name>; CallV` is also used for `self.method()` where `method` is a user-defined method stored on the instance (e.g. `init = method(...)` on an object).
-        // CallV pops [func, instance, args], so the instance is sitting right below the func we're about to push. Peek at it and try to read `<name>` off its selfVars first; if the VARI entry has a self scope and the peeked slot resolves to an instance with the field, return that method. Otherwise fall through to global function lookup.
-        if (varDef->instanceType == INSTANCE_SELF && ctx->stack.top > 0) {
-            RValue* peek = stackPeek(ctx);
-            int32_t peekId = RValue_toInt32(*peek);
-            Instance* peekInst = findInstanceByTarget(ctx, peekId);
-            if (peekInst != nullptr) {
-                RValue value;
-                if (tryReadInstanceVarOrStatic(ctx, peekInst, varDef->varID, &access, &value))
-                    return value;
-            }
-        }
-
-        // GameMaker emits a "push builtin" inside a function for "read this as a self-variable"
-        if (varDef->instanceType == INSTANCE_SELF && ctx->currentInstance != nullptr) {
-            Instance* self = (Instance*) ctx->currentInstance;
-            RValue value;
-            if (tryReadInstanceVarOrStatic(ctx, self, varDef->varID, &access, &value))
-                return value;
-        }
-
-        // Then try user scripts/code entries (funcMap maps both "funcName" and "gml_Script_funcName")
-        ptrdiff_t mapIdx = shgeti(ctx->codeIndexByName, varDef->name);
-        if (mapIdx >= 0) {
-            int32_t codeIndex = ctx->codeIndexByName[mapIdx].value;
-            return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndex, -1);
-        }
-        // Then try registered built-ins
-        ptrdiff_t bidx = shgeti(ctx->builtinMap, (char*) varDef->name);
-        if (bidx >= 0) {
-            BuiltinFunc bf = ctx->builtinMap[bidx].value;
-            return RValue_makeMethod(GMLMethod_createBuiltin(bf, -1));
-        }
-        // Unresolved: return a method stub so CallV can log a single "unknown function" and return undefined instead of bailing out with a scary "unresolvable function reference" error.
-        return RValue_makeMethod(GMLMethod_createUnresolved(varDef->name, -1));
-    }
-#endif
-
     // Check for built-in variable (varID == -6 sentinel)
-    if (varDef->varID == -6) {
+    if (varDef->varID == VARIABLE_BUILTIN) {
         // Structs aren't real game instances, but structs CAN store fields with the same names as built-ins.
         // So we'll check the self variables FIRST before checking for built-ins.
         if (targetInstance != nullptr && targetInstance->objectIndex == STRUCT_OBJECT_INDEX) {
@@ -889,7 +847,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
 // Helper: write a variable value to a single specific instance (always copies, never moves the original val)
 static void writeSingleInstanceVariable(VMContext* ctx, Instance* inst, Variable* varDef, ArrayAccess* access, RValue val) {
     // Built-in variable (varID == -6 sentinel)
-    if (varDef->varID == -6) {
+    if (varDef->varID == VARIABLE_BUILTIN) {
         VMBuiltins_setVariable(ctx, inst, varDef->builtinVarId, varDef->name, val, access->arrayIndex);
         return;
     }
@@ -995,7 +953,7 @@ NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, 
 #endif
 
     // GML: writing through an object reference (obj_foo.var = val) sets the variable on ALL instances of that object. The setter (writeSingleInstanceVariable) can run user code, so iterate a snapshot of the bucket.
-    if (instanceType >= 0 && 100000 > instanceType) {
+    if (instanceType >= 0 && INSTANCE_ID_BASE > instanceType) {
         Runner* runner = (Runner*) ctx->runner;
         bool found = false;
         int32_t snapBase = Runner_pushInstancesOfObject(runner, instanceType);
@@ -1022,7 +980,7 @@ NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, 
         return;
     }
 
-    // Resolve target instance for instance ID references (instanceType >= 100000) or special types
+    // Resolve target instance for instance ID references (instanceType >= INSTANCE_ID_BASE) or special types
     Instance* targetInstance = (Instance*) ctx->currentInstance;
     if (instanceType >= 0) {
         targetInstance = findInstanceByTarget(ctx, instanceType);
@@ -1056,7 +1014,7 @@ NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, 
     }
 
     // Check for built-in variable (varID == -6 sentinel)
-    if (varDef->varID == -6) {
+    if (varDef->varID == VARIABLE_BUILTIN) {
         VMBuiltins_setVariable(ctx, targetInstance, varDef->builtinVarId, varDef->name, val, access.arrayIndex);
 
 #ifdef ENABLE_VM_TRACING
@@ -1204,9 +1162,9 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData,
             int32_t instanceType = (int32_t) instrInstanceType(instr);
             uint32_t varRef = resolveVarOperand(extraData);
             uint8_t varType = (varRef >> 24) & 0xF8;
-            // BC17: VARTYPE_INSTANCE encodes (instanceId - 100000) in the instruction's lower 16 bits.
-            // Add 100000 back so findInstanceByTarget sees the real runtime instance ID.
-            if (varType == VARTYPE_INSTANCE) instanceType += 100000;
+            // BC17: VARTYPE_INSTANCE encodes (instanceId - INSTANCE_ID_BASE) in the instruction's lower 16 bits.
+            // Add INSTANCE_ID_BASE back so findInstanceByTarget sees the real runtime instance ID.
+            if (varType == VARTYPE_INSTANCE) instanceType += INSTANCE_ID_BASE;
 #if IS_WAD17_OR_HIGHER_ENABLED
             if (varType == VARTYPE_ARRAYPUSHAF || varType == VARTYPE_ARRAYPOPAF) {
                 // V17: multi-dim first-step. Stack has [scope, firstIndex] (with an optional real-instance slot underneath when scope == -9 INSTANCE_STACKTOP).
@@ -1444,48 +1402,40 @@ static void handlePop(VMContext* ctx, uint8_t type1, uint8_t type2, uint32_t var
 
     if (varType == VARTYPE_ARRAY) {
         Variable* varDef = resolveVarDef(ctx, varRef);
-        if (varDef->varID == -6) {
-            // Resolve target instance for built-in array variable writes (e.g. obj_foo.alarm[0] = 2)
-            if (instanceType >= 0 && 100000 > instanceType) {
-                // Object reference: write to ALL instances of that object. The setter can run user code, so iterate a snapshot of the bucket.
-                Runner* runner = (Runner*) ctx->runner;
-                Instance* savedInstance = (Instance*) ctx->currentInstance;
-                int32_t snapBase = Runner_pushInstancesOfObject(runner, instanceType);
-                int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
-                for (int32_t i = snapBase; snapEnd > i; i++) {
-                    Instance* inst = runner->instanceSnapshots[i];
-                    if (!inst->active) continue;
-                    VMBuiltins_setVariable(ctx, inst, varDef->builtinVarId, varDef->name, val, arrayIndex);
+        if (varDef->varID == VARIABLE_BUILTIN) {
+            // Resolve target instance for built-in array variable writes
+            if (instanceType >= 0) {
+                if (INSTANCE_ID_BASE > instanceType) {
+                    // Object reference: write to ALL instances of that object. The setter can run user code, so iterate a snapshot of the bucket.
+                    Runner* runner = (Runner*) ctx->runner;
+                    int32_t snapBase = Runner_pushInstancesOfObject(runner, instanceType);
+                    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+                    for (int32_t i = snapBase; snapEnd > i; i++) {
+                        Instance* inst = runner->instanceSnapshots[i];
+                        if (!inst->active)
+                            continue;
+
+                        VMBuiltins_setVariable(ctx, inst, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
-                    VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, inst), "self", varDef->name, val, true, arrayIndex, inst->instanceId, " (builtin, all-instances object write)");
+                        VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, inst), "self", varDef->name, val, true, arrayIndex, inst->instanceId, " (builtin, all-instances object write)");
 #endif
+                    }
+                    Runner_popInstanceSnapshot(runner, snapBase);
+                } else {
+                    // Instance ID reference
+                    Instance* target = findInstanceByTarget(ctx, instanceType);
+                    if (target != nullptr) {
+                        VMBuiltins_setVariable(ctx, target, varDef->builtinVarId, varDef->name, val, arrayIndex);
+#ifdef ENABLE_VM_TRACING
+                        VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, target), "self", varDef->name, val, true, arrayIndex, target->instanceId, " (builtin)");
+#endif
+                    }
                 }
-                Runner_popInstanceSnapshot(runner, snapBase);
-                ctx->currentInstance = savedInstance;
-            } else if (instanceType >= 0) {
-                // Instance ID reference
-                Instance* target = findInstanceByTarget(ctx, instanceType);
-                if (target != nullptr) {
-                    VMBuiltins_setVariable(ctx, target, varDef->builtinVarId, varDef->name, val, arrayIndex);
-#ifdef ENABLE_VM_TRACING
-                    VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, target), "self", varDef->name, val, true, arrayIndex, target->instanceId, " (builtin)");
-#endif
-                }
-            } else if (instanceType == INSTANCE_OTHER && ctx->otherInstance != nullptr) {
-                VMBuiltins_setVariable(ctx, ctx->otherInstance, varDef->builtinVarId, varDef->name, val, arrayIndex);
-#ifdef ENABLE_VM_TRACING
-                VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, ctx->otherInstance), "self", varDef->name, val, true, arrayIndex, ctx->otherInstance->instanceId, " (builtin)");
-#endif
             } else {
-                // INSTANCE_SELF or other special types: use current instance
-                VMBuiltins_setVariable(ctx, ctx->currentInstance, varDef->builtinVarId, varDef->name, val, arrayIndex);
+                Instance* targetInstance = instanceType == INSTANCE_OTHER && ctx->otherInstance != nullptr ? ctx->otherInstance : ctx->currentInstance;
+                VMBuiltins_setVariable(ctx, targetInstance, varDef->builtinVarId, varDef->name, val, arrayIndex);
 #ifdef ENABLE_VM_TRACING
-                Instance* inst = (Instance*) ctx->currentInstance;
-                if (instanceType == INSTANCE_GLOBAL) {
-                    VM_checkIfVariableShouldBeTracedAndLog(ctx, "global", nullptr, varDef->name, val, true, arrayIndex, -1, " (builtin)");
-                } else if (inst != nullptr) {
-                    VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, inst), "self", varDef->name, val, true, arrayIndex, inst->instanceId, " (builtin)");
-                }
+                VM_checkIfVariableShouldBeTracedAndLog(ctx, instanceObjectName(ctx, targetInstance), "self", varDef->name, val, true, arrayIndex, targetInstance->instanceId, " (builtin)");
 #endif
             }
         } else {
@@ -1512,7 +1462,7 @@ static void handlePop(VMContext* ctx, uint8_t type1, uint8_t type2, uint32_t var
                         if (inst == nullptr) {
                             const char* varTypeName = varTypeToString(varType);
                             char* valAsString = RValue_toString(val);
-                            if (instanceType < 100000 && (uint32_t) instanceType < ctx->dataWin->objt.count) {
+                            if (instanceType < INSTANCE_ID_BASE && (uint32_t) instanceType < ctx->dataWin->objt.count) {
                                 fprintf(stderr, "VM: [%s] WRITE array var '%s[%d]' on object index %d (%s) but no instance found (varType=%s, originalInstanceType=%d, varID=%d, value=%s)\n", ctx->currentCodeName, varDef->name, arrayIndex, instanceType, ctx->dataWin->objt.objects[instanceType].name, varTypeName, originalInstanceType, varDef->varID, valAsString);
                             } else {
                                 fprintf(stderr, "VM: [%s] WRITE array var '%s[%d]' on instance %d but no instance found (varType=%s, originalInstanceType=%d, varID=%d, value=%s)\n", ctx->currentCodeName, varDef->name, arrayIndex, instanceType, varTypeName, originalInstanceType, varDef->varID, valAsString);
@@ -2330,7 +2280,7 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
         return;
     }
 
-    if (target >= 0 && 100000 > target) {
+    if (target >= 0 && INSTANCE_ID_BASE > target) {
         // Object index - copy the descendant-inclusive list for this object into the frame's own list. frame->instanceList has with-block lifetime (not the snapshot arena's loop lifetime), so we don't use the forEach macro; we just copy directly and filter "active" to match prior semantics (deactivated instances are skipped).
         if (ctx->dataWin->objt.count > (uint32_t) target) {
             Instance** source = runner->instancesByObject[target];
@@ -2375,7 +2325,7 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
         return;
     }
 
-    if (target >= 100000) {
+    if (target >= INSTANCE_ID_BASE) {
         // Instance ID - find specific instance
         Instance* inst = hmget(runner->instancesById, target);
         if (inst != nullptr && inst->active) {
@@ -2990,7 +2940,7 @@ static RValue executeLoop(VMContext* ctx) {
                 // So due to that, we'll take the slow path if it is a builtin variable.
                 // The native runner does NOT handle global arrays from this path, so we don't need to care about them.
                 Variable* varDef = resolveVarDef(ctx, varRef);
-                if (varDef->varID == -6) {
+                if (varDef->varID == VARIABLE_BUILTIN) {
                     RValue val = resolveVariableRead(ctx, INSTANCE_GLOBAL, varRef);
                     stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
                     break;
@@ -3019,8 +2969,8 @@ static RValue executeLoop(VMContext* ctx) {
                 uint32_t varRef = resolveVarOperand(extraData);
                 uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
                 int32_t instanceType = instrInstanceType(instr);
-                // BC17: VARTYPE_INSTANCE encodes (instanceId - 100000) in the instruction's lower 16 bits.
-                if (varType == VARTYPE_INSTANCE) instanceType += 100000;
+                // BC17: VARTYPE_INSTANCE encodes (instanceId - INSTANCE_ID_BASE) in the instruction's lower 16 bits.
+                if (varType == VARTYPE_INSTANCE) instanceType += INSTANCE_ID_BASE;
                 int32_t type2 = instrType2(instr); // source type (what's on stack)
                 if (type1 == GML_TYPE_VARIABLE && varType == VARTYPE_NORMAL) {
                     // Inline fast path for the simple variable-assignment case: type1==VARIABLE, which is ~99.998% of all Pops in real workloads
@@ -3471,7 +3421,7 @@ VMContext* VM_create(DataWin* dataWin) {
         Variable* var = &dataWin->vari.variables[i];
         // varID == -6 is the BC16 built-in sentinel.
         // In BC17, argument variables have instanceType == -6 (Builtin) with varID >= 0, so we also check instanceType.
-        if (IS_WAD15_OR_HIGHER(ctx) && (var->varID == -6 || var->instanceType == -6)) {
+        if (IS_WAD15_OR_HIGHER(ctx) && (var->varID == VARIABLE_BUILTIN || var->instanceType == -6)) {
             var->builtinVarId = VMBuiltins_resolveBuiltinVarId(var->name);
         } else if (IS_WAD14_OR_BELOW(ctx)) {
             // BC13/14 has no -6 sentinel in the file. Detect builtins by name and switch the VARI entry to use the BC16 sentinel so downstream dispatch paths treat it as a builtin.
@@ -3900,6 +3850,8 @@ static const char* disasmScopeName(VMContext* ctx, int32_t instanceType) {
         case INSTANCE_GLOBAL:    return "global";
         case INSTANCE_LOCAL:     return "local";
         case INSTANCE_STACKTOP:  return "stacktop";
+        case INSTANCE_BUILTIN:   return "builtin";
+        case INSTANCE_STATIC:    return "static";
         default:
             if (instanceType >= 0 && ctx->dataWin->objt.count > (uint32_t) instanceType) {
                 return ctx->dataWin->objt.objects[instanceType].name;

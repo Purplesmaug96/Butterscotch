@@ -29,6 +29,9 @@
 #define VARTYPE_NORMAL    0xA0
 #define VARTYPE_INSTANCE  0xE0
 
+// ===[ Variable Identities ]===
+#define VARIABLE_BUILTIN (-6)
+
 // ===[ Room Constants ]===
 #define ROOM_RESTARTGAME (-200) // The reason why it is -200 is because the GameMaker-HTML5 runner uses -200 too (see Globals.js)
 
@@ -47,6 +50,8 @@
 // GMS 1.4 supports up to 16 arguments per script call
 // Newer GM versions do NOT have an argument limit however, but the limit is still used for the old classic style "argumentX" access
 #define GML_MAX_ARGUMENTS 16
+
+#define INSTANCE_ID_BASE 100000
 
 // ===[ Comparison Kinds ]===
 #define CMP_LT  1

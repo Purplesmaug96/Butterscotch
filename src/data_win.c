@@ -658,8 +658,6 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
 
     if (count == 0) { free(ptrs); a->audioGroups = nullptr; return; }
 
-    a->audioGroups = (AudioGroup*)safeCalloc(count, sizeof(AudioGroup));
-
     // GM 2024.14+ added a "path" parameter for each AudioGroup
     // To detect it, we'll check if the difference between two pointers is 8 (two int32)
     // We CAN'T figure out if there aren't at least two AudioGroups, but for any meaningful purposes any game that has external AudioGroups WILL have
@@ -674,6 +672,15 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
         } else if (count == 1) {
             // If there's only one entry, we CAN'T figure out easily based on the pointer diffs
             // But here's the trick: We can read it twice, if the path is null for the FIRST audiogroup, then it is NOT 2024.14
+            if (ptrs[0] == 0) {
+                // Somehow in a empty GameMaker 2026.0.0.23 game the pointer can be 0 even though it has one audio group...?
+                // If that's the case, we'll just bail out
+                free(ptrs);
+                a->audioGroups = nullptr;
+                a->count = 0;
+                return;
+            }
+
             BinaryReader_seek(reader, ptrs[0]);
             const char* name = readStringPtr(reader, dw);
             const char* path = readStringPtr(reader, dw);
@@ -683,6 +690,8 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
             }
         }
     }
+
+    a->audioGroups = (AudioGroup*)safeCalloc(count, sizeof(AudioGroup));
 
     repeat(count, i) {
         if (ptrs[i] == 0) continue;
