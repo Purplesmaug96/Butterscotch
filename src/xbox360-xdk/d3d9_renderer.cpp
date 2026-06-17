@@ -1740,10 +1740,26 @@ static RendererVtable d3d9RendererVtable = {};
 #endif
 
 uint32_t d3d9SurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
-	    static int logged = 0;
+	static int logged = 0;
     d3d9DiagLimited(&logged, 64, "D3D9: surfaceGetTexture stub surfaceID=%d", surfaceID);
 	return 0;
 }
+
+void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY) {
+	static int logged = 0;
+    d3d9DiagLimited(&logged, 64, "D3D9: drawTile stub");
+}
+
+void d3d9DrawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
+	static int logged = 0;
+    d3d9DiagLimited(&logged, 64, "D3D9: drawTiled stub");
+}
+
+void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
+	static int logged = 0;
+    d3d9DiagLimited(&logged, 64, "D3D9: setGuiProjection stub");
+}
+
 
 // ===[ Public API ]===
 
@@ -1758,6 +1774,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     d3d9RendererVtable.endView = d3d9EndView;
     d3d9RendererVtable.applyProjection = d3d9ApplyProjection;
     d3d9RendererVtable.beginGUI = d3d9BeginGUI;
+	d3d9RendererVtable.setGuiProjection = d3d9SetGuiProjection;
     d3d9RendererVtable.endGUI = d3d9EndGUI;
     d3d9RendererVtable.drawSprite = d3d9DrawSprite;
     d3d9RendererVtable.drawSpritePart = d3d9DrawSpritePart;
@@ -1782,8 +1799,8 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     d3d9RendererVtable.gpuGetColorWriteEnable = d3d9GpuGetColorWriteEnable;
     d3d9RendererVtable.gpuGetBlendEnable = d3d9GpuGetBlendEnable;
     d3d9RendererVtable.gpuSetFog = d3d9GpuSetFog;
-    d3d9RendererVtable.drawTile = NULL;
-    d3d9RendererVtable.drawTiled = NULL;
+    d3d9RendererVtable.drawTile = d3d9DrawTile;
+    d3d9RendererVtable.drawTiled = d3d9DrawTiled;
     d3d9RendererVtable.createSurface = d3d9CreateSurface;
     d3d9RendererVtable.surfaceExists = d3d9SurfaceExists;
     d3d9RendererVtable.setRenderTarget = d3d9SetRenderTarget;

@@ -23,6 +23,7 @@ static void xdkNormalizePath(char* path) {
 // ===[ Vtable Implementations ]===
 
 static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
+	diagLog("BS FS: xdkResolvePath called for: %s", relativePath ? relativePath : "NULL");
     XdkFileSystem* xfs = (XdkFileSystem*)fs;
 
     // If the path already contains a colon, it's an absolute Xbox 360 path
@@ -48,10 +49,14 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
     }
 
     xdkNormalizePath(result);
+
+	diagLog("BS FS: Resolved absolute path to: %s", result);
+
     return result;
 }
 
 static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
+	diagLog("BS FS: xdkFileExists called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -63,6 +68,7 @@ static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
 }
 
 static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
+	diagLog("BS FS: xdkReadFileText called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return NULL;
 
@@ -98,6 +104,7 @@ static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
+	diagLog("BS FS: xdkWriteFileText called for: %s", relativePath ? relativePath : "NULL");
     if (!contents) return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
@@ -116,6 +123,7 @@ static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const cha
 }
 
 static bool xdkDeleteFile(FileSystem* fs, const char* relativePath) {
+	diagLog("BS FS: xdkDeleteFile called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
