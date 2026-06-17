@@ -654,37 +654,6 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360-xdk)
 
-	# enabled because i dont wanna update the file
-    # Butterscotch VM/interpreter profiler
-    option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" ON)
-    if(ENABLE_VM_GML_PROFILER)
-        add_compile_definitions(ENABLE_VM_GML_PROFILER)
-    endif()
-
-    # Butterscotch VM/interpreter tracing
-    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" ON)
-    if(ENABLE_VM_TRACING)
-        add_compile_definitions(ENABLE_VM_TRACING)
-    endif()
-
-    # Butterscotch VM opcode count profiler
-    option(ENABLE_VM_OPCODE_PROFILER "Enable Butterscotch VM opcode count profiler" ON)
-    if(ENABLE_VM_OPCODE_PROFILER)
-        add_compile_definitions(ENABLE_VM_OPCODE_PROFILER)
-    endif()
-
-    # Spatial grid logs
-    option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
-    if(ENABLE_SPATIAL_GRID_LOGS)
-        add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
-    endif()
-
-    # VM unknown/stubbed function logs
-    option(ENABLE_VM_STUB_LOGS "Enable VM unknown/stubbed function logs" ON)
-    if(ENABLE_VM_STUB_LOGS)
-        add_compile_definitions(ENABLE_VM_STUB_LOGS)
-    endif()
-
     # stb_image
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
 
