@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include "math_compat.h"
 #include <ctype.h>
 #include <time.h>
 #ifndef _WIN32
@@ -1711,9 +1711,8 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
 
         // argument[N] - array-style write to script arguments
         case BUILTIN_VAR_ARGUMENT:
-            if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > arrayIndex && arrayIndex >= 0) {
-                RValue_free(&ctx->scriptArgs[arrayIndex]);
-                ctx->scriptArgs[arrayIndex] = RValue_makeIndependent(val);
+            if (arrayIndex >= 0) {
+                VM_writeToScriptArgs(ctx, arrayIndex, val);
             }
             return;
 
@@ -1736,10 +1735,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
 		case BUILTIN_VAR_ARGUMENT14:
 		case BUILTIN_VAR_ARGUMENT15: {
             int argNumber = builtinVarId - BUILTIN_VAR_ARGUMENT0;
-            if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > argNumber) {
-                RValue_free(&ctx->scriptArgs[argNumber]);
-                ctx->scriptArgs[argNumber] = RValue_makeIndependent(val);
-            }
+            VM_writeToScriptArgs(ctx, argNumber, val);
             return;
         }
 
@@ -14159,8 +14155,8 @@ static RValue builtin_json_decode(VMContext* ctx, RValue* args, int32_t argCount
         shput(*mapPtr, "default", RValue_makeIndependent(args[0]));
     } else {
         repeat(JsonReader_objectLength(json), i) {
-            const char *key = safeStrdup(JsonReader_getObjectKey(json, i));
-            RValue val = RValue_makeOwnedString(safeStrdup(JsonReader_getString(JsonReader_getObjectValue(json, i))));
+            const char *key = safeStrdup(JsonReader_getJsonKeyByIndex(json, i));
+            RValue val = RValue_makeOwnedString(safeStrdup(JsonReader_getString(JsonReader_getJsonValueByIndex(json, i))));
             shput(*mapPtr, key, val);
         }
 

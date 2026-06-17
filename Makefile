@@ -5,13 +5,9 @@ CC := cc
 
 CFLAGS := -O2 -DNDEBUG
 
-ifeq ($(OS),Windows_NT)
-OS := Windows
-else
 OS := $(shell uname -s)
-ifneq ($(filter MINGW% MSYS% CYGWIN%,$(OS)),)
+ifneq ($(filter Windows_NT MINGW% MSYS% CYGWIN%,$(OS)),)
 OS := Windows
-endif
 endif
 
 DEFINES := -DENABLE_VM_GML_PROFILER \
@@ -137,9 +133,7 @@ INCLUDES += -Isrc/audio/miniaudio -Ivendor/miniaudio
 DEFINES += -DUSE_MINIAUDIO
 SRCS += $(wildcard src/audio/miniaudio/*.c)
 HEADERS += $(wildcard src/audio/miniaudio/*.h)
-ifeq ($(OS),Windows)
-LIBS += -lwinmm
-else
+ifneq ($(OS),Windows)
 LIBS += -pthread
 endif
 endif
@@ -166,7 +160,7 @@ endif
 endif
 
 ifeq ($(OS),Windows)
-LIBS += -static
+LIBS += -static -lwinmm
 else
 ifeq ($(OS),Darwin)
 LIBS += -lobjc
@@ -193,18 +187,16 @@ ifndef DISABLE_MMD
 DEPFLAGS = -MMD -MP -MF $(@:.o=.d)
 endif
 
-FORCE:
+# trigger configure re-run if $(CC) changes
+_dummy := $(shell \
+	printf '$(CC)' > compat/tmp/cc-new; \
+	cmp -s compat/tmp/cc-new compat/tmp/cc || \
+	mv compat/tmp/cc-new compat/tmp/cc; \
+	rm -f compat/tmp/cc-new \
+)
 
 compat/config.mk: compat/configure.sh compat/tmp/cc
-	@$(MAKE) distclean > /dev/null
 	@CC="$(CC)" $(SHELL) compat/configure.sh
-	@$(MAKE)
-	@exit 0
-
-compat/tmp/cc: FORCE
-	@printf '$(CC)' > compat/tmp/cc-new
-	@cmp -s compat/tmp/cc-new compat/tmp/cc || mv compat/tmp/cc-new compat/tmp/cc
-	@rm -f compat/tmp/cc-new
 
 endif
 
@@ -219,4 +211,4 @@ clean:
 	rm -rf build
 
 distclean: clean
-	rm -f compat/config.mk
+	rm -f compat/config.mk compat/tmp/cc

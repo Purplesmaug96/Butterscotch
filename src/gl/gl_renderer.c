@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include "math_compat.h"
 
 #include "stb_image.h"
 #include "stb_ds.h"
@@ -236,6 +236,12 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
 
     repeat(dataWin->shdr.count, i) {
         Shader* shdr = &dataWin->shdr.shaders[i];
+        if (!shdr->present) {
+            gl->gmlShaderCount++;
+            fprintf(stderr, "GL: Skipping shader %d because it isn't present!\n", i);
+            continue;
+        }
+
         fprintf(stderr, "GL: Compiling %s Vertex Shader\n", shdr->name);
         bool vertexShaderOK = false;
         bool fragmentShaderOK = false;

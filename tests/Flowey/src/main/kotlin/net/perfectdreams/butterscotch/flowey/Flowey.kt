@@ -5,25 +5,32 @@ import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.parameters.options.help
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.types.boolean
 import com.github.ajalt.clikt.parameters.types.file
+import com.github.ajalt.clikt.parameters.types.int
 import com.typesafe.config.ConfigFactory
 import kotlinx.serialization.hocon.Hocon
 import kotlinx.serialization.hocon.decodeFromConfig
 import java.io.File
-import java.util.Collections
 import java.util.concurrent.TimeUnit
+import javax.imageio.ImageIO
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 class Flowey : CliktCommand() {
     val testSuite by option().file().required().help("Path to the test suite")
     val butterscotchPath by option().file().required().help("Path to Butterscotch")
+    val skipCommercialGames by option().boolean().required().help("Skips tests that require commercial game WADs")
 
     override fun run() {
         val testSuiteConfig = Hocon.decodeFromConfig<TestSuite>(ConfigFactory.parseFile(testSuite))
         val testResults = mutableMapOf<String, TestResult>()
 
         testLoop@for (test in testSuiteConfig.tests) {
+            if (test.commercialGame && skipCommercialGames) {
+                testResults[test.name] = TestResult(0, emptyList(), emptyList()).apply { state = TestResult.State.SKIPPED }
+                continue
+            }
             println("Executing \"${test.name}\"")
             val process = ProcessBuilder(butterscotchPath.absolutePath, *test.butterscotchArgs.toTypedArray())
                 .directory(testSuite.parentFile)
@@ -72,18 +79,47 @@ class Flowey : CliktCommand() {
                     continue@testLoop
             }
 
-            result.success = true
+            for (pack in test.expectedScreenshots) {
+                val expected = File(testSuite.parentFile, pack.expected)
+                val actual = File(testSuite.parentFile, pack.actual)
+
+                if (!expected.exists() || !actual.exists())
+                    continue@testLoop
+
+                val expectedImage = ImageIO.read(expected)
+                val actualImage = ImageIO.read(actual)
+
+                if (expectedImage.width != actualImage.width || expectedImage.height != actualImage.height)
+                    continue@testLoop
+
+                for (y in 0 until expectedImage.height) {
+                    for (x in 0 until expectedImage.width) {
+                        val expectedPixel = expectedImage.getRGB(x, y)
+                        val actualPixel = actualImage.getRGB(x, y)
+
+                        if (expectedPixel != actualPixel)
+                            continue@testLoop
+                    }
+                }
+            }
+
+            result.state = TestResult.State.SUCCESS
         }
 
-        val failedTests = testResults.filter { !it.value.success }
+        val failedTests = testResults.filter { it.value.state == TestResult.State.FAILURE }
 
         val summary = buildString {
             appendLine("# \uD83E\uDDEA Butterscotch Test Results")
             appendLine("## \uD83D\uDCC4 Tests Summary")
             appendLine("| Test | Status |")
             appendLine("| - | - |")
-            for ((name, result) in testResults) {
-                appendLine("| $name | ${if (result.success) "✅" else "🚫"} |")
+            for ((name, result) in testResults.entries) {
+                val emoji = when (result.state) {
+                    TestResult.State.SUCCESS -> "✅"
+                    TestResult.State.FAILURE -> "🚫"
+                    TestResult.State.SKIPPED -> "⚠️"
+                }
+                appendLine("| $name | $emoji |")
             }
 
             if (failedTests.isNotEmpty()) {
@@ -121,7 +157,13 @@ class Flowey : CliktCommand() {
         var stdoutLines: List<String>,
         var stderrLines: List<String>
     ) {
-        var success = false
+        var state = State.FAILURE
+
+        enum class State {
+            SUCCESS,
+            FAILURE,
+            SKIPPED
+        }
     }
 }
 

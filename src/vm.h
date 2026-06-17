@@ -309,6 +309,10 @@ void VM_copyStatic(VMContext* ctx, RValue* parentRef);
 // Look up the varID for a self-scoped variable name, allocating a fresh synthetic ID if absent.
 int32_t VM_getOrAllocateSelfVarID(VMContext* ctx, const char* name);
 
+// Writes to the VMContext's scriptArgs, resizing the underlying array if needed
+// The "val" will be RValue_makeIndependent(val), it won't be freed
+void VM_writeToScriptArgs(VMContext* ctx, int32_t writeIndex, RValue val);
+
 static inline const char* VM_getCallerName(VMContext* ctx) {
     return ctx->currentCodeName != nullptr ? ctx->currentCodeName : "<unknown>";
 }

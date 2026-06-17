@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include "math_compat.h"
 
 #include "stb_ds.h"
 #include "utils.h"
@@ -664,21 +664,23 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
     // To detect it, we'll check if the difference between two pointers is 8 (two int32)
     // We CAN'T figure out if there aren't at least two AudioGroups, but for any meaningful purposes any game that has external AudioGroups WILL have
     // at least two entries, one for the default AudioGroup and another for the external AudioGroup
-    if (count >= 2) {
-        uint32_t diff = ptrs[1] - ptrs[0];
+    if (DataWin_isVersionAtLeast(dw, 2024, 13, 0, 0)) {
+        if (count >= 2) {
+            uint32_t diff = ptrs[1] - ptrs[0];
 
-        if (diff >= 8) {
-            DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
-        }
-    } else if (count == 1) {
-        // If there's only one entry, we CAN'T figure out easily based on the pointer diffs
-        // But here's the trick: We can read it twice, if the path is null for the FIRST audiogroup, then it is NOT 2024.14
-        BinaryReader_seek(reader, ptrs[0]);
-        const char* name = readStringPtr(reader, dw);
-        const char* path = readStringPtr(reader, dw);
+            if (diff >= 8) {
+                DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
+            }
+        } else if (count == 1) {
+            // If there's only one entry, we CAN'T figure out easily based on the pointer diffs
+            // But here's the trick: We can read it twice, if the path is null for the FIRST audiogroup, then it is NOT 2024.14
+            BinaryReader_seek(reader, ptrs[0]);
+            const char* name = readStringPtr(reader, dw);
+            const char* path = readStringPtr(reader, dw);
 
-        if (strcmp(name, "audiogroup_default") == 0 && path != nullptr) {
-            DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
+            if (strcmp(name, "audiogroup_default") == 0 && path != nullptr) {
+                DataWin_bumpVersionTo(dw, 2024, 14, 0, 0);
+            }
         }
     }
 
@@ -1065,28 +1067,20 @@ static void parseGLOB(BinaryReader* reader, DataWin* dw) {
 static void parseSHDR(BinaryReader* reader, DataWin* dw) {
     Shdr* s = &dw->shdr;
 
-    uint32_t count;
-    uint32_t* ptrs = readPointerTable(reader, &count);
+    uint32_t* ptrs = readPointerTable(reader, &s->count);
+    s->shaders = (Shader*)safeMalloc(s->count * sizeof(Shader));
 
-    // Some GameMaker games emit a SHDR chunk with all zero pointers, in this case, we'll just consider that it isn't a real shader and drop it.
-    if (ptrs != nullptr) {
-        uint32_t realCount = 0;
-        repeat(count, i) {
-            if (ptrs[i] != 0) {
-                ptrs[realCount] = ptrs[i];
-                realCount++;
-            }
+    repeat(s->count, i) {
+        // Some GameMaker games have a nullptr for the shader, so we'll just mark them as not-present...
+        if (ptrs[i] == 0) {
+            Shader* sh = &s->shaders[i];
+            sh->present = false;
+            continue;
         }
-        count = realCount;
-    }
-    s->count = count;
 
-    if (count == 0) { free(ptrs); s->shaders = nullptr; return; }
-
-    s->shaders = (Shader*)safeMalloc(count * sizeof(Shader));
-    repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
         Shader* sh = &s->shaders[i];
+        sh->present = true;
         sh->name = readStringPtr(reader, dw);
         sh->type = BinaryReader_readUint32(reader) & 0x7FFFFFFF;
         sh->glslES_Vertex = readStringPtr(reader, dw);

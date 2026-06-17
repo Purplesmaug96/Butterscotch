@@ -17,9 +17,6 @@
 #ifndef INT32_MIN
 #define INT32_MIN (-INT32_MAX - 1)
 #endif
-#ifndef INFINITY
-#define INFINITY (1.0f / 0.0f)
-#endif
 
 #if (defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)) || defined(__BIG_ENDIAN__)
 #define IS_BIG_ENDIAN
@@ -39,24 +36,25 @@
     #endif
 #endif
 
+#if (defined(__GNUC__) && (__GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 8))) || defined(__TINYC__)
+	#define ALIGN(x) __attribute__((aligned(x)));
+	#define NOINLINE __attribute__((noinline))
+	#define ALWAYSINLINE __attribute__((always_inline))
+#else
+    #define ALIGN(x)
+	#define NOINLINE
+	#define ALWAYSINLINE
+#endif
+
 #ifdef PLATFORM_XBOX360_XDK
 	#include <__compat_math.h>
 	#define snprintf _snprintf
-	#define ALIGNED(x) __declspec(align(x))
+	#undef ALIGN
+	#undef NOINLINE
+	#undef ALWAYSINLINE
+	#define ALIGN(x) __declspec(align(x))
 	#define NOINLINE __declspec(noinline)
 	#define ALWAYSINLINE __forceinline
-#endif
-
-#ifndef ALIGNED
-	#define ALIGNED(x) __attribute__((aligned(x)))
-#endif
-
-#ifndef NOINLINE
-	#define NOINLINE __attribute__((noinline))
-#endif
-
-#ifndef ALWAYSINLINE
-	#define ALWAYSINLINE __attribute__((always_inline))
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)

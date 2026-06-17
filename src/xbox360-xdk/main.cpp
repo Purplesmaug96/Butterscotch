@@ -1014,53 +1014,62 @@ VOID __cdecl main() {
     diagLog("BS: 12b runner created with renderer/audio initialized");
 
     // Parse CONFIG.JSN options
-    if (configRoot) {
-        JsonValue* osTypeVal = JsonReader_getObject(configRoot, "osType");
-        if (osTypeVal && JsonReader_isString(osTypeVal)) {
-            YoYoOperatingSystem configuredOsType;
-            const char* osText = JsonReader_getString(osTypeVal);
-            if (parseOsTypeName(osText, &configuredOsType)) {
-                runner->osType = configuredOsType;
-            } else {
-                diagLog("CONFIG.JSN: unknown osType '%s', keeping %s", osText, osTypeName(runner->osType));
-            }
-        }
+	// Commented because:
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1018) : error C3861: 'JsonReader_getObject': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1029) : error C3861: 'JsonReader_getObject': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1042) : error C3861: 'JsonReader_getObject': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1047) : error C3861: 'JsonReader_getObjectKey': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1048) : error C3861: 'JsonReader_getObjectValue': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1054) : error C3861: 'JsonReader_getObject': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1059) : error C3861: 'JsonReader_getObject': identifier not found
+	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1107) : error C3861: 'JsonReader_getObject': identifier not found
+    // if (configRoot) {
+    //     JsonValue* osTypeVal = JsonReader_getObject(configRoot, "osType");
+    //     if (osTypeVal && JsonReader_isString(osTypeVal)) {
+    //         YoYoOperatingSystem configuredOsType;
+    //         const char* osText = JsonReader_getString(osTypeVal);
+    //         if (parseOsTypeName(osText, &configuredOsType)) {
+    //             runner->osType = configuredOsType;
+    //         } else {
+    //             diagLog("CONFIG.JSN: unknown osType '%s', keeping %s", osText, osTypeName(runner->osType));
+    //         }
+    //     }
 
-        JsonValue* disabledArr = JsonReader_getObject(configRoot, "disabledObjects");
-        if (disabledArr && JsonReader_isArray(disabledArr)) {
-            sh_new_strdup(runner->disabledObjects);
-            int count = JsonReader_arrayLength(disabledArr);
-            for (int i = 0; i < count; i++) {
-                JsonValue* elem = JsonReader_getArrayElement(disabledArr, i);
-                if (elem && JsonReader_isString(elem)) {
-                    const char* name = JsonReader_getString(elem);
-                    shput(runner->disabledObjects, name, 1);
-                }
-            }
-        }
+    //     JsonValue* disabledArr = JsonReader_getObject(configRoot, "disabledObjects");
+    //     if (disabledArr && JsonReader_isArray(disabledArr)) {
+    //         sh_new_strdup(runner->disabledObjects);
+    //         int count = JsonReader_arrayLength(disabledArr);
+    //         for (int i = 0; i < count; i++) {
+    //             JsonValue* elem = JsonReader_getArrayElement(disabledArr, i);
+    //             if (elem && JsonReader_isString(elem)) {
+    //                 const char* name = JsonReader_getString(elem);
+    //                 shput(runner->disabledObjects, name, 1);
+    //             }
+    //         }
+    //     }
 
-        JsonValue* mappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
-        if (mappingsObj && JsonReader_isObject(mappingsObj)) {
-            xpadMappingCount = JsonReader_objectLength(mappingsObj);
-            xpadMappings = (XpadMapping*)malloc(sizeof(XpadMapping) * xpadMappingCount);
-            for (int i = 0; i < xpadMappingCount; i++) {
-                const char* btnStr = JsonReader_getObjectKey(mappingsObj, i);
-                JsonValue* gmlVal = JsonReader_getObjectValue(mappingsObj, i);
-                xpadMappings[i].xpadButton = (WORD)atoi(btnStr);
-                xpadMappings[i].gmlKey = (int32_t)JsonReader_getInt(gmlVal);
-            }
-        }
+    //     JsonValue* mappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
+    //     if (mappingsObj && JsonReader_isObject(mappingsObj)) {
+    //         xpadMappingCount = JsonReader_objectLength(mappingsObj);
+    //         xpadMappings = (XpadMapping*)malloc(sizeof(XpadMapping) * xpadMappingCount);
+    //         for (int i = 0; i < xpadMappingCount; i++) {
+    //             const char* btnStr = JsonReader_getObjectKey(mappingsObj, i);
+    //             JsonValue* gmlVal = JsonReader_getObjectValue(mappingsObj, i);
+    //             xpadMappings[i].xpadButton = (WORD)atoi(btnStr);
+    //             xpadMappings[i].gmlKey = (int32_t)JsonReader_getInt(gmlVal);
+    //         }
+    //     }
 
-        JsonValue* gamepadApiVal = JsonReader_getObject(configRoot, "gamepadApi");
-        if (gamepadApiVal) {
-            if (JsonReader_isBool(gamepadApiVal)) {
-                gamepadApiEnabled = JsonReader_getBool(gamepadApiVal);
-            } else if (JsonReader_isObject(gamepadApiVal)) {
-                JsonValue* enabledVal = JsonReader_getObject(gamepadApiVal, "enabled");
-                if (enabledVal) gamepadApiEnabled = JsonReader_getBool(enabledVal);
-            }
-        }
-    }
+    //     JsonValue* gamepadApiVal = JsonReader_getObject(configRoot, "gamepadApi");
+    //     if (gamepadApiVal) {
+    //         if (JsonReader_isBool(gamepadApiVal)) {
+    //             gamepadApiEnabled = JsonReader_getBool(gamepadApiVal);
+    //         } else if (JsonReader_isObject(gamepadApiVal)) {
+    //             JsonValue* enabledVal = JsonReader_getObject(gamepadApiVal, "enabled");
+    //             if (enabledVal) gamepadApiEnabled = JsonReader_getBool(enabledVal);
+    //         }
+    //     }
+    // }
 
     if (!xpadMappings) setupDefaultMappings();
     diagLog("BS: osType=%s (%d)", osTypeName(runner->osType), (int)runner->osType);
@@ -1103,10 +1112,10 @@ VOID __cdecl main() {
 
     // Parse deferDrawToAfterAllSteps
     bool deferDraw = false;
-    if (configRoot) {
-        JsonValue* deferVal = JsonReader_getObject(configRoot, "deferDrawToAfterAllSteps");
-        if (deferVal) deferDraw = JsonReader_getBool(deferVal);
-    }
+    // if (configRoot) {
+    //     JsonValue* deferVal = JsonReader_getObject(configRoot, "deferDrawToAfterAllSteps");
+    //     if (deferVal) deferDraw = JsonReader_getBool(deferVal);
+    // }
 
     diagLog("BS: 18 entering main loop");
 
