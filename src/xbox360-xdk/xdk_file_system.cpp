@@ -7,6 +7,7 @@
 // Core headers
 #include "utils.h"
 #include "xdk_file_system.h"
+#include "stb_ds.h"
 
 // Define max path for Xbox 360/Windows compatibility
 #ifndef MAX_PATH
@@ -23,7 +24,6 @@ static void xdkNormalizePath(char* path) {
 // ===[ Vtable Implementations ]===
 
 static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
-	diagLog("BS FS: xdkResolvePath called for: %s", relativePath ? relativePath : "NULL");
     XdkFileSystem* xfs = (XdkFileSystem*)fs;
 
     // If the path already contains a colon, it's an absolute Xbox 360 path
@@ -49,14 +49,10 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
     }
 
     xdkNormalizePath(result);
-
-	diagLog("BS FS: Resolved absolute path to: %s", result);
-
     return result;
 }
 
 static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
-	diagLog("BS FS: xdkFileExists called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -68,7 +64,6 @@ static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
 }
 
 static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
-	diagLog("BS FS: xdkReadFileText called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return NULL;
 
@@ -104,7 +99,6 @@ static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
-	diagLog("BS FS: xdkWriteFileText called for: %s", relativePath ? relativePath : "NULL");
     if (!contents) return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
@@ -123,13 +117,249 @@ static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const cha
 }
 
 static bool xdkDeleteFile(FileSystem* fs, const char* relativePath) {
-	diagLog("BS FS: xdkDeleteFile called for: %s", relativePath ? relativePath : "NULL");
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
     BOOL ok = DeleteFileA(fullPath);
     free(fullPath);
     return (ok != FALSE);
+}
+
+// ===[ Binary I/O ]===
+
+static bool xdkReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t** outData, int32_t* outSize) {
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return false;
+
+    HANDLE hFile = CreateFileA(fullPath, GENERIC_READ, FILE_SHARE_READ,
+                               NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(fullPath);
+
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart == 0) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    *outData = (uint8_t*)malloc((size_t)fileSize.QuadPart);
+    if (!*outData) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    DWORD bytesRead = 0;
+    BOOL ok = ReadFile(hFile, *outData, (DWORD)fileSize.QuadPart, &bytesRead, NULL);
+    CloseHandle(hFile);
+
+    if (!ok) {
+        free(*outData);
+        *outData = NULL;
+        return false;
+    }
+
+    *outSize = (int32_t)bytesRead;
+    return true;
+}
+
+static bool xdkWriteFileBinary(FileSystem* fs, const char* relativePath, const uint8_t* data, int32_t size) {
+    if (!data || size <= 0) return false;
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return false;
+
+    HANDLE hFile = CreateFileA(fullPath, GENERIC_WRITE, 0,
+                               NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(fullPath);
+
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    DWORD written;
+    BOOL ok = WriteFile(hFile, data, (DWORD)size, &written, NULL);
+    CloseHandle(hFile);
+    return (ok && (int32_t)written == size);
+}
+
+// ===[ Streaming Binary I/O ]===
+
+typedef struct {
+    HANDLE hFile;
+    char* fullPath;
+} XdkBinaryHandle;
+
+static XdkBinaryHandle* xdkBinaryHandleNew(HANDLE hFile, char* fullPath) {
+    XdkBinaryHandle* h = (XdkBinaryHandle*)malloc(sizeof(XdkBinaryHandle));
+    if (!h) { free(fullPath); return NULL; }
+    h->hFile = hFile;
+    h->fullPath = fullPath;
+    return h;
+}
+
+static void* xdkBinaryOpen(FileSystem* fs, const char* relativePath, int32_t mode) {
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return NULL;
+
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    switch (mode) {
+        case GML_FILE_BIN_READ:
+            hFile = CreateFileA(fullPath, GENERIC_READ, FILE_SHARE_READ,
+                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            break;
+        case GML_FILE_BIN_WRITE:
+            hFile = CreateFileA(fullPath, GENERIC_WRITE, 0,
+                                NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            break;
+        case GML_FILE_BIN_READWRITE:
+            hFile = CreateFileA(fullPath, GENERIC_READ | GENERIC_WRITE, 0,
+                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hFile == INVALID_HANDLE_VALUE) {
+                hFile = CreateFileA(fullPath, GENERIC_READ | GENERIC_WRITE, 0,
+                                    NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+            }
+            break;
+    }
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(fullPath);
+        return NULL;
+    }
+
+    return xdkBinaryHandleNew(hFile, fullPath);
+}
+
+static void xdkBinaryClose(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (!handle) return;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    if (h->hFile != INVALID_HANDLE_VALUE) CloseHandle(h->hFile);
+    free(h->fullPath);
+    free(h);
+}
+
+static int32_t xdkBinaryRead(MAYBE_UNUSED FileSystem* fs, void* handle, void* dst, int32_t n) {
+    if (!handle || n <= 0) return 0;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    DWORD bytesRead = 0;
+    if (ReadFile(h->hFile, dst, (DWORD)n, &bytesRead, NULL)) {
+        return (int32_t)bytesRead;
+    }
+    return 0;
+}
+
+static int32_t xdkBinaryWrite(MAYBE_UNUSED FileSystem* fs, void* handle, const void* src, int32_t n) {
+    if (!handle || n <= 0) return 0;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    DWORD written = 0;
+    if (WriteFile(h->hFile, src, (DWORD)n, &written, NULL)) {
+        return (int32_t)written;
+    }
+    return 0;
+}
+
+static int32_t xdkBinaryTell(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (!handle) return 0;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    LARGE_INTEGER pos;
+    pos.QuadPart = 0;
+    if (SetFilePointerEx(h->hFile, pos, &pos, FILE_CURRENT)) {
+        return (int32_t)pos.QuadPart;
+    }
+    return 0;
+}
+
+static bool xdkBinarySeek(MAYBE_UNUSED FileSystem* fs, void* handle, int32_t pos) {
+    if (!handle) return false;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    LARGE_INTEGER distance;
+    distance.QuadPart = pos;
+    return SetFilePointerEx(h->hFile, distance, NULL, FILE_BEGIN) != FALSE;
+}
+
+static int32_t xdkBinarySize(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (!handle) return 0;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    LARGE_INTEGER size;
+    if (GetFileSizeEx(h->hFile, &size)) {
+        return (int32_t)size.QuadPart;
+    }
+    return 0;
+}
+
+static void xdkBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    if (!handle) return;
+    XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
+    if (h->hFile != INVALID_HANDLE_VALUE) CloseHandle(h->hFile);
+    h->hFile = CreateFileA(h->fullPath, GENERIC_READ | GENERIC_WRITE, 0,
+                           NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+}
+
+// ===[ Directory Operations ]===
+
+static bool xdkDirectoryExists(FileSystem* fs, const char* relativePath) {
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return false;
+
+    DWORD attributes = GetFileAttributesA(fullPath);
+    free(fullPath);
+
+    return (attributes != 0xFFFFFFFF && (attributes & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+static bool xdkCreateDirectory(FileSystem* fs, const char* relativePath) {
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return false;
+
+    BOOL ok = CreateDirectoryA(fullPath, NULL);
+    free(fullPath);
+    return (ok != FALSE);
+}
+
+static bool xdkDeleteDirectory(FileSystem* fs, const char* relativePath) {
+    char* fullPath = xdkResolvePath(fs, relativePath);
+    if (!fullPath) return false;
+
+    BOOL ok = RemoveDirectoryA(fullPath);
+    free(fullPath);
+    return (ok != FALSE);
+}
+
+static FileSystemDirEntry* xdkListDirectory(FileSystem* fs, const char* relativeDirPath) {
+    char* fullPath = xdkResolvePath(fs, relativeDirPath);
+    if (!fullPath) return NULL;
+
+    size_t dirLen = strlen(fullPath);
+    char* search = (char*)malloc(dirLen + 3);
+    if (!search) { free(fullPath); return NULL; }
+    memcpy(search, fullPath, dirLen);
+    search[dirLen] = '\\';
+    search[dirLen + 1] = '*';
+    search[dirLen + 2] = '\0';
+    free(fullPath);
+
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA(search, &findData);
+    free(search);
+
+    if (hFind == INVALID_HANDLE_VALUE) return NULL;
+
+    FileSystemDirEntry* list = NULL;
+    do {
+        const char* name = findData.cFileName;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+
+        bool dup = false;
+        repeat(arrlen(list), i) {
+            if (strcmp(list[i].name, name) == 0) { dup = true; break; }
+        }
+        if (dup) continue;
+
+        FileSystemDirEntry entry = {0};
+        entry.name = safeStrdup(name);
+        entry.isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        arrput(list, entry);
+    } while (FindNextFileA(hFind, &findData));
+
+    FindClose(hFind);
+    return list;
 }
 
 // ===[ Vtable ]===
@@ -140,6 +370,20 @@ static FileSystemVtable xdkFileSystemVtable = {
     xdkReadFileText,
     xdkWriteFileText,
     xdkDeleteFile,
+    xdkReadFileBinary,
+    xdkWriteFileBinary,
+    xdkBinaryOpen,
+    xdkBinaryClose,
+    xdkBinaryRead,
+    xdkBinaryWrite,
+    xdkBinaryTell,
+    xdkBinarySeek,
+    xdkBinarySize,
+    xdkBinaryRewrite,
+    xdkDirectoryExists,
+    xdkCreateDirectory,
+    xdkDeleteDirectory,
+    xdkListDirectory,
 };
 
 // ===[ Public API ]===
