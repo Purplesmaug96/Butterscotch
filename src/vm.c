@@ -3609,6 +3609,26 @@ void VM_reset(VMContext* ctx) {
     }
     ctx->envStack = nullptr;
 
+    // Free callee-level scriptArgs (they exist when a script call was in progress at reset time)
+    if (ctx->scriptArgs != nullptr) {
+        repeat(ctx->scriptArgCount, i) {
+            RValue_free(&ctx->scriptArgs[i]);
+        }
+        free(ctx->scriptArgs);
+    }
+    ctx->scriptArgs = nullptr;
+    ctx->scriptArgCount = 0;
+
+    // Free callee-level localVars
+    if (ctx->localVars != nullptr) {
+        repeat(ctx->localVarCount, i) {
+            RValue_free(&ctx->localVars[i]);
+        }
+        free(ctx->localVars);
+    }
+    ctx->localVars = nullptr;
+    ctx->localVarCount = 0;
+
     // Reset execution state
     ctx->currentInstance = nullptr;
     ctx->otherInstance = nullptr;
@@ -3617,11 +3637,7 @@ void VM_reset(VMContext* ctx) {
     ctx->currentEventType = -1;
     ctx->currentEventSubtype = -1;
     ctx->currentEventObjectIndex = -1;
-    ctx->scriptArgs = nullptr;
-    ctx->scriptArgCount = 0;
     ctx->currentCodeName = nullptr;
-    ctx->localVars = nullptr;
-    ctx->localVarCount = 0;
     ctx->currentCodeLocalsSlotMap = nullptr;
     ctx->actionRelativeFlag = false;
 

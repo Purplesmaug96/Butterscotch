@@ -266,6 +266,7 @@ void Ini_deleteSection(IniFile* ini, const char* section) {
 
 char* Ini_serialize(const IniFile* ini, size_t initialCapacity) {
     size_t capacity = initialCapacity;
+    if (capacity == 0) capacity = 256;
     size_t length = 0;
     char* buffer = (char*)safeMalloc(capacity);
     buffer[0] = '\0';

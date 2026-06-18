@@ -4369,5 +4369,6 @@ void Runner_free(Runner* runner) {
     RunnerGamepad_free(runner->gamepads);
     RunnerMouse_free(runner->mouse);
     Instance_free(runner->globalScopeInstance);
+    free(runner->windowTitle);
     free(runner);
 }
