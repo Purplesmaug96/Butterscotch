@@ -386,6 +386,12 @@ static FileSystemVtable xdkFileSystemVtable = {
     xdkListDirectory,
 };
 
+void XdkFileSystem_destroy(FileSystem* fs) {
+    if (!fs) return;
+    XdkFileSystem* xfs = (XdkFileSystem*)fs;
+    free(xfs);
+}
+
 // ===[ Public API ]===
 
 XdkFileSystem* XdkFileSystem_create(const char* dataWinPath) {

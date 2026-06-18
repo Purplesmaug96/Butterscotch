@@ -837,6 +837,7 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
         frameH = (int32_t)runner->currentRoom->height;
     }
 
+    if (frameH <= 0) frameH = 1;
     const float displayScale = (float)SCREEN_HEIGHT / (float)frameH;
 	((D3D9Renderer*)renderer)->renderScale = displayScale;
 	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) / 2.0f;
@@ -922,8 +923,8 @@ VOID __cdecl main() {
     }
 
     if (!dataWinPath) {
-        diagLog("BS: FATAL: data.win not found");
-        // for (;;) { } // hang instead of crash for debugging
+        diagLog("BS: FATAL: data.win not found — hanging");
+        for (;;) { Sleep(1000); }
     }
 
     bool loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
@@ -1276,15 +1277,31 @@ VOID __cdecl main() {
     }
 
     // ===[ Cleanup ]===
+    // Free subsystems in reverse creation order.
+    // Destroy audio before Runner_free since runner owns the audioSystem pointer reference.
     if (runner->audioSystem) {
         runner->audioSystem->vtable->destroy(runner->audioSystem);
         runner->audioSystem = NULL;
     }
+    Runner_free(runner);
+    VM_free(vm);
+    XdkFileSystem_destroy(fileSystem);
     renderer->vtable->destroy(renderer);
+    if (configRoot) JsonReader_free(configRoot);
     loadingDestroy(&gDiagOverlayScreen);
     DataWin_free(dataWin);
     pd3dDevice->Release();
     pD3D->Release();
+
+    // Close diagnostic log handles
+    if (gDiagFile) {
+        fclose(gDiagFile);
+        gDiagFile = NULL;
+    }
+    if (gDiagLog != INVALID_HANDLE_VALUE) {
+        CloseHandle(gDiagLog);
+        gDiagLog = INVALID_HANDLE_VALUE;
+    }
 
     free(xpadMappings);
 }

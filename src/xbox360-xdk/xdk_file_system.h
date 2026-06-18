@@ -8,3 +8,4 @@ typedef struct {
 } XdkFileSystem;
 
 XdkFileSystem* XdkFileSystem_create(const char* dataWinPath);
+void XdkFileSystem_destroy(FileSystem* fs);
