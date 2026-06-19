@@ -24,7 +24,17 @@ static void xdkNormalizePath(char* path) {
 // ===[ Vtable Implementations ]===
 
 static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkResolvePath: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
     XdkFileSystem* xfs = (XdkFileSystem*)fs;
+
+    // Handle NULL or empty paths safely
+    if (!relativePath || relativePath[0] == '\0') {
+        char* result = (char*)malloc(MAX_PATH);
+        if (!result) return NULL;
+        strncpy(result, xfs->basePath, MAX_PATH - 1);
+        result[MAX_PATH - 1] = '\0';
+        return result;
+    }
 
     // If the path already contains a colon, it's an absolute Xbox 360 path
     // (e.g. "game:\lang\lang_en.json") — return it verbatim without prepending basePath.
@@ -53,6 +63,8 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkFileExists: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -64,6 +76,8 @@ static bool xdkFileExists(FileSystem* fs, const char* relativePath) {
 }
 
 static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkReadFileText: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return NULL;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return NULL;
 
@@ -99,6 +113,8 @@ static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
+    diagLog("FS: xdkWriteFileText: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     if (!contents) return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
@@ -117,6 +133,8 @@ static bool xdkWriteFileText(FileSystem* fs, const char* relativePath, const cha
 }
 
 static bool xdkDeleteFile(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkDeleteFile: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -128,6 +146,8 @@ static bool xdkDeleteFile(FileSystem* fs, const char* relativePath) {
 // ===[ Binary I/O ]===
 
 static bool xdkReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t** outData, int32_t* outSize) {
+    diagLog("FS: xdkReadFileBinary: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -164,6 +184,8 @@ static bool xdkReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t*
 }
 
 static bool xdkWriteFileBinary(FileSystem* fs, const char* relativePath, const uint8_t* data, int32_t size) {
+    diagLog("FS: xdkWriteFileBinary: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     if (!data || size <= 0) return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
@@ -196,6 +218,7 @@ static XdkBinaryHandle* xdkBinaryHandleNew(HANDLE hFile, char* fullPath) {
 }
 
 static void* xdkBinaryOpen(FileSystem* fs, const char* relativePath, int32_t mode) {
+    diagLog("FS: xdkBinaryOpen: fs=%p relativePath=\"%s\", mode=%d\n", fs, relativePath ? relativePath : "NULL", mode);
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return NULL;
 
@@ -228,6 +251,7 @@ static void* xdkBinaryOpen(FileSystem* fs, const char* relativePath, int32_t mod
 }
 
 static void xdkBinaryClose(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    diagLog("FS: xdkBinaryClose: fs=%p handle=%p\n", fs, handle);
     if (!handle) return;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     if (h->hFile != INVALID_HANDLE_VALUE) CloseHandle(h->hFile);
@@ -236,6 +260,7 @@ static void xdkBinaryClose(MAYBE_UNUSED FileSystem* fs, void* handle) {
 }
 
 static int32_t xdkBinaryRead(MAYBE_UNUSED FileSystem* fs, void* handle, void* dst, int32_t n) {
+    diagLog("FS: xdkBinaryRead: fs=%p handle=%p n=%d\n", fs, handle, n);
     if (!handle || n <= 0) return 0;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     DWORD bytesRead = 0;
@@ -246,6 +271,7 @@ static int32_t xdkBinaryRead(MAYBE_UNUSED FileSystem* fs, void* handle, void* ds
 }
 
 static int32_t xdkBinaryWrite(MAYBE_UNUSED FileSystem* fs, void* handle, const void* src, int32_t n) {
+    diagLog("FS: xdkBinaryWrite: fs=%p handle=%p n=%d\n", fs, handle, n);
     if (!handle || n <= 0) return 0;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     DWORD written = 0;
@@ -256,6 +282,7 @@ static int32_t xdkBinaryWrite(MAYBE_UNUSED FileSystem* fs, void* handle, const v
 }
 
 static int32_t xdkBinaryTell(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    diagLog("FS: xdkBinaryTell: fs=%p handle=%p\n", fs, handle);
     if (!handle) return 0;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     LARGE_INTEGER pos;
@@ -267,6 +294,7 @@ static int32_t xdkBinaryTell(MAYBE_UNUSED FileSystem* fs, void* handle) {
 }
 
 static bool xdkBinarySeek(MAYBE_UNUSED FileSystem* fs, void* handle, int32_t pos) {
+    diagLog("FS: xdkBinarySeek: fs=%p handle=%p pos=%d\n", fs, handle, pos);
     if (!handle) return false;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     LARGE_INTEGER distance;
@@ -275,6 +303,7 @@ static bool xdkBinarySeek(MAYBE_UNUSED FileSystem* fs, void* handle, int32_t pos
 }
 
 static int32_t xdkBinarySize(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    diagLog("FS: xdkBinarySize: fs=%p handle=%p\n", fs, handle);
     if (!handle) return 0;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     LARGE_INTEGER size;
@@ -285,6 +314,7 @@ static int32_t xdkBinarySize(MAYBE_UNUSED FileSystem* fs, void* handle) {
 }
 
 static void xdkBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
+    diagLog("FS: xdkBinaryRewrite: fs=%p handle=%p\n", fs, handle);
     if (!handle) return;
     XdkBinaryHandle* h = (XdkBinaryHandle*)handle;
     if (h->hFile != INVALID_HANDLE_VALUE) CloseHandle(h->hFile);
@@ -295,6 +325,8 @@ static void xdkBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
 // ===[ Directory Operations ]===
 
 static bool xdkDirectoryExists(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkDirectoryExists: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -305,6 +337,8 @@ static bool xdkDirectoryExists(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkCreateDirectory(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkCreateDirectory: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -314,6 +348,8 @@ static bool xdkCreateDirectory(FileSystem* fs, const char* relativePath) {
 }
 
 static bool xdkDeleteDirectory(FileSystem* fs, const char* relativePath) {
+    diagLog("FS: xdkDeleteDirectory: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
+    if (!relativePath || relativePath[0] == '\0') return false;
     char* fullPath = xdkResolvePath(fs, relativePath);
     if (!fullPath) return false;
 
@@ -323,6 +359,8 @@ static bool xdkDeleteDirectory(FileSystem* fs, const char* relativePath) {
 }
 
 static FileSystemDirEntry* xdkListDirectory(FileSystem* fs, const char* relativeDirPath) {
+    diagLog("FS: xdkListDirectory: fs=%p relativeDirPath=\"%s\"\n", fs, relativeDirPath ? relativeDirPath : "NULL");
+    if (!relativeDirPath || relativeDirPath[0] == '\0') return NULL;
     char* fullPath = xdkResolvePath(fs, relativeDirPath);
     if (!fullPath) return NULL;
 

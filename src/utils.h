@@ -123,10 +123,20 @@ _val; \
     _ptr; \
 })
 
+#define RESET_STRUCT(ptr, type) *ptr = (type) {0}
+
 #else
 
 void diagLog(const char* fmt, ...);
 void fdiagLog(FILE* file, const char* fmt, ...);
+
+// static inline void safeFree(void* ptr, const char* file, int line) {
+// 	diagLog("free called at %s: %d", file, line);
+// 	free(ptr);
+// 	diagLog("free success!");
+// }
+
+// #define free(x) safeFree(x, __FILE__, __LINE__)
 
 #define printf diagLog
 #define fprintf fdiagLog
@@ -260,6 +270,8 @@ inline void _safeFreadHelper(void* dst, size_t n, FILE* file, const char* pathFo
     }
 }
 #define safeFread(dst, n, file, pathForError) _safeFreadHelper((dst), (size_t)(n), (file), (pathForError), __FILE__, __LINE__)
+
+#define RESET_STRUCT(ptr, type) memset((ptr), 0, sizeof(type))
 
 #endif
 

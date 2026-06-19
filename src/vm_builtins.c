@@ -6721,9 +6721,7 @@ static RValue builtin_file_text_close(VMContext* ctx, RValue* args, int32_t argC
     free(file->content);
     free(file->writeBuffer);
     free(file->filePath);
-	#ifndef PLATFORM_XBOX360_XDK
-    *file = (OpenTextFile) {0};
-	#endif
+	RESET_STRUCT(file, OpenTextFile);
     return RValue_makeUndefined();
 }
 
@@ -7021,9 +7019,7 @@ static RValue builtin_file_bin_close(VMContext* ctx, RValue* args, int32_t argCo
     OpenBinaryFile* file = getBinaryFile(runner, RValue_toInt32(args[0]));
     if (file == nullptr) return RValue_makeUndefined();
     runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-    #ifndef PLATFORM_XBOX360_XDK
-	*file = (OpenBinaryFile) {0};
-	#endif
+    RESET_STRUCT(file, OpenTextFile);
     return RValue_makeUndefined();
 }
 
