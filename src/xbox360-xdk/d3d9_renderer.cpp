@@ -1096,14 +1096,44 @@ static void d3d9DrawRectangleColor(Renderer* renderer, float x1, float y1, float
 }
 
 static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t color1, uint32_t color2, uint32_t color3, float alpha, bool outline) {
-	// TODO: Apply color1, color2, color3, alpha parameters
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
     if (outline) {
-        d3d9DrawLine(renderer, x1, y1, x2, y2, 1.0f, renderer->drawColor, renderer->drawAlpha);
-        d3d9DrawLine(renderer, x2, y2, x3, y3, 1.0f, renderer->drawColor, renderer->drawAlpha);
-        d3d9DrawLine(renderer, x3, y3, x1, y1, 1.0f, renderer->drawColor, renderer->drawAlpha);
+        d3d9DrawLine(renderer, x1, y1, x2, y2, 1.0f, color1, alpha);
+        d3d9DrawLine(renderer, x2, y2, x3, y3, 1.0f, color2, alpha);
+        d3d9DrawLine(renderer, x3, y3, x1, y1, 1.0f, color3, alpha);
         return;
     }
-    d3d9DrawRectangle(renderer, x1, y1, x2, y2, renderer->drawColor, renderer->drawAlpha, false);
+
+    // Flush any batched quads first so we can issue a triangle list
+    flushBatch(dr);
+
+    float c1r, c1g, c1b, c1a;
+    float c2r, c2g, c2b, c2a;
+    float c3r, c3g, c3b, c3a;
+    bgrToFloatColor(color1, alpha, &c1r, &c1g, &c1b, &c1a);
+    bgrToFloatColor(color2, alpha, &c2r, &c2g, &c2b, &c2a);
+    bgrToFloatColor(color3, alpha, &c3r, &c3g, &c3b, &c3a);
+
+    IDirect3DDevice9* dev = Dev(dr);
+    dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
+
+    // Build 3 triangle vertices in screen space with per-vertex colors
+    SpriteVertex verts[3];
+    float sx, sy;
+
+    transformPoint(dr, x1, y1, &sx, &sy);
+    setVertex(&verts[0], sx, sy, 0.0f, 0.0f, c1r, c1g, c1b, c1a);
+
+    transformPoint(dr, x2, y2, &sx, &sy);
+    setVertex(&verts[1], sx, sy, 0.0f, 0.0f, c2r, c2g, c2b, c2a);
+
+    transformPoint(dr, x3, y3, &sx, &sy);
+    setVertex(&verts[2], sx, sy, 0.0f, 0.0f, c3r, c3g, c3b, c3a);
+
+    dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(SpriteVertex));
+
+    dr->currentTextureIndex = -3; // invalidate cached texture
 }
 
 static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
@@ -1746,13 +1776,100 @@ uint32_t d3d9SurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
 }
 
 void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY) {
-	static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: drawTile stub");
+    // Draw the tile using the standard shared helper in renderer.h.
+    // This handles atlas clipping, scaling, and all the coordinate transforms.
+    uint32_t savedColor = renderer->drawColor;
+    float savedAlpha = renderer->drawAlpha;
+
+    renderer->drawColor = tile->color;
+    renderer->drawAlpha = tile->alpha;
+
+    int32_t tpagIndex = Renderer_resolveObjectTPAGIndex(renderer->dataWin, tile);
+    if (tpagIndex >= 0) {
+        DataWin* dw = renderer->dataWin;
+        TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+
+        int32_t srcX = tile->sourceX;
+        int32_t srcY = tile->sourceY;
+        int32_t srcW = (int32_t)tile->width;
+        int32_t srcH = (int32_t)tile->height;
+        float drawX = (float)tile->x + offsetX;
+        float drawY = (float)tile->y + offsetY;
+
+        // Clip to TPAG content region
+        int32_t contentLeft = tpag->targetX;
+        int32_t contentTop = tpag->targetY;
+        if (contentLeft > srcX) {
+            int32_t clip = contentLeft - srcX;
+            drawX += (float)clip * tile->scaleX;
+            srcW -= clip;
+            srcX = contentLeft;
+        }
+        if (contentTop > srcY) {
+            int32_t clip = contentTop - srcY;
+            drawY += (float)clip * tile->scaleY;
+            srcH -= clip;
+            srcY = contentTop;
+        }
+        int32_t contentRight = tpag->targetX + tpag->sourceWidth;
+        int32_t contentBottom = tpag->targetY + tpag->sourceHeight;
+        if (srcX + srcW > contentRight) srcW = contentRight - srcX;
+        if (srcY + srcH > contentBottom) srcH = contentBottom - srcY;
+        if (srcW <= 0 || srcH <= 0) { renderer->drawColor = savedColor; renderer->drawAlpha = savedAlpha; return; }
+
+        int32_t atlasOffX = srcX - tpag->targetX;
+        int32_t atlasOffY = srcY - tpag->targetY;
+
+        d3d9DrawSpritePart(renderer, tpagIndex, atlasOffX, atlasOffY, srcW, srcH,
+                           drawX, drawY, tile->scaleX, tile->scaleY,
+                           0.0f, 0.0f, 0.0f, tile->color, tile->alpha);
+    }
+
+    renderer->drawColor = savedColor;
+    renderer->drawAlpha = savedAlpha;
 }
 
 void d3d9DrawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
-	static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: drawTiled stub");
+    DataWin* dw = renderer->dataWin;
+    if (tpagIndex < 0 || (uint32_t)tpagIndex >= dw->tpag.count) return;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int32_t texPageId = tpag->texturePageId;
+    if (texPageId < 0) return;
+
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    if (!dr->textures[texPageId]) return;
+
+    float sprW = (float)tpag->boundingWidth * xscale;
+    float sprH = (float)tpag->boundingHeight * yscale;
+    if (sprW <= 0.0f || sprH <= 0.0f) return;
+
+    // Compute the visible tile range
+    float startX = tileX ? fmodf(x, sprW) - sprW : x;
+    float startY = tileY ? fmodf(y, sprH) - sprH : y;
+    float endX = tileX ? roomW : x + sprW;
+    float endY = tileY ? roomH : y + sprH;
+
+    // Clamp start positions so we don't draw off-screen unnecessarily
+    if (startX > roomW || startY > roomH) return;
+    if (endX < 0.0f || endY < 0.0f) return;
+
+    // Draw tiled sprites
+    for (float ty = startY; ty < endY; ty += sprH) {
+        float drawY = ty;
+        // If not tiling vertically, clamp to the single row
+        if (!tileY && ty != startY) break;
+
+        for (float tx = startX; tx < endX; tx += sprW) {
+            float drawX = tx;
+            // If not tiling horizontally, clamp to the single column
+            if (!tileX && tx != startX) break;
+
+            d3d9DrawSprite(renderer, tpagIndex, drawX, drawY,
+                          originX, originY, xscale, yscale, 0.0f, color, alpha);
+        }
+    }
 }
 
 void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
