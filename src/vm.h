@@ -187,8 +187,7 @@ struct VMContext {
     uint32_t codeEnd;
     RValue* localVars;
     uint32_t localVarCount;
-    RValue* globalVars;
-    uint32_t globalVarCount;
+    struct Instance* globalScopeInstance; // used when GLOB scripts are being executed, and used for the "global" reference
     struct Instance* currentInstance;
     struct Instance* otherInstance; // "other" instance for collision events
     DataWin* dataWin;
@@ -236,15 +235,9 @@ struct VMContext {
     struct { char* key; CodeLocals* value; }* codeLocalsMap;
     // BC13/BC14/BC17+: A map of CODE indexes -> localVars slot lookup map
     IntIntHashMap* codeLocalsSlotMaps;
-    // BC13/BC14 only: varIdx -> globalVars slot lookup
-    IntIntHashMap globalVarsSlotMap;
-    // Allocated capacity of ctx->globalVars, only used for BC13/BC14
-    uint32_t globalVarCapacity;
-    // varName -> varID hash map for global variables (stb_ds)
-    struct { char* key; int32_t value; }* globalVarNameMap;
     // varName -> varID hash map for self/instance-scoped variables (stb_ds).
-    struct { char* key; int32_t value; }* selfVarNameMap;
-    int32_t nextDynamicSelfVarID;
+    struct { char* key; int32_t value; }* varNameMap;
+    int32_t nextDynamicVarID;
     // "codeName\tfuncName" -> true, for deduplicating unknown function warnings
     StringBooleanEntry* loggedUnknownFuncs;
     // "codeName\tfuncName" -> true, for deduplicating stubbed function warnings
@@ -287,6 +280,7 @@ struct VMContext {
 };
 
 // ===[ Public API ]===
+Instance* VM_findInstanceByTarget(VMContext* ctx, int32_t target);
 VMContext* VM_create(DataWin* dataWin);
 void VM_reset(VMContext* ctx);
 RValue VM_executeCode(VMContext* ctx, int32_t codeIndex);
@@ -303,7 +297,9 @@ void VM_printOpcodeProfilerReport(const VMContext* ctx);
 void VM_registerBuiltin(VMContext* ctx, const char* name, BuiltinFunc func);
 BuiltinFunc VM_findBuiltin(VMContext* ctx, const char* name);
 
-RValue VM_structGet(VMContext* ctx, Instance* structInst, const char* name, int32_t arrayIndex);
+char* VM_getVariableNameByVarId(VMContext* ctx, int32_t varId);
+RValue VM_structGetVariableByVarId(Instance* structInst, int32_t varId, int32_t arrayIndex);
+RValue VM_structGetVariableByVarName(VMContext* ctx, Instance* structInst, const char* name, int32_t arrayIndex);
 // Set a named field on a freshly-built GML struct.
 void VM_structSet(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
 void VM_structSetAndFreeVal(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
@@ -312,7 +308,7 @@ void VM_structSetAndFreeVal(VMContext* ctx, Instance* structInst, const char* na
 void VM_copyStatic(VMContext* ctx, RValue* parentRef);
 
 // Look up the varID for a self-scoped variable name, allocating a fresh synthetic ID if absent.
-int32_t VM_getOrAllocateSelfVarID(VMContext* ctx, const char* name);
+int32_t VM_getOrAllocateVarID(VMContext* ctx, const char* name);
 
 // Writes to the VMContext's scriptArgs, resizing the underlying array if needed
 // The "val" will be RValue_makeIndependent(val), it won't be freed

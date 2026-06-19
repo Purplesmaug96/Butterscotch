@@ -37,7 +37,7 @@
 
 #define MAX_BACKGROUNDS 8
 
-// See GameMaker-HTML's Function_Layers.js
+// See GameMaker-HTML5's Function_Layers.js
 #define TILEINHERIT_SHIFT 31
 #define TILEFLIP_SHIFT 29
 #define TILEMIRROR_SHIFT 28
@@ -55,6 +55,14 @@
 #define TILEINDEX_SHIFT 0
 #define TILEINDEX_MASK (0x7ffff << TILEINDEX_SHIFT)
 #define TILEINDEX_SHIFTEDMASK (0x7ffff)
+
+// See GameMaker-HTML5's Function_YoYo.js
+#define DS_TYPE_MAP 1
+#define DS_TYPE_LIST 2
+#define DS_TYPE_STACK 3
+#define DS_TYPE_QUEUE 4
+#define DS_TYPE_GRID 5
+#define DS_TYPE_PRIORITY 6
 
 // ===[ STUBS MACROS ]===
 
@@ -572,7 +580,7 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
 
     // Structs: instance builtins are ordinary members.
     if (inst != nullptr && inst->objectIndex == STRUCT_OBJECT_INDEX && isInstanceScopedBuiltinVar(builtinVarId)) {
-        return VM_structGet(ctx, inst, name, arrayIndex);
+        return VM_structGetVariableByVarName(ctx, inst, name, arrayIndex);
     }
 
     // In the past Butterscotch used cascading ifs for this, which in my opinion looked nicer AND GCC was converting the ifs into a jump table, so it was all well...
@@ -2580,6 +2588,11 @@ static RValue builtin_lerp(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
     return RValue_makeReal(result);
 }
 
+static RValue builtin_tan(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    return RValue_makeReal(GMLReal_tan(RValue_toReal(args[0])));
+}
+
 static RValue builtin_point_distance(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (4 > argCount) return RValue_makeReal(0.0);
     GMLReal dx = RValue_toReal(args[2]) - RValue_toReal(args[0]);
@@ -2741,6 +2754,34 @@ static RValue builtin_move_snap(VMContext* ctx, RValue* args, MAYBE_UNUSED int32
     if (vsnap > 0.0) {
         inst->y = (float) (GMLReal_floor((inst->y / vsnap) + 0.5) * vsnap);
         SpatialGrid_markInstanceAsDirty(ctx->runner->spatialGrid, inst);
+    }
+    return RValue_makeReal(0.0);
+}
+
+static RValue builtin_move_wrap(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    bool hor = RValue_toBool(args[0]);
+    bool vert = RValue_toBool(args[1]);
+    GMLReal margin = RValue_toReal(args[2]);
+    Instance* inst = ctx->currentInstance;
+    if (hor) {
+        if (inst->x < -margin) {
+            inst->x = (float)(inst->x + ctx->runner->currentRoom->width + 2 * margin);
+            SpatialGrid_markInstanceAsDirty(ctx->runner->spatialGrid, inst);
+        }
+        if (inst->x > ctx->runner->currentRoom->width + margin) {
+            inst->x = (float)(inst->x - ctx->runner->currentRoom->width - 2 * margin);
+            SpatialGrid_markInstanceAsDirty(ctx->runner->spatialGrid, inst);
+        }
+    }
+    if (vert) {
+        if (inst->y < -margin) {
+            inst->y = (float)(inst->y + ctx->runner->currentRoom->height + 2 * margin);
+            SpatialGrid_markInstanceAsDirty(ctx->runner->spatialGrid, inst);
+        }
+        if (inst->y > ctx->runner->currentRoom->height + margin) {
+            inst->y = (float)(inst->y - ctx->runner->currentRoom->height - 2 * margin);
+            SpatialGrid_markInstanceAsDirty(ctx->runner->spatialGrid, inst);
+        }
     }
     return RValue_makeReal(0.0);
 }
@@ -3713,57 +3754,6 @@ static const char* variableTraceObjectName(VMContext* ctx, Instance* inst) {
 }
 #endif
 
-static RValue builtin_variable_global_exists(VMContext* ctx, RValue* args, int32_t argCount) {
-    if (1 > argCount || args[0].type != RVALUE_STRING) return RValue_makeReal(0.0);
-    const char* name = args[0].string;
-    ptrdiff_t idx = shgeti(ctx->globalVarNameMap, (char*) name);
-    if (0 > idx) return RValue_makeReal(0.0);
-    int32_t varID = ctx->globalVarNameMap[idx].value;
-    if (ctx->globalVarCount > (uint32_t) varID && ctx->globalVars[varID].type != RVALUE_UNDEFINED) {
-        return RValue_makeReal(1.0);
-    }
-    return RValue_makeReal(0.0);
-}
-
-static RValue builtin_variable_global_get(VMContext* ctx, RValue* args, int32_t argCount) {
-    if (1 > argCount || args[0].type != RVALUE_STRING) return RValue_makeUndefined();
-    const char* name = args[0].string;
-    ptrdiff_t idx = shgeti(ctx->globalVarNameMap, (char*) name);
-    if (0 > idx) return RValue_makeUndefined();
-    int32_t varID = ctx->globalVarNameMap[idx].value;
-    if (ctx->globalVarCount > (uint32_t) varID) {
-        RValue val = ctx->globalVars[varID];
-#ifdef ENABLE_VM_TRACING
-        VM_checkIfVariableShouldBeTracedAndLog(ctx, "global", nullptr, name, val, false, -1, -1, " (variable_global_get)");
-#endif
-        // Duplicate owned strings
-        if (val.type == RVALUE_STRING && val.ownsReference && val.string != nullptr) {
-            return RValue_makeOwnedString(safeStrdup(val.string));
-        }
-        // Return a weak view: the global slot retains ownership. The caller's Pop will incRef into the destination slot.
-        val.ownsReference = false;
-        return val;
-    }
-    return RValue_makeUndefined();
-}
-
-static RValue builtin_variable_global_set(VMContext* ctx, RValue* args, int32_t argCount) {
-    if (2 > argCount || args[0].type != RVALUE_STRING) return RValue_makeUndefined();
-    const char* name = args[0].string;
-    ptrdiff_t idx = shgeti(ctx->globalVarNameMap, (char*) name);
-    if (0 > idx) return RValue_makeUndefined();
-    int32_t varID = ctx->globalVarNameMap[idx].value;
-    if (ctx->globalVarCount > (uint32_t) varID) {
-#ifdef ENABLE_VM_TRACING
-        VM_checkIfVariableShouldBeTracedAndLog(ctx, "global", nullptr, name, args[1], true, -1, -1, " (variable_global_set)");
-#endif
-        RValue_free(&ctx->globalVars[varID]);
-        ctx->globalVars[varID] = RValue_makeIndependent(args[1]);
-    }
-    return RValue_makeUndefined();
-}
-
-// ===[ VARIABLE_INSTANCE ]===
 
 static void variableInstanceSetOn(VMContext* ctx, Instance* target, const char* name, RValue val, MAYBE_UNUSED const char* originBuiltin) {
 #ifdef ENABLE_VM_TRACING
@@ -3778,14 +3768,14 @@ static void variableInstanceSetOn(VMContext* ctx, Instance* target, const char* 
     }
 
     // Lookup varID by name from VARI (self scope)
-    ptrdiff_t slot = shgeti(ctx->selfVarNameMap, (char*) name);
+    ptrdiff_t slot = shgeti(ctx->varNameMap, (char*) name);
     if (0 > slot) {
         // Not on the slot, register manually
-        int32_t dynamicallyAllocatedVarID = VM_getOrAllocateSelfVarID(ctx, name);
+        int32_t dynamicallyAllocatedVarID = VM_getOrAllocateVarID(ctx, name);
         Instance_setSelfVar(target, dynamicallyAllocatedVarID, val);
         return;
     }
-    Instance_setSelfVar(target, ctx->selfVarNameMap[slot].value, val);
+    Instance_setSelfVar(target, ctx->varNameMap[slot].value, val);
 }
 
 static RValue variableInstanceGetOn(VMContext* ctx, Instance* target, const char* name, MAYBE_UNUSED const char* originBuiltin) {
@@ -3803,9 +3793,9 @@ static RValue variableInstanceGetOn(VMContext* ctx, Instance* target, const char
         }
         return val;
     }
-    ptrdiff_t slot = shgeti(ctx->selfVarNameMap, (char*) name);
+    ptrdiff_t slot = shgeti(ctx->varNameMap, (char*) name);
     if (0 > slot) return RValue_makeUndefined();
-    RValue val = Instance_getSelfVar(target, ctx->selfVarNameMap[slot].value);
+    RValue val = Instance_getSelfVar(target, ctx->varNameMap[slot].value);
 #ifdef ENABLE_VM_TRACING
     char additional[48];
     snprintf(additional, sizeof(additional), " (%s)", originBuiltin);
@@ -3820,9 +3810,9 @@ static inline bool variableScopedMatches(Instance* inst, bool structOnly) {
 
 static bool variableInstanceExistsOn(VMContext* ctx, Instance* target, const char* name) {
     if (VMBuiltins_resolveBuiltinVarId(name) != BUILTIN_VAR_UNKNOWN) return true;
-    ptrdiff_t slot = shgeti(ctx->selfVarNameMap, (char*) name);
+    ptrdiff_t slot = shgeti(ctx->varNameMap, (char*) name);
     if (0 > slot) return false;
-    return IntRValueHashMap_contains(&target->selfVars, ctx->selfVarNameMap[slot].value);
+    return IntRValueHashMap_contains(&target->selfVars, ctx->varNameMap[slot].value);
 }
 
 static RValue variableScopedGet(VMContext* ctx, int32_t id, const char* name, bool structOnly, const char* originBuiltin) {
@@ -3831,6 +3821,10 @@ static RValue variableScopedGet(VMContext* ctx, int32_t id, const char* name, bo
     if (id >= INSTANCE_ID_BASE) {
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) return variableInstanceGetOn(ctx, inst, name, originBuiltin);
+        return RValue_makeUndefined();
+    } else if (id == INSTANCE_GLOBAL) {
+        Instance* targetInstance = ctx->globalScopeInstance;
+        if (variableScopedMatches(targetInstance, structOnly)) return variableInstanceGetOn(ctx, targetInstance, name, originBuiltin);
         return RValue_makeUndefined();
     }
 
@@ -3856,6 +3850,10 @@ static void variableScopedSet(VMContext* ctx, int32_t id, const char* name, RVal
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) variableInstanceSetOn(ctx, inst, name, val, originBuiltin);
         return;
+    } else if (id == INSTANCE_GLOBAL) {
+        Instance* targetInstance = ctx->globalScopeInstance;
+        if (variableScopedMatches(targetInstance, structOnly)) variableInstanceSetOn(ctx, targetInstance, name, val, originBuiltin);
+        return;
     }
 
     // Object index: set on all matching active instances (including descendants). The setter can run user code, so iterate a snapshot.
@@ -3875,6 +3873,8 @@ static bool variableScopedExists(VMContext* ctx, int32_t id, const char* name, b
         Instance* inst = hmget(runner->instancesById, id);
         if (inst != nullptr && variableScopedMatches(inst, structOnly)) return variableInstanceExistsOn(ctx, inst, name);
         return false;
+    } else if (id == INSTANCE_GLOBAL) {
+        return variableInstanceExistsOn(ctx, ctx->globalScopeInstance, name);
     }
 
     int32_t snapBase = Runner_pushInstancesOfObject(runner, id);
@@ -3890,6 +3890,24 @@ static bool variableScopedExists(VMContext* ctx, int32_t id, const char* name, b
     Runner_popInstanceSnapshot(runner, snapBase);
     return result;
 }
+
+static RValue builtin_variable_global_exists(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount || args[0].type != RVALUE_STRING) return RValue_makeBool(false);
+    return RValue_makeBool(variableScopedExists(ctx, INSTANCE_GLOBAL, args[0].string, false));
+}
+
+static RValue builtin_variable_global_get(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount || args[0].type != RVALUE_STRING) return RValue_makeUndefined();
+    return variableScopedGet(ctx, INSTANCE_GLOBAL, args[0].string, false, "variable_global_get");
+}
+
+static RValue builtin_variable_global_set(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount || args[0].type != RVALUE_STRING) return RValue_makeUndefined();
+    variableScopedSet(ctx, INSTANCE_GLOBAL, args[0].string, args[1], false, "variable_global_set");
+    return RValue_makeUndefined();
+}
+
+// ===[ VARIABLE_INSTANCE ]===
 
 static RValue builtin_variable_instance_get(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount || args[1].type != RVALUE_STRING) return RValue_makeUndefined();
@@ -3924,6 +3942,41 @@ static RValue builtin_variable_struct_exists(VMContext* ctx, RValue* args, int32
     return RValue_makeBool(variableScopedExists(ctx, RValue_toInt32(args[0]), args[1].string, true));
 }
 
+static RValue builtin_struct_get_names(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+
+    GMLArray* array = GMLArray_create(0);
+
+    Instance* targetInstance;
+    if (args[0].type == RVALUE_STRUCT) {
+        RValue varStruct = args[0];
+        targetInstance = varStruct.structInst;
+    } else {
+        // Contrary to its name, this also works with instances too
+        int32_t targetInstanceId = RValue_toInt32(args[0]);
+        if (targetInstanceId == INSTANCE_GLOBAL) {
+            targetInstance = ctx->globalScopeInstance;
+        } else {
+            targetInstance = VM_findInstanceByTarget(ctx, targetInstanceId);
+        }
+    }
+
+    if (targetInstance != nullptr) {
+        repeat(targetInstance->selfVars.capacity, i) {
+            IntRValueEntry entryOnTheVarStruct = targetInstance->selfVars.entries[i];
+
+            if (entryOnTheVarStruct.key != INT_RVALUE_HASHMAP_EMPTY_KEY) {
+                char* name = VM_getVariableNameByVarId(ctx, entryOnTheVarStruct.key);
+
+                // We don't need to worry about making it owned because the name is owned by the Runner itself
+                GMLArray_add(array, RValue_makeString(requireNotNullMessage(name, "Trying to set a variable that we do not know the name of! Bug?")));
+            }
+        }
+    }
+
+    return RValue_makeArray(array);
+}
+
 // ===[ METHOD ]===
 
 #if IS_WAD17_OR_HIGHER_ENABLED
@@ -3950,6 +4003,10 @@ static RValue builtin_method(VMContext* ctx, MAYBE_UNUSED RValue* args, int32_t 
                     codeIndex = ctx->codeIndexByName[idx].value;
                 }
             }
+        }
+
+        if (instanceToBeBound == INSTANCE_SELF) {
+            instanceToBeBound = requireNotNullMessage(ctx->currentInstance, "Trying to bind method to INSTANCE_SELF while there isn't a instance in the current context!")->instanceId;
         }
 
         return RValue_makeMethodFromCodeIndexAndInstanceId(codeIndex, instanceToBeBound);
@@ -4096,6 +4153,34 @@ static inline ptrdiff_t getValueIndexInMap(DsMapEntry** mapPtr, RValue keyRvalue
     return idx;
 }
 
+static RValue builtin_ds_exists(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t index = RValue_toInt32(args[0]);
+    int32_t dsType = RValue_toInt32(args[1]);
+
+    // TODO: Maps don't have freed status
+    if (dsType == DS_TYPE_MAP && arrlen(runner->dsMapPool) > index && index >= 0)
+        return RValue_makeBool(true);
+
+    if (dsType == DS_TYPE_LIST && arrlen(runner->dsListPool) > index && index >= 0 && !runner->dsListPool[index].freed)
+        return RValue_makeBool(true);
+
+    if (dsType == DS_TYPE_STACK && arrlen(runner->dsStackPool) > index && index >= 0 && !runner->dsStackPool[index].freed)
+        return RValue_makeBool(true);
+
+    if (dsType == DS_TYPE_GRID && arrlen(runner->dsGridPool) > index && index >= 0 && !runner->dsGridPool[index].freed)
+        return RValue_makeBool(true);
+
+    if (dsType == DS_TYPE_QUEUE && arrlen(runner->dsQueuePool) > index && index >= 0 && !runner->dsQueuePool[index].freed)
+        return RValue_makeBool(true);
+
+    if (dsType == DS_TYPE_PRIORITY && arrlen(runner->dsPriorityPool) > index && index >= 0 && !runner->dsPriorityPool[index].freed)
+        return RValue_makeBool(true);
+
+    return RValue_makeBool(false);
+}
+
+
 static RValue builtin_ds_map_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     return RValue_makeReal((GMLReal) dsMapCreate(runner));
@@ -4119,6 +4204,22 @@ static RValue builtin_ds_map_add(VMContext* ctx, RValue* args, int32_t argCount)
         shput(*mapPtr, key, RValue_makeIndependent(args[2]));
     }
 
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_map_clear(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsMapEntry** mapPtr = dsMapGet(runner, id);
+    if (mapPtr == nullptr || *mapPtr == nullptr) return RValue_makeUndefined();
+    ptrdiff_t len = shlen(*mapPtr);
+    for (ptrdiff_t i = 0; i < len; i++) {
+        RValue_free(&(*mapPtr)[i].value);
+        free((*mapPtr)[i].key);
+    }
+    shfree(*mapPtr);
+    *mapPtr = nullptr;
     return RValue_makeUndefined();
 }
 
@@ -4245,6 +4346,25 @@ static RValue builtin_ds_map_size(VMContext* ctx, RValue* args, int32_t argCount
     DsMapEntry** mapPtr = dsMapGet(runner, id);
     if (mapPtr == nullptr) return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) shlen(*mapPtr));
+}
+
+static RValue builtin_ds_map_delete(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsMapEntry** mapPtr = dsMapGet(runner, id);
+    if (mapPtr == nullptr || *mapPtr == nullptr) return RValue_makeUndefined();
+
+    char* key = RValue_toString(args[1]);
+    ptrdiff_t idx = shgeti(*mapPtr, key);
+    if (idx != -1) {
+        RValue_free(&(*mapPtr)[idx].value);
+        char* storedKey = (*mapPtr)[idx].key;
+        shdel(*mapPtr, storedKey);
+        free(storedKey);
+    }
+    free(key);
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_ds_map_destroy(VMContext* ctx, RValue* args, int32_t argCount) {
@@ -4688,6 +4808,182 @@ static RValue builtin_ds_list_replace(VMContext* ctx, RValue* args, MAYBE_UNUSED
     if (0 > pos || pos >= (int32_t) arrlen(list->items)) return RValue_makeUndefined();
     RValue_free(&list->items[pos]);
     list->items[pos] = RValue_makeIndependent(args[2]);
+    return RValue_makeUndefined();
+}
+
+// ===[ DS_GRID FUNCTIONS ]===
+static DsGrid* dsGridGet(Runner* runner, int32_t id) {
+    if (0 > id || id >= (int32_t) arrlen(runner->dsGridPool)) return nullptr;
+    if (runner->dsGridPool[id].freed) return nullptr;
+    return &runner->dsGridPool[id];
+}
+
+static RValue builtin_ds_grid_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 2) return RValue_makeUndefined();
+
+    Runner* runner = ctx->runner;
+    int32_t width = RValue_toInt32(args[0]);
+    int32_t height = RValue_toInt32(args[1]);
+
+    if (0 > width) width = 0;
+    if (0 > height) height = 0;
+    size_t count = (size_t) width * (size_t) height;
+
+    // Reuse a freed slot if available, matching native GameMaker behavior.
+    // Yes, some games (example: DELTARUNE Chapter 3's obj_board_playercamera_Other_10) rely on ds_list_create reusing the id of a list just destroyed.
+    int32_t poolSize = (int32_t) arrlen(runner->dsGridPool);
+    repeat(poolSize, i) {
+        if (runner->dsGridPool[i].freed) {
+            runner->dsGridPool[i].freed = false;
+            runner->dsGridPool[i].width = width;
+            runner->dsGridPool[i].height = height;
+            runner->dsGridPool[i].items = count > 0 ? (RValue*)safeCalloc(count, sizeof(RValue)) : nullptr;
+            return RValue_makeReal(i);
+        }
+    }
+
+    DsGrid newGrid = {0};
+    newGrid.width = width;
+    newGrid.height = height;
+    newGrid.items = count > 0 ? (RValue*)safeCalloc(count, sizeof(RValue)) : nullptr;
+    int32_t id = poolSize;
+    arrput(runner->dsGridPool, newGrid);
+    return RValue_makeReal(id);
+}
+
+static RValue builtin_ds_grid_destroy(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    size_t count = (size_t) grid->width * (size_t) grid->height;
+    repeat(count, i) {
+        RValue_free(&grid->items[i]);
+    }
+    free(grid->items);
+    grid->items = nullptr;
+    grid->width = 0;
+    grid->height = 0;
+    grid->freed = true;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_width(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeReal(0);
+    return RValue_makeReal(grid->width);
+}
+
+static RValue builtin_ds_grid_height(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeReal(0);
+    return RValue_makeReal(grid->height);
+}
+
+static RValue builtin_ds_grid_set(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    RValue* slot = &grid->items[x + (y * grid->width)];
+    RValue newValue = RValue_makeIndependent(args[3]);
+    RValue_free(slot);
+    *slot = newValue;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_get(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    return RValue_makeIndependent(grid->items[x + (y * grid->width)]);
+}
+
+static RValue builtin_ds_grid_add(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 4) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    RValue* slot = &grid->items[x + (y * grid->width)];
+    if (slot->type == RVALUE_STRING && args[3].type == RVALUE_STRING) {
+        // If they are both strings, then we concatenate them
+        const char* sa = requireNotNull(slot->string);
+        const char* sb = requireNotNull(args[3].string);
+        size_t lenA = strlen(sa);
+        size_t lenB = strlen(sb);
+        char* result = (char*)safeMalloc(lenA + lenB + 1);
+        memcpy(result, sa, lenA);
+        memcpy(result + lenA, sb, lenB + 1);
+        RValue_free(slot);
+        *slot = RValue_makeOwnedString(result);
+    } else {
+        // Anything else is real addition
+        GMLReal sum = RValue_toReal(*slot) + RValue_toReal(args[3]);
+        RValue_free(slot);
+        *slot = RValue_makeReal(sum);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_resize(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t width = RValue_toInt32(args[1]);
+    int32_t height = RValue_toInt32(args[2]);
+    if (0 > width) width = 0;
+    if (0 > height) height = 0;
+
+    size_t count = (size_t) width * (size_t) height;
+    RValue* newGrid = count > 0 ? (RValue*)safeCalloc(count, sizeof(RValue)) : nullptr;
+
+    int32_t copyWidth = width > grid->width ? grid->width : width;
+    int32_t copyHeight = height > grid->height ? grid->height : height;
+
+    repeat(copyHeight, y) {
+        repeat(copyWidth, x) {
+            // Steal ownership of the cell
+            newGrid[x + (y * width)] = grid->items[x + (y * grid->width)];
+        }
+    }
+
+    // Free any cells that fell outside the new bounds
+    repeat(grid->height, y) {
+        repeat(grid->width, x) {
+            if (x >= copyWidth || y >= copyHeight) {
+                RValue_free(&grid->items[x + (y * grid->width)]);
+            }
+        }
+    }
+
+    free(grid->items);
+    grid->items = newGrid;
+    grid->width = width;
+    grid->height = height;
     return RValue_makeUndefined();
 }
 
@@ -7584,6 +7880,28 @@ static RValue builtin_instance_create_layer(VMContext* ctx, RValue* args, int32_
     Instance* inst = Runner_createInstanceWithLayer(runner, x, y, objectIndex, layerId);
     if (inst == nullptr) return RValue_makeReal(INSTANCE_NOONE);
 
+    if (argCount >= 5) {
+        RValue varStruct = args[4];
+        if (varStruct.type == RVALUE_STRUCT) {
+            repeat(varStruct.structInst->selfVars.capacity, i) {
+                IntRValueEntry entryOnTheVarStruct = varStruct.structInst->selfVars.entries[i];
+                RValue target = VM_structGetVariableByVarId(varStruct.structInst, entryOnTheVarStruct.key, -1);
+
+                if (entryOnTheVarStruct.key != INT_RVALUE_HASHMAP_EMPTY_KEY) {
+                    char* name = VM_getVariableNameByVarId(ctx, entryOnTheVarStruct.key);
+
+                    variableInstanceSetOn(
+                        ctx,
+                        inst,
+                        requireNotNullMessage(name, "Trying to set a variable that we do not know the name of! Bug?"),
+                        target,
+                        "instance_create_layer"
+                    );
+                }
+            }
+        }
+    }
+
     Instance* callerInst = ctx->currentInstance;
     if (callerInst != nullptr && ctx->creatorVarID >= 0) {
         Instance_setSelfVar(inst, ctx->creatorVarID, RValue_makeReal((GMLReal) callerInst->instanceId));
@@ -8928,6 +9246,32 @@ static RValue builtin_sha1_file(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE
     return RValue_makeOwnedString(convertToHexString(digest, 20));
 }
 
+static RValue builtin_md5_file(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    FileSystem* fs = runner->fileSystem;
+
+    char* filePath = RValue_toString(args[0]);
+    const char* resolvedPath = fs->vtable->resolvePath(fs, filePath);
+    uint8_t* fileData = nullptr;
+    int32_t fileSize = 0;
+    bool ok = fs->vtable->readFileBinary(fs, resolvedPath, &fileData, &fileSize);
+    free(filePath);
+
+    // GameMaker 2023.4.0.113 returns an empty string if the file doesn't exist
+    if (!ok)
+        return RValue_makeString("");
+
+    MD5_CTX sctx;
+    MD5Init(&sctx);
+    if (fileSize > 0)
+        MD5Update(&sctx, fileData, (unsigned int) fileSize);
+
+    unsigned char digest[16];
+    MD5Final(digest, &sctx);
+
+    return RValue_makeOwnedString(convertToHexString(digest, 16));
+}
+
 // buffer_get_surface(buffer, surface, offset) -> bool
 // Reads RGBA8 pixels from the surface into the buffer at the given offset.
 static RValue builtin_buffer_get_surface(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -9607,7 +9951,7 @@ static RValue builtin_draw_background_tiled(VMContext* ctx, RValue* args, MAYBE_
 
     float roomW = (float) runner->currentRoom->width;
     float roomH = (float) runner->currentRoom->height;
-    runner->renderer->vtable->drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, 1.0f, 1.0f, true, true, roomW, roomH, 0xFFFFFFu, runner->renderer->drawAlpha);
+    runner->renderer->vtable->drawSpriteTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, 1.0f, 1.0f, true, true, roomW, roomH, 0xFFFFFFu, runner->renderer->drawAlpha);
     return RValue_makeUndefined();
 }
 
@@ -9628,7 +9972,7 @@ static RValue builtin_draw_background_tiled_ext(VMContext* ctx, RValue* args, MA
 
     float roomW = (float) runner->currentRoom->width;
     float roomH = (float) runner->currentRoom->height;
-    runner->renderer->vtable->drawTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
+    runner->renderer->vtable->drawSpriteTiled(runner->renderer, tpagIndex, 0.0f, 0.0f, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
     return RValue_makeUndefined();
 }
 
@@ -10101,6 +10445,36 @@ static RValue builtin_draw_surface_stretched_ext(VMContext* ctx, RValue* args, M
         float xscale = surfW > 0.0f ? width  / surfW : 1.0f;
         float yscale = surfH > 0.0f ? height / surfH : 1.0f;
         runner->renderer->vtable->drawSurface(runner->renderer, surfaceId, 0, 0, -1, -1, x, y, xscale, yscale, 0.0, color, alpha);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_surface_tiled(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t surfaceId = (int32_t) RValue_toReal(args[0]);
+    float x = (float) RValue_toReal(args[1]);
+    float y = (float) RValue_toReal(args[2]);
+    Runner* runner = ctx->runner;
+    if (runner->renderer != nullptr) {
+        float roomW = (float) runner->currentRoom->width;
+        float roomH = (float) runner->currentRoom->height;
+        runner->renderer->vtable->drawSurfaceTiled(runner->renderer, surfaceId, x, y, 1.0f, 1.0f, roomW, roomH, 0xFFFFFFFF, runner->renderer->drawAlpha);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_surface_tiled_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t surfaceId = (int32_t) RValue_toReal(args[0]);
+    float x = (float) RValue_toReal(args[1]);
+    float y = (float) RValue_toReal(args[2]);
+    float xscale = (float) RValue_toReal(args[3]);
+    float yscale = (float) RValue_toReal(args[4]);
+    uint32_t color = (uint32_t) RValue_toInt32(args[5]);
+    float alpha = (float) RValue_toReal(args[6]);
+    Runner* runner = ctx->runner;
+    if (runner->renderer != nullptr) {
+        float roomW = (float) runner->currentRoom->width;
+        float roomH = (float) runner->currentRoom->height;
+        runner->renderer->vtable->drawSurfaceTiled(runner->renderer, surfaceId, x, y, xscale, yscale, roomW, roomH, color, alpha);
     }
     return RValue_makeUndefined();
 }
@@ -11285,7 +11659,10 @@ static RValue builtin_position_meeting(VMContext* ctx, RValue* args, int32_t arg
 }
 
 // Misc stubs
-STUB_RETURN_ZERO(get_timer)
+static RValue builtin_get_timer(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    return RValue_makeReal((nowNanos() - ctx->runner->gameStartTime) / 1000000.0);
+}
+
 static RValue builtin_action_set_alarm(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t steps = RValue_toInt32(args[0]);
     int32_t alarmIndex = RValue_toInt32(args[1]);
@@ -12511,6 +12888,15 @@ static RValue builtin_layer_background_get_alpha(VMContext* ctx, RValue* args, M
     return RValue_makeReal(0.0);
 }
 
+static RValue builtin_layer_background_get_blend(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
+    if (bg != nullptr)
+        return RValue_makeReal(bg->blend);
+    return RValue_makeReal(0.0);
+}
+
 static RValue builtin_layer_tile_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, RValue_toInt32(args[0]), nullptr);
@@ -13236,7 +13622,7 @@ static RValue builtin_path_add(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_
     memset(p, 0, sizeof(GamePath));
     p->name = "";
     p->isSmooth = false;
-    p->isClosed = false;
+    p->isClosed = true;
     p->precision = 4;
     p->pointCount = 0;
     p->points = nullptr;
@@ -15037,6 +15423,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "radtodeg", (BuiltinFunc)builtin_radtodeg);
     VM_registerBuiltin(ctx, "clamp", (BuiltinFunc)builtin_clamp);
     VM_registerBuiltin(ctx, "lerp", (BuiltinFunc)builtin_lerp);
+    VM_registerBuiltin(ctx, "tan", (BuiltinFunc)builtin_tan);
     VM_registerBuiltin(ctx, "point_distance", (BuiltinFunc)builtin_point_distance);
     VM_registerBuiltin(ctx, "point_in_rectangle", (BuiltinFunc)builtin_point_in_rectangle);
     VM_registerBuiltin(ctx, "point_in_circle", (BuiltinFunc)builtin_point_in_circle);
@@ -15049,6 +15436,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
         VM_registerBuiltin(ctx, "action_move_point", (BuiltinFunc)builtin_move_towards_point);
     }
     VM_registerBuiltin(ctx, "move_snap", (BuiltinFunc)builtin_move_snap);
+    VM_registerBuiltin(ctx, "move_wrap", (BuiltinFunc)builtin_move_wrap);
     VM_registerBuiltin(ctx, "move_contact_solid", (BuiltinFunc)builtin_move_contact_solid);
     VM_registerBuiltin(ctx, "move_outside_solid", (BuiltinFunc)builtin_move_outside_solid);
     VM_registerBuiltin(ctx, "move_outside_all", (BuiltinFunc)builtin_move_outside_all);
@@ -15137,6 +15525,9 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "variable_struct_set", (BuiltinFunc)builtin_variable_struct_set);
     VM_registerBuiltin(ctx, "variable_struct_get", (BuiltinFunc)builtin_variable_struct_get);
     VM_registerBuiltin(ctx, "variable_struct_exists", (BuiltinFunc)builtin_variable_struct_exists);
+    VM_registerBuiltin(ctx, "struct_get_names", (BuiltinFunc)builtin_struct_get_names);
+    VM_registerBuiltin(ctx, "variable_instance_get_names", (BuiltinFunc)builtin_struct_get_names); // I couldn't find any noticeable different behavior when testing this
+    VM_registerBuiltin(ctx, "variable_struct_get_names", (BuiltinFunc)builtin_struct_get_names); // Deprecated variant of struct_get_names (https://github.com/YoYoGames/GameMaker-Bugs/issues/6105)
 
     // Script
     VM_registerBuiltin(ctx, "script_execute", (BuiltinFunc)builtin_script_execute);
@@ -15160,9 +15551,14 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "xboxone_achievements_set_progress", (BuiltinFunc)builtin_xboxone_achievements_set_progress);
     VM_registerBuiltin(ctx, "environment_get_variable", (BuiltinFunc)builtin_environment_get_variable);
 
+    // General ds_* functions
+    VM_registerBuiltin(ctx, "ds_exists", (BuiltinFunc)builtin_ds_exists);
+
     // ds_map
     VM_registerBuiltin(ctx, "ds_map_create", (BuiltinFunc)builtin_ds_map_create);
+    VM_registerBuiltin(ctx, "ds_map_delete", (BuiltinFunc)builtin_ds_map_delete);
     VM_registerBuiltin(ctx, "ds_map_add", (BuiltinFunc)builtin_ds_map_add);
+    VM_registerBuiltin(ctx, "ds_map_clear", (BuiltinFunc)builtin_ds_map_clear);
     VM_registerBuiltin(ctx, "ds_map_set", (BuiltinFunc)builtin_ds_map_set);
     VM_registerBuiltin(ctx, "ds_map_set_pre", (BuiltinFunc)builtin_ds_map_set_pre);
     VM_registerBuiltin(ctx, "ds_map_set_post", (BuiltinFunc)builtin_ds_map_set_post);
@@ -15188,6 +15584,16 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_write", (BuiltinFunc)builtin_ds_list_write);
     VM_registerBuiltin(ctx, "ds_list_read", (BuiltinFunc)builtin_ds_list_read);
     VM_registerBuiltin(ctx, "ds_list_replace", (BuiltinFunc)builtin_ds_list_replace);
+
+    // ds_grid
+    VM_registerBuiltin(ctx, "ds_grid_create", (BuiltinFunc)builtin_ds_grid_create);
+    VM_registerBuiltin(ctx, "ds_grid_destroy", (BuiltinFunc)builtin_ds_grid_destroy);
+    VM_registerBuiltin(ctx, "ds_grid_width", (BuiltinFunc)builtin_ds_grid_width);
+    VM_registerBuiltin(ctx, "ds_grid_height", (BuiltinFunc)builtin_ds_grid_height);
+    VM_registerBuiltin(ctx, "ds_grid_set", (BuiltinFunc)builtin_ds_grid_set);
+    VM_registerBuiltin(ctx, "ds_grid_get", (BuiltinFunc)builtin_ds_grid_get);
+    VM_registerBuiltin(ctx, "ds_grid_add", (BuiltinFunc)builtin_ds_grid_add);
+    VM_registerBuiltin(ctx, "ds_grid_resize", (BuiltinFunc)builtin_ds_grid_resize);
 
     // ds_stack
     VM_registerBuiltin(ctx, "ds_stack_create", (BuiltinFunc)builtin_ds_stack_create);
@@ -15495,6 +15901,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "buffer_sha1", (BuiltinFunc)builtin_buffer_sha1);
     VM_registerBuiltin(ctx, "buffer_get_surface", (BuiltinFunc)builtin_buffer_get_surface);
     VM_registerBuiltin(ctx, "sha1_file", (BuiltinFunc)builtin_sha1_file);
+    VM_registerBuiltin(ctx, "md5_file", (BuiltinFunc)builtin_md5_file);
 
     // PSN
     VM_registerBuiltin(ctx, "psn_init", (BuiltinFunc)builtin_psn_init);
@@ -15536,13 +15943,15 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_text_colour", (BuiltinFunc)builtin_draw_text_color);
     VM_registerBuiltin(ctx, "draw_text_ext_colour", (BuiltinFunc)builtin_draw_text_color_ext);
     VM_registerBuiltin(ctx, "draw_text_transformed_colour", (BuiltinFunc)builtin_draw_text_color_transformed);
-    VM_registerBuiltin(ctx, "draw_text_ext_transformed_colour", (BuiltinFunc)builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext_transformed_colour",(BuiltinFunc) builtin_draw_text_color_ext_transformed);
     VM_registerBuiltin(ctx, "draw_surface", (BuiltinFunc)builtin_draw_surface);
     VM_registerBuiltin(ctx, "draw_surface_ext", (BuiltinFunc)builtin_draw_surface_ext);
     VM_registerBuiltin(ctx, "draw_surface_part", (BuiltinFunc)builtin_draw_surface_part);
     VM_registerBuiltin(ctx, "draw_surface_part_ext", (BuiltinFunc)builtin_draw_surface_part_ext);
     VM_registerBuiltin(ctx, "draw_surface_stretched", (BuiltinFunc)builtin_draw_surface_stretched);
     VM_registerBuiltin(ctx, "draw_surface_stretched_ext", (BuiltinFunc)builtin_draw_surface_stretched_ext);
+    VM_registerBuiltin(ctx, "draw_surface_tiled", (BuiltinFunc)builtin_draw_surface_tiled);
+    VM_registerBuiltin(ctx, "draw_surface_tiled_ext", (BuiltinFunc)builtin_draw_surface_tiled_ext);
     if(!isGMS2) {
         VM_registerBuiltin(ctx, "draw_background", (BuiltinFunc)builtin_draw_background);
         VM_registerBuiltin(ctx, "draw_background_ext", (BuiltinFunc)builtin_draw_background_ext);
@@ -15769,6 +16178,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_background_change", (BuiltinFunc)builtin_layer_background_sprite);
     VM_registerBuiltin(ctx, "layer_background_get_id", (BuiltinFunc)builtin_layer_background_get_id);
     VM_registerBuiltin(ctx, "layer_background_get_alpha", (BuiltinFunc)builtin_layer_background_get_alpha);
+    VM_registerBuiltin(ctx, "layer_background_get_blend", (BuiltinFunc)builtin_layer_background_get_blend);
     VM_registerBuiltin(ctx, "layer_background_index", (BuiltinFunc)builtin_layer_background_index);
     VM_registerBuiltin(ctx, "layer_tile_alpha", (BuiltinFunc)builtin_layer_tile_alpha);
     VM_registerBuiltin(ctx, "layer_tile_x", (BuiltinFunc)builtin_layer_tile_x);

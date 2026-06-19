@@ -47,6 +47,7 @@ jobs:
           games=(
             undertale-ptbr-winpack
             underfavela
+            deltarune-chapter4-105-beta
           )
           for game in "${games[@]}"; do
             echo "Downloading $game..."

@@ -1829,48 +1829,49 @@ void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offse
     renderer->drawAlpha = savedAlpha;
 }
 
-void d3d9DrawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
-    DataWin* dw = renderer->dataWin;
-    if (tpagIndex < 0 || (uint32_t)tpagIndex >= dw->tpag.count) return;
+// Doesnt exist anymore??? (after a merge)
+// void d3d9DrawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
+//     DataWin* dw = renderer->dataWin;
+//     if (tpagIndex < 0 || (uint32_t)tpagIndex >= dw->tpag.count) return;
 
-    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
-    int32_t texPageId = tpag->texturePageId;
-    if (texPageId < 0) return;
+//     TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+//     int32_t texPageId = tpag->texturePageId;
+//     if (texPageId < 0) return;
 
-    D3D9Renderer* dr = (D3D9Renderer*)renderer;
-    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
-    if (!dr->textures[texPageId]) return;
+//     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+//     ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+//     if (!dr->textures[texPageId]) return;
 
-    float sprW = (float)tpag->boundingWidth * xscale;
-    float sprH = (float)tpag->boundingHeight * yscale;
-    if (sprW <= 0.0f || sprH <= 0.0f) return;
+//     float sprW = (float)tpag->boundingWidth * xscale;
+//     float sprH = (float)tpag->boundingHeight * yscale;
+//     if (sprW <= 0.0f || sprH <= 0.0f) return;
 
-    // Compute the visible tile range
-    float startX = tileX ? fmodf(x, sprW) - sprW : x;
-    float startY = tileY ? fmodf(y, sprH) - sprH : y;
-    float endX = tileX ? roomW : x + sprW;
-    float endY = tileY ? roomH : y + sprH;
+//     // Compute the visible tile range
+//     float startX = tileX ? fmodf(x, sprW) - sprW : x;
+//     float startY = tileY ? fmodf(y, sprH) - sprH : y;
+//     float endX = tileX ? roomW : x + sprW;
+//     float endY = tileY ? roomH : y + sprH;
 
-    // Clamp start positions so we don't draw off-screen unnecessarily
-    if (startX > roomW || startY > roomH) return;
-    if (endX < 0.0f || endY < 0.0f) return;
+//     // Clamp start positions so we don't draw off-screen unnecessarily
+//     if (startX > roomW || startY > roomH) return;
+//     if (endX < 0.0f || endY < 0.0f) return;
 
-    // Draw tiled sprites
-    for (float ty = startY; ty < endY; ty += sprH) {
-        float drawY = ty;
-        // If not tiling vertically, clamp to the single row
-        if (!tileY && ty != startY) break;
+//     // Draw tiled sprites
+//     for (float ty = startY; ty < endY; ty += sprH) {
+//         float drawY = ty;
+//         // If not tiling vertically, clamp to the single row
+//         if (!tileY && ty != startY) break;
 
-        for (float tx = startX; tx < endX; tx += sprW) {
-            float drawX = tx;
-            // If not tiling horizontally, clamp to the single column
-            if (!tileX && tx != startX) break;
+//         for (float tx = startX; tx < endX; tx += sprW) {
+//             float drawX = tx;
+//             // If not tiling horizontally, clamp to the single column
+//             if (!tileX && tx != startX) break;
 
-            d3d9DrawSprite(renderer, tpagIndex, drawX, drawY,
-                          originX, originY, xscale, yscale, 0.0f, color, alpha);
-        }
-    }
-}
+//             d3d9DrawSprite(renderer, tpagIndex, drawX, drawY,
+//                           originX, originY, xscale, yscale, 0.0f, color, alpha);
+//         }
+//     }
+// }
 
 void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
 	static int logged = 0;
@@ -1917,7 +1918,8 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     d3d9RendererVtable.gpuGetBlendEnable = d3d9GpuGetBlendEnable;
     d3d9RendererVtable.gpuSetFog = d3d9GpuSetFog;
     d3d9RendererVtable.drawTile = d3d9DrawTile;
-    d3d9RendererVtable.drawTiled = d3d9DrawTiled;
+    // Doesnt exist anymore??? (after a merge)
+	//  d3d9RendererVtable.drawTiled = d3d9DrawTiled;
     d3d9RendererVtable.createSurface = d3d9CreateSurface;
     d3d9RendererVtable.surfaceExists = d3d9SurfaceExists;
     d3d9RendererVtable.setRenderTarget = d3d9SetRenderTarget;

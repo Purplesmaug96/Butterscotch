@@ -301,6 +301,13 @@ typedef struct {
     bool freed;    // true when the slot is destroyed and available for reuse by ds_priority_queue_create
 } DsPriority;
 
+typedef struct {
+    RValue* items; // malloc'd array of items
+    int32_t width;
+    int32_t height;
+    bool freed; // true when the slot is destroyed and available for reuse by ds_grid_create
+} DsGrid;
+
 // ===[ GML Buffer System ]===
 
 // Buffer type constants (matching GML)
@@ -519,11 +526,6 @@ struct Runner {
     Drawable* cachedDrawables; // stb_ds array
     bool drawableListStructureDirty;
     bool drawableListSortDirty;
-    // Dummy instance to serve as "self" during GLOB script execution
-    // In WAD version 17+, global init scripts store method values on "self" via Pop.v.v
-    // The real runner uses a persistent YYObjectBase for this, the YYObjectBase is a "parent" of Instance
-    // For now, we'll use a dummy Instance with objectIndex = STRUCT_OBJECT_INDEX as a hack
-    Instance* globalScopeInstance;
     // Struct instances created by @@NewGMLObject@@. Reuses Instance with objectIndex=STRUCT_OBJECT_INDEX.
     // Tracked separately so event/step/draw iteration over runner->instances stays clean.
     Instance** structInstances;
@@ -538,6 +540,7 @@ struct Runner {
     DsQueue* dsQueuePool; // stb_ds array of DsQueue
     DsStack* dsStackPool; // stb_ds array of DsStack
     DsPriority* dsPriorityPool; // stb_ds array of DsPriority
+    DsGrid* dsGridPool; // stb_ds array of DsGrid
     GmlBuffer* gmlBufferPool; // stb_ds array of GmlBuffer
     MpGrid* mpGridPool; // stb_ds array of motion-planning grids
 
