@@ -1,20 +1,28 @@
-#include <xtl.h>
+#include <windows.h>
 #include <xaudio2.h>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cstdarg>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
 
 // stb_vorbis on big-endian Xbox 360:
 // Disable the fast float-to-int path which has endian assumptions.
+#ifdef PLATFORM_XBOX360_XDK
 #define STB_VORBIS_NO_FAST_SCALED_FLOAT
+#endif
 #include "stb_vorbis.c"
 
 #include "stb_ds.h"
 #include "xaudio2_audio.h"
 
-extern "C" unsigned long __cdecl DbgPrint(const char* format, ...);
-extern "C" void Butterscotch_xdkDiagTrace(const char* fmt, ...);
+#ifdef __cplusplus
+#define EXTERN_C extern "C"
+#else
+#define EXTERN_C
+#endif
+
+EXTERN_C unsigned long __cdecl DbgPrint(const char* format, ...);
+EXTERN_C void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 
 #define XDK_AUDIO_FIX_TAG "clean_xaudio2_gameover_music_cut_v15"
 #define XDK_AUDIO_CACHE_LIMIT_BYTES (8u * 1024u * 1024u)
