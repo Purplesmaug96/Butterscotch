@@ -278,23 +278,33 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
 }
 
 static void ensureTextureCacheRoom(D3D9Renderer* dr) {
-    const uint32_t maxLoadedPages = 12;
-    while (dr->loadedTexturePages >= maxLoadedPages) {
+    const uint32_t maxLoadedPages = 32;
+    while (dr->loadedTexturePages > maxLoadedPages) {
+        // Evict the least recently used page (by frameCounter ordering)
         uint32_t victim = UINT_MAX;
-        uint32_t oldest = UINT_MAX;
+        uint32_t bestAge = 0;
+        bool haveVictim = false;
+
         for (uint32_t i = 0; i < dr->textureCount; i++) {
             if (!dr->textures[i]) continue;
             if ((int32_t)i == dr->currentTextureIndex) continue;
-            uint32_t age = dr->textureLastUsedFrame ? dr->textureLastUsedFrame[i] : 0;
-            if (age < oldest) {
-                oldest = age;
+
+            uint32_t last = dr->textureLastUsedFrame ? dr->textureLastUsedFrame[i] : 0;
+            // If last==0, treat as very old.
+            uint32_t age = (last == 0) ? 0 : (last);
+
+            if (!haveVictim || age < bestAge) {
+                bestAge = age;
                 victim = i;
+                haveVictim = true;
             }
         }
+
         if (victim == UINT_MAX) break;
         releaseTexturePage(dr, victim);
     }
 }
+
 
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return false;
@@ -316,10 +326,12 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
         ok = loadExternalTexturePage(dr, textureIndex);
     }
 
-    if (ok) {
-        dr->loadedTexturePages++;
+        if (ok) {
+        	// Only count this as a newly-loaded page when it transitioned from NULL -> valid.
+        	dr->loadedTexturePages++;
+        }
         if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-    }
+
     return ok;
 }
 
@@ -1341,7 +1353,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     d3d9DiagLimited(&logged, 64,
                     "D3D9: sprite_create_from_surface stub surface=%d rect=%d,%d %dx%d removeback=%d smooth=%d origin=%d,%d",
                     surfaceID, x, y, w, h, removeback ? 1 : 0, smooth ? 1 : 0, xorig, yorig);
-    // TODO: implement surface capture
+    // TODO: Implement surface capture.
     return -1;
 }
 
@@ -1447,20 +1459,20 @@ static bool d3d9GpuGetBlendEnable(Renderer* renderer) {
     return enabled != FALSE;
 }
 static void d3d9GpuSetFog(Renderer* renderer, bool enable, uint32_t color) { (void)renderer; (void)enable; (void)color; }
+
 static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t height) {
-    (void)renderer;
     static int logged = 0;
     d3d9DiagLimited(&logged, 64, "D3D9: surface_create stub size=%dx%d", width, height);
-    return -1;
+	return -1;
 }
 
 static bool d3d9SurfaceExists(Renderer* renderer, int32_t surfaceID) {
-    (void)renderer;
-    static int logged = 0;
+	static int logged = 0;
     if (surfaceID != APPLICATION_SURFACE_ID)
         d3d9DiagLimited(&logged, 64, "D3D9: surface_exists stub id=%d", surfaceID);
     return surfaceID == APPLICATION_SURFACE_ID;
 }
+
 
 static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -1879,6 +1891,71 @@ void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offse
 //         }
 //     }
 // }
+
+void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
+    // Default tiled sprite: tile along X/Y in steps of the sprite's native bounding size.
+    DataWin* dw = renderer->dataWin;
+    if (!dw || 0 > tpagIndex || (uint32_t)tpagIndex >= dw->tpag.count) return;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int32_t texPageId = tpag->texturePageId;
+    if (0 > texPageId) return;
+
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    if (!dr->textures[texPageId]) return;
+
+    float sprW = (float)tpag->boundingWidth * xscale;
+    float sprH = (float)tpag->boundingHeight * yscale;
+    if (sprW <= 0.0f || sprH <= 0.0f) return;
+
+    // Compute starting offsets so that x/y correspond to the scroll position.
+    float startX = tileX ? fmodf(x, sprW) - sprW : x;
+    float startY = tileY ? fmodf(y, sprH) - sprH : y;
+    float endX = tileX ? roomW : x;
+    float endY = tileY ? roomH : y;
+
+
+    // If not tiling, just draw one sprite.
+    if (!tileX && !tileY) {
+        d3d9DrawSprite(renderer, tpagIndex, x, y, originX, originY, xscale, yscale, 0.0f, color, alpha);
+        return;
+    }
+
+    // Draw tiled sprites
+    for (float ty = startY; ty <= endY; ty += sprH) {
+        if (!tileY && ty != startY) break;
+        for (float tx = startX; tx <= endX; tx += sprW) {
+            if (!tileX && tx != startX) break;
+            d3d9DrawSprite(renderer, tpagIndex, tx, ty, originX, originY, xscale, yscale, 0.0f, color, alpha);
+        }
+    }
+}
+
+void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float y, float xscale, float yscale, float roomW, float roomH, uint32_t color, float alpha) {
+    // Tiles the application surface (or supported surface) across the room.
+    // We rely on surface_get_dimensions via renderer->vtable.
+    float sw = renderer->vtable->getSurfaceWidth(renderer, surfaceID);
+    float sh = renderer->vtable->getSurfaceHeight(renderer, surfaceID);
+    if (sw <= 0.0f || sh <= 0.0f) return;
+
+    float sprW = sw * xscale;
+    float sprH = sh * yscale;
+    if (sprW <= 0.0f || sprH <= 0.0f) return;
+
+    float startX = fmodf(x, sprW) - sprW;
+    float startY = fmodf(y, sprH) - sprH;
+
+    float endX = roomW;
+    float endY = roomH;
+
+    for (float ty = startY; ty <= endY; ty += sprH) {
+        for (float tx = startX; tx <= endX; tx += sprW) {
+            d3d9DrawSurface(renderer, surfaceID, 0, 0, (int32_t)sw, (int32_t)sh, tx, ty, xscale, yscale, 0.0f, color, alpha);
+        }
+    }
+}
+
 
 void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
 	static int logged = 0;
