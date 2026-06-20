@@ -67,6 +67,13 @@ typedef struct {
     uint32_t originalTexturePageCount;
     uint32_t originalTpagCount;
     uint32_t originalSpriteCount;
+
+    // Dynamic surface management (user-created surfaces via surface_create)
+    void** surfaces;          // IDirect3DSurface9*[] render target surfaces
+    void** surfaceTexture;    // IDirect3DTexture9*[] color buffer textures
+    int32_t* surfaceWidth;
+    int32_t* surfaceHeight;
+    uint32_t surfaceCount;
 } D3D9Renderer;
 
 Renderer* D3D9Renderer_create(void* pd3dDevice);
