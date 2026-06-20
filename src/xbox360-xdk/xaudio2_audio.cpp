@@ -322,31 +322,6 @@ static DataWin* getAudioGroup(XdkAudioSystem* xa, int32_t groupIndex) {
     return xa->base.audioGroups[0];
 }
 
-static bool resolveSoundByIndex(XdkAudioSystem* xa, int32_t soundIndex, DataWin** outDw, Sound** outSound) {
-    if (!xa || !outDw || !outSound) return false;
-    *outDw = NULL;
-    *outSound = NULL;
-
-    if (!xa->base.audioGroups || arrlen(xa->base.audioGroups) == 0) return false;
-
-    // GameMaker's "soundIndex" semantics can be local-to-group.
-    // Scan all loaded audio groups to find which one contains the SOND entry.
-    int32_t groupCount = (int32_t)arrlen(xa->base.audioGroups);
-    for (int32_t g = 0; g < groupCount; g++) {
-        DataWin* dw = xa->base.audioGroups[g];
-        if (!dw) continue;
-        if (0 > soundIndex || (uint32_t)soundIndex >= dw->sond.count) continue;
-        Sound* s = &dw->sond.sounds[soundIndex];
-        if (!s) continue;
-        *outDw = dw;
-        *outSound = s;
-        return true;
-    }
-
-    return false;
-}
-
-
 static char* resolveExternalPath(XdkAudioSystem* xa, Sound* sound) {
     const char* file = sound->file;
     if (!file || !file[0] || !xa->fileSystem) return NULL;
@@ -589,21 +564,24 @@ static bool decodeAudioBytes(const uint8_t* data, int size, XdkDecodedSound* dec
 
 static XdkDecodedSound* decodeSoundCached(XdkAudioSystem* xa, int32_t soundIndex, bool logToFile, bool* outOwned) {
     if (outOwned) *outOwned = false;
-
-    DataWin* dw = NULL;
-    Sound* sound = NULL;
-    if (!resolveSoundByIndex(xa, soundIndex, &dw, &sound) || !dw || !sound) return NULL;
+    DataWin* baseDw = getAudioGroup(xa, soundIndex);
+    if (!baseDw || soundIndex < 0 || (uint32_t)soundIndex >= baseDw->sond.count) return NULL;
 
     XdkDecodedSound* cache = NULL;
-
     if (soundIndex >= 0 && soundIndex < XDK_AUDIO_MAX_CACHED_SOUNDS) {
         cache = &gSoundCache[soundIndex];
         if (cache->valid) return cache;
         if (cache->failed) return NULL;
     }
 
-    // At this point dw + sound already match the requested soundIndex
-
+    Sound* baseSound = &baseDw->sond.sounds[soundIndex];
+    DataWin* dw = getAudioGroup(xa, baseSound->audioGroup);
+    Sound* sound = baseSound;
+    if (dw && (uint32_t)soundIndex < dw->sond.count) {
+        sound = &dw->sond.sounds[soundIndex];
+    } else {
+        dw = baseDw;
+    }
 
     uint8_t* bytes = NULL;
     int byteCount = 0;
@@ -1075,10 +1053,10 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
     if (!xa->initialized) return -1;
 
-    DataWin* dw = NULL;
-    Sound* sound = NULL;
-    if (!resolveSoundByIndex(xa, soundIndex, &dw, &sound)) return -1;
+    DataWin* dw = getAudioGroup(xa, soundIndex);
+    if (!dw || soundIndex < 0 || (uint32_t)soundIndex >= dw->sond.count) return -1;
 
+    Sound* sound = &dw->sond.sounds[soundIndex];
     bool isMusic = isMusicSoundName(sound->name);
     static bool tracedSounds[XDK_AUDIO_MAX_CACHED_SOUNDS];
     bool traceThisSound = false;
@@ -1215,7 +1193,7 @@ static void xdkStopSound(AudioSystem* audio, int32_t soundOrInstance) {
     if (isInstanceId(soundOrInstance)) {
         XdkSoundInstance* inst = findById(xa, soundOrInstance);
         if (inst) {
-            DataWin* dw = getAudioGroup(xa, 0);
+            DataWin* dw = getAudioGroup(xa, soundOrInstance);
             const char* stoppedName = NULL;
             if (dw && inst->soundIndex >= 0 && (uint32_t)inst->soundIndex < dw->sond.count) {
                 stoppedName = dw->sond.sounds[inst->soundIndex].name;
@@ -1231,7 +1209,7 @@ static void xdkStopSound(AudioSystem* audio, int32_t soundOrInstance) {
 
     for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
         if (arr->instances[i].active && arr->instances[i].soundIndex == soundOrInstance) {
-            DataWin* dw = getAudioGroup(xa, 0);
+            DataWin* dw = getAudioGroup(xa, soundOrInstance);
             const char* stoppedName = NULL;
             if (dw && soundOrInstance >= 0 && (uint32_t)soundOrInstance < dw->sond.count) {
                 stoppedName = dw->sond.sounds[soundOrInstance].name;
@@ -1472,7 +1450,7 @@ static float xdkGetSoundLength(AudioSystem* audio, int32_t soundOrInstance) {
         return inst ? instanceDurationSeconds(inst) : 0.0f;
     }
 
-    DataWin* dw = getAudioGroup(xa, 0);
+    DataWin* dw = getAudioGroup(xa, soundOrInstance);
     if (dw && soundOrInstance >= 0 && (uint32_t)soundOrInstance < dw->sond.count) {
         Sound* sound = &dw->sond.sounds[soundOrInstance];
         if (shouldStreamExternalMusic(sound)) {
@@ -1551,7 +1529,6 @@ static void xdkGroupLoad(AudioSystem* audio, int32_t groupIndex) {
 }
 
 static bool xdkGroupIsLoaded(AudioSystem* audio, int32_t groupIndex) {
-
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
     return groupIndex >= 0 && groupIndex < (int32_t)arrlen(xa->base.audioGroups) && xa->base.audioGroups[groupIndex] != NULL;
 }
