@@ -1859,7 +1859,7 @@ static void cleanupState(Runner* runner) {
         OpenBinaryFile* file = &runner->openBinaryFiles[i];
         if (file->isOpen) {
             runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-            RESET_STRUCT(file, OpenTextFile);
+            RESET_STRUCT(file, OpenBinaryFile);
         }
     }
 

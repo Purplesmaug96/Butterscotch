@@ -7315,7 +7315,7 @@ static RValue builtin_file_bin_close(VMContext* ctx, RValue* args, int32_t argCo
     OpenBinaryFile* file = getBinaryFile(runner, RValue_toInt32(args[0]));
     if (file == nullptr) return RValue_makeUndefined();
     runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-    RESET_STRUCT(file, OpenTextFile);
+    RESET_STRUCT(file, OpenBinaryFile);
     return RValue_makeUndefined();
 }
 

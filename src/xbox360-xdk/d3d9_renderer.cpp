@@ -1207,16 +1207,20 @@ static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, f
     dr->currentTextureIndex = -3; // invalidate cached texture
 }
 
-static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
-                          float xscale, float yscale, float angleDeg, float lineSeparation) {
+// Internal helper: renders text with per-vertex color support.
+// When all four corner colors are identical, uses the fast single-color path.
+// When colors differ, interpolates per-vertex colors across each glyph based on its
+// position within the line (matching GameMaker's draw_text_color behavior).
+static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, float y,
+                                  float xscale, float yscale, float angleDeg,
+                                  uint32_t c1, uint32_t c2, uint32_t c3, uint32_t c4,
+                                  float alpha, float lineSeparation) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     DataWin* dw = renderer->dataWin;
     int32_t fontIndex = renderer->drawFont;
     if (0 > fontIndex || (uint32_t)fontIndex >= dw->font.count) return;
 
     Font* font = &dw->font.fonts[fontIndex];
-    uint32_t color = renderer->drawColor;
-    float alpha = renderer->drawAlpha;
 
     // Resolve font texture page
     int32_t fontTpagIndex = font->tpagIndex;
@@ -1232,8 +1236,12 @@ static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
     float texH = (float)dr->textureHeights[pageId];
     if (texW <= 0 || texH <= 0) return;
 
+    // Check if all colors are the same (fast path — no per-vertex interpolation)
+    bool uniformColor = (c1 == c2 && c2 == c3 && c3 == c4);
     float cr, cg, cb, ca;
-    bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+    if (uniformColor) {
+        bgrToFloatColor(c1, alpha, &cr, &cg, &cb, &ca);
+    }
 
     // Preprocess: convert # to \n (and \# to literal #)
     PreprocessedText processedText = TextUtils_preprocessGmlText(text);
@@ -1283,75 +1291,123 @@ static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
         else if (renderer->drawHalign == 2) halignOffset = -lineWidth;
 
         float cursorX = halignOffset;
+        float gradientX = 0.0f; // pixel-position cursor for color interpolation
 
-        // Render each glyph
+        // Render each glyph - decode one codepoint ahead for kerning
         int32_t pos = 0;
-        while (lineLen > pos) {
-            uint16_t ch = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
+        uint16_t ch = 0;
+        bool hasCh = false;
+        if (lineLen > pos) {
+            ch = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
+            hasCh = true;
+        }
+
+        while (hasCh) {
             FontGlyph* glyph = TextUtils_findGlyph(font, ch);
-            if (!glyph) continue;
-            if (glyph->sourceWidth == 0 || glyph->sourceHeight == 0) {
-                cursorX += glyph->shift;
-                continue;
-            }
 
-            // Compute UVs from glyph position in the font's atlas
-            float u0 = texelStart((float)(fontTpag->sourceX + glyph->sourceX), texW);
-            float v0 = texelStart((float)(fontTpag->sourceY + glyph->sourceY), texH);
-            float u1 = texelEnd((float)(fontTpag->sourceX + glyph->sourceX), (float)glyph->sourceWidth, texW);
-            float v1 = texelEnd((float)(fontTpag->sourceY + glyph->sourceY), (float)glyph->sourceHeight, texH);
+            uint16_t nextCh = 0;
+            bool hasNext = (lineLen > pos);
+            if (hasNext) nextCh = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
 
-            // Local quad position
-            float localX0 = cursorX + glyph->offset;
-            float localY0 = cursorY;
-            float localX1 = localX0 + (float)glyph->sourceWidth;
-            float localY1 = localY0 + (float)glyph->sourceHeight;
+            if (glyph) {
+                float advance = (float)glyph->shift;
+                bool drawGlyph = (glyph->sourceWidth > 0 && glyph->sourceHeight > 0);
 
-            // Scale
-            float sx0 = localX0 * fontScaleX;
-            float sy0 = localY0 * fontScaleY;
-            float sx1 = localX1 * fontScaleX;
-            float sy1 = localY1 * fontScaleY;
-
-            // Build 4 corners (with optional rotation)
-            float cx[4], cy[4];
-            if (hasRotation) {
-                float lx[4] = { sx0, sx1, sx1, sx0 };
-                float ly[4] = { sy0, sy0, sy1, sy1 };
-                for (int i = 0; i < 4; i++) {
-                    cx[i] = lx[i] * cosA - ly[i] * sinA;
-                    cy[i] = lx[i] * sinA + ly[i] * cosA;
+                // Resolve per-vertex colors if non-uniform
+                uint32_t colTL = c1, colTR = c2, colBR = c3, colBL = c4;
+                if (!uniformColor && lineWidth > 0.0f) {
+                    float leftFrac = gradientX / lineWidth;
+                    float rightFrac = (gradientX + advance) / lineWidth;
+                    colTL = Color_lerp(c1, c2, leftFrac);
+                    colTR = Color_lerp(c1, c2, rightFrac);
+                    colBR = Color_lerp(c4, c3, rightFrac);
+                    colBL = Color_lerp(c4, c3, leftFrac);
                 }
-            } else {
-                cx[0] = sx0; cy[0] = sy0;
-                cx[1] = sx1; cy[1] = sy0;
-                cx[2] = sx1; cy[2] = sy1;
-                cx[3] = sx0; cy[3] = sy1;
+
+                float vTLr, vTLg, vTLb, vTLa;
+                float vTRr, vTRg, vTRb, vTRa;
+                float vBRr, vBRg, vBRb, vBRa;
+                float vBLr, vBLg, vBLb, vBLa;
+                if (uniformColor) {
+                    // Use the pre-computed flat color
+                    vTLr = vTRr = vBRr = vBLr = cr;
+                    vTLg = vTRg = vBRg = vBLg = cg;
+                    vTLb = vTRb = vBRb = vBLb = cb;
+                    vTLa = vTRa = vBRa = vBLa = ca;
+                } else {
+                    bgrToFloatColor(colTL, alpha, &vTLr, &vTLg, &vTLb, &vTLa);
+                    bgrToFloatColor(colTR, alpha, &vTRr, &vTRg, &vTRb, &vTRa);
+                    bgrToFloatColor(colBR, alpha, &vBRr, &vBRg, &vBRb, &vBRa);
+                    bgrToFloatColor(colBL, alpha, &vBLr, &vBLg, &vBLb, &vBLa);
+                }
+
+                if (drawGlyph) {
+                    // Compute UVs from glyph position in the font's atlas
+                    float u0 = texelStart((float)(fontTpag->sourceX + glyph->sourceX), texW);
+                    float v0 = texelStart((float)(fontTpag->sourceY + glyph->sourceY), texH);
+                    float u1 = texelEnd((float)(fontTpag->sourceX + glyph->sourceX), (float)glyph->sourceWidth, texW);
+                    float v1 = texelEnd((float)(fontTpag->sourceY + glyph->sourceY), (float)glyph->sourceHeight, texH);
+
+                    // Local quad position
+                    float localX0 = cursorX + glyph->offset;
+                    float localY0 = cursorY;
+                    float localX1 = localX0 + (float)glyph->sourceWidth;
+                    float localY1 = localY0 + (float)glyph->sourceHeight;
+
+                    // Scale
+                    float sx0 = localX0 * fontScaleX;
+                    float sy0 = localY0 * fontScaleY;
+                    float sx1 = localX1 * fontScaleX;
+                    float sy1 = localY1 * fontScaleY;
+
+                    // Build 4 corners (with optional rotation)
+                    float cx[4], cy[4];
+                    if (hasRotation) {
+                        float lx[4] = { sx0, sx1, sx1, sx0 };
+                        float ly[4] = { sy0, sy0, sy1, sy1 };
+                        for (int i = 0; i < 4; i++) {
+                            cx[i] = lx[i] * cosA - ly[i] * sinA;
+                            cy[i] = lx[i] * sinA + ly[i] * cosA;
+                        }
+                    } else {
+                        cx[0] = sx0; cy[0] = sy0;
+                        cx[1] = sx1; cy[1] = sy0;
+                        cx[2] = sx1; cy[2] = sy1;
+                        cx[3] = sx0; cy[3] = sy1;
+                    }
+
+                    SpriteVertex* v = allocQuad(dr);
+                    float screenX, screenY;
+                    for (int i = 0; i < 4; i++) {
+                        transformPoint(dr, x + cx[i], y + cy[i], &screenX, &screenY);
+                        v[i].x = screenX - 0.5f;
+                        v[i].y = screenY - 0.5f;
+                        v[i].z = 0.0f;
+                        v[i].w = 1.0f;
+                    }
+                    // Per-vertex colors: TL=0, TR=1, BR=2, BL=3
+                    v[0].r = vTLr; v[0].g = vTLg; v[0].b = vTLb; v[0].a = vTLa;
+                    v[1].r = vTRr; v[1].g = vTRg; v[1].b = vTRb; v[1].a = vTRa;
+                    v[2].r = vBRr; v[2].g = vBRg; v[2].b = vBRb; v[2].a = vBRa;
+                    v[3].r = vBLr; v[3].g = vBLg; v[3].b = vBLb; v[3].a = vBLa;
+                    v[0].u = u0; v[0].v = v0;
+                    v[1].u = u1; v[1].v = v0;
+                    v[2].u = u1; v[2].v = v1;
+                    v[3].u = u0; v[3].v = v1;
+                }
+
+                // Advance cursor (shift + kerning)
+                cursorX += glyph->shift;
+                gradientX += glyph->shift;
+                if (drawGlyph && hasNext) {
+                    float kern = TextUtils_getKerningOffset(glyph, nextCh);
+                    cursorX += kern;
+                    gradientX += kern;
+                }
             }
 
-            SpriteVertex* v = allocQuad(dr);
-            float screenX, screenY;
-            for (int i = 0; i < 4; i++) {
-                transformPoint(dr, x + cx[i], y + cy[i], &screenX, &screenY);
-                v[i].x = screenX - 0.5f;
-                v[i].y = screenY - 0.5f;
-                v[i].z = 0.0f;
-                v[i].w = 1.0f;
-                v[i].r = cr; v[i].g = cg; v[i].b = cb; v[i].a = ca;
-            }
-            v[0].u = u0; v[0].v = v0;
-            v[1].u = u1; v[1].v = v0;
-            v[2].u = u1; v[2].v = v1;
-            v[3].u = u0; v[3].v = v1;
-
-            // Advance cursor (shift + kerning)
-            cursorX += glyph->shift;
-            if (lineLen > pos) {
-                int32_t savedPos = pos;
-                uint16_t nextCh = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
-                pos = savedPos;
-                cursorX += TextUtils_getKerningOffset(glyph, nextCh);
-            }
+            ch = nextCh;
+            hasCh = hasNext;
         }
 
         cursorY += lineStride;
@@ -1367,20 +1423,20 @@ static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
     PreprocessedText_free(processedText);
 }
 
+static void d3d9DrawText(Renderer* renderer, const char* text, float x, float y,
+                          float xscale, float yscale, float angleDeg, float lineSeparation) {
+    uint32_t col = renderer->drawColor;
+    d3d9DrawTextInternal(renderer, text, x, y, xscale, yscale, angleDeg,
+                         col, col, col, col, renderer->drawAlpha, lineSeparation);
+}
+
 static void d3d9DrawTextColor(Renderer* renderer, const char* text, float x, float y,
                               float xscale, float yscale, float angleDeg,
                               int32_t c1, int32_t c2, int32_t c3, int32_t c4,
                               float alpha, float lineSeparation) {
-    uint32_t previousColor = renderer->drawColor;
-    float previousAlpha = renderer->drawAlpha;
-    (void)c2;
-    (void)c3;
-    (void)c4;
-    renderer->drawColor = (uint32_t)c1;
-    renderer->drawAlpha = alpha;
-    d3d9DrawText(renderer, text, x, y, xscale, yscale, angleDeg, lineSeparation);
-    renderer->drawColor = previousColor;
-    renderer->drawAlpha = previousAlpha;
+    d3d9DrawTextInternal(renderer, text, x, y, xscale, yscale, angleDeg,
+                         (uint32_t)c1, (uint32_t)c2, (uint32_t)c3, (uint32_t)c4,
+                         alpha, lineSeparation);
 }
 
 static void d3d9Flush(Renderer* renderer) {
