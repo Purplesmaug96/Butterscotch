@@ -24,7 +24,13 @@ extern "C" ULONG __cdecl DbgPrint(const char* format, ...);
 #include "stb_ds.h"
 
 #include "d3d9_renderer.h"
+
+#ifdef USE_XAUDIO2_AUDIO
 #include "xaudio2_audio.h"
+#else
+#include "noop_audio_system.h"
+#endif
+
 #include "xdk_file_system.h"
 #include "debug_font/debug_font.h"
 #include "stb_image.h"
@@ -1001,9 +1007,15 @@ VOID __cdecl main() {
     diagLog("BS: 09 creating renderer");
     renderer = D3D9Renderer_create(pd3dDevice);
 
+	#ifdef USE_XAUDIO2_AUDIO
     diagLog("BS: 10 creating audio");
     XdkAudioSystem* xdkAudio = XdkAudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*)xdkAudio;
+	#else
+	diagLog("BS: 10 creating audio (noop)");
+	NoopAudioSystem* noopAudio = NoopAudioSystem_create();
+	AudioSystem* audioSystem = (AudioSystem*)noopAudio;
+	#endif
 
     diagLog("BS: 11 creating VM");
     VMContext* vm = VM_create(dataWin);
@@ -1216,7 +1228,9 @@ VOID __cdecl main() {
                 gDiagRoomAgeFrames = 0;
                 roomChangedThisStep = true;
                 diagLog("ROOM_CHANGED id=%d name=%s", lastRoomId, runner->currentRoom->name ? runner->currentRoom->name : "(null)");
-                XdkAudioSystem_onRoomChanged(runner->audioSystem, lastRoomId, runner->currentRoom->name);
+                #ifdef USE_XAUDIO2_AUDIO
+				XdkAudioSystem_onRoomChanged(runner->audioSystem, lastRoomId, runner->currentRoom->name);
+				#endif
             }
 
             if (!deferDraw) {
