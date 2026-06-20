@@ -15,6 +15,8 @@ float _offx = 0.0f;
 #include "text_utils.h"
 #include "d3d9_renderer.h"
 #include "runner.h"
+#include "image_decoder.h"
+
 
 extern "C" unsigned long __cdecl DbgPrint(const char* format, ...);
 extern "C" void Butterscotch_xdkDiagTrace(const char* fmt, ...);
@@ -372,9 +374,14 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
     if (!bytes || byteSize <= 0 || index >= dr->textureCount) return false;
 
     int w, h, channels;
-    uint8_t* pixels = stbi_load_from_memory(bytes, byteSize, &w, &h, &channels, 4);
+
+	bool gm2022_5 = DataWin_isVersionAtLeast(((Renderer*)dr)->dataWin, 2022, 5, 0, 0);
+    uint8_t* pixels = ImageDecoder_decodeToRgba(bytes, byteSize, gm2022_5, &w, &h);
+    // uint8_t* pixels = stbi_load_from_memory(bytes, byteSize, &w, &h, &channels, 4);
     if (!pixels) {
         Butterscotch_xdkDiagTrace("D3D9: failed to decode texture page %u from %s bytes=%d", index, label ? label : "(memory)", byteSize);
+		Butterscotch_xdkDiagTrace("D3D9: Free memory: %f", GetFreeMemMB());
+		Butterscotch_xdkDiagTrace("D3D9: Failure reason: %s", stbi_failure_reason());
         return false;
     }
 

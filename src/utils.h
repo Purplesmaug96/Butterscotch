@@ -130,6 +130,23 @@ _val; \
 void diagLog(const char* fmt, ...);
 void fdiagLog(FILE* file, const char* fmt, ...);
 
+#include <xtl.h>
+
+static inline double GetFreeMemMB() {
+    MEMORYSTATUS memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+
+    // Use the 32-bit version for the Xbox 360 XDK
+    GlobalMemoryStatus(&memStatus);
+
+    // dwAvailPhys holds the available physical memory in bytes
+    unsigned long freeBytes = memStatus.dwAvailPhys;
+    double freeMegabytes = (double)freeBytes / (1024.0 * 1024.0);
+
+    // printf("Free Memory: %.2f MB / 512.00 MB\n", freeMegabytes);
+	return freeMegabytes;
+}
+
 // static inline void safeFree(void* ptr, const char* file, int line) {
 // 	diagLog("free called at %s: %d", file, line);
 // 	free(ptr);
@@ -251,7 +268,6 @@ inline void* _safeMemalignHelper(size_t alignment, size_t size, const char* file
 }
 #define safeMemalign(alignment, size) _safeMemalignHelper((alignment), (size), __FILE__, __LINE__)
 
-#include <windows.h>
 inline char* _safeStrdupHelper(const char* str, const char* file, int line) {
     // MSVC standardizes on _strdup to avoid deprecation warnings
     char* ptr = _strdup(str);
