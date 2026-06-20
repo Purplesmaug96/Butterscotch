@@ -5,11 +5,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-// stb_vorbis on big-endian Xbox 360:
-// Disable the fast float-to-int path which has endian assumptions.
-#ifdef PLATFORM_XBOX360_XDK
-#define STB_VORBIS_NO_FAST_SCALED_FLOAT
-#endif
 #include "stb_vorbis.c"
 
 #include "stb_ds.h"

@@ -188,7 +188,7 @@ elseif(AUDIO_BACKEND STREQUAL "ps2")
     add_compile_definitions(USE_PS2_AUDIO)
 elseif(AUDIO_BACKEND STREQUAL "xaudio2")
 	target_include_directories(butterscotch PUBLIC src/audio/xaudio2)
-	add_compile_definitions(USE_XAUDIO2_AUDIO)
+	add_compile_definitions(USE_XAUDIO2_AUDIO STB_VORBIS_BIG_ENDIAN)
 endif()
 
 # stb_ds
