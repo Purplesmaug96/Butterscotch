@@ -13599,6 +13599,55 @@ static RValue builtin_GetInstance(VMContext* ctx, RValue* args, int32_t argCount
     }
     return RValue_makeInt32(INSTANCE_NOONE);
 }
+
+// @@try_hook@@ - takes an object index and returns the first active instance's ID.
+static RValue builtin_try_hook(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount > 2) return RValue_makeUndefined();
+    requireMessageFormatted(__FILE__, __LINE__, ctx->exceptionHandlerStackTop != VM_EXCEPTION_HANDLER_FRAME_STACK_SIZE, "Exception handler stack too deep!");
+
+    int32_t jumpToOnException = RValue_toInt32(args[0]);
+    int32_t jumpToOnSuccess = RValue_toInt32(args[1]);
+
+    ExceptionHandlerFrame* exceptionStackHandler = &ctx->exceptionHandlerFrameStack[ctx->exceptionHandlerStackTop++];
+    exceptionStackHandler->jumpToOnSuccess = jumpToOnSuccess;
+    exceptionStackHandler->jumpToOnException = jumpToOnException;
+    exceptionStackHandler->boundToCallDepth = ctx->callDepth;
+    exceptionStackHandler->stackTop = ctx->stack.top;
+
+#ifdef ENABLE_VM_EXCEPTIONS_LOGS
+    fprintf(stderr, "VM: Configured exception handler for jump on exception: %d, jump on success: %d\n", jumpToOnException, jumpToOnSuccess);
+#endif
+
+    return RValue_makeUndefined();
+}
+
+// @@try_unhook@@ - pops the current exception handler
+static RValue builtin_try_unhook(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    ctx->exceptionHandlerStackTop--;
+    return RValue_makeUndefined();
+}
+
+// @@finish_finally@@ - unparks a parked exception if present
+static RValue builtin_finish_finally(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (ctx->parkedException == nullptr) return RValue_makeUndefined();
+    ctx->exception = ctx->parkedException;
+    ctx->parkedException = nullptr;
+    return RValue_makeUndefined();
+}
+
+// @@finish_catch@@ - unused for now?
+static RValue builtin_finish_catch(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    return RValue_makeUndefined();
+}
+
+// @@throw@@ - throws a custom exception
+static RValue builtin_throw(VMContext* ctx, RValue* args, int32_t argCount) {
+    char* message = RValue_toString(args[0]);
+    VMException* exception = (VMException*)safeCalloc(1, sizeof(VMException));
+    exception->message = message;
+    ctx->exception = exception;
+    return RValue_makeUndefined();
+}
 #endif
 
 // ===[ PATH FUNCTIONS ]===
@@ -16072,17 +16121,19 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     // Collision
     VM_registerBuiltin(ctx, "place_meeting", (BuiltinFunc)builtin_place_meeting);
     VM_registerBuiltin(ctx, "collision_rectangle", (BuiltinFunc)builtin_collision_rectangle);
-    VM_registerBuiltin(ctx, "collision_rectangle_list", (BuiltinFunc)builtin_collision_rectangle_list);
     VM_registerBuiltin(ctx, "rectangle_in_rectangle", (BuiltinFunc)builtin_rectangle_in_rectangle);
     VM_registerBuiltin(ctx, "collision_line", (BuiltinFunc)builtin_collision_line);
     VM_registerBuiltin(ctx, "collision_point", (BuiltinFunc)builtin_collision_point);
     VM_registerBuiltin(ctx, "collision_circle", (BuiltinFunc)builtin_collision_circle);
     VM_registerBuiltin(ctx, "instance_place", (BuiltinFunc)builtin_instance_place);
-    VM_registerBuiltin(ctx, "instance_place_list", (BuiltinFunc)builtin_instance_place_list);
     VM_registerBuiltin(ctx, "instance_position", (BuiltinFunc)builtin_instance_position);
     VM_registerBuiltin(ctx, "position_meeting", (BuiltinFunc)builtin_position_meeting);
-    VM_registerBuiltin(ctx, "place_free", (BuiltinFunc)builtin_place_free);
+    VM_registerBuiltin(ctx, "place_free", (BuiltinFunc)(BuiltinFunc)builtin_place_free);
     VM_registerBuiltin(ctx, "place_empty", (BuiltinFunc)builtin_place_empty);
+    if (isGMS2) {
+        VM_registerBuiltin(ctx, "collision_rectangle_list", (BuiltinFunc)builtin_collision_rectangle_list);
+        VM_registerBuiltin(ctx, "instance_place_list", (BuiltinFunc)builtin_instance_place_list);
+    }
 
     // Motion planning
     VM_registerBuiltin(ctx, "mp_linear_step", (BuiltinFunc)builtin_mp_linear_step);
@@ -16201,6 +16252,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "@@CopyStatic@@", (BuiltinFunc)builtin_CopyStatic);
     VM_registerBuiltin(ctx, "@@SetStatic@@", (BuiltinFunc)builtin_SetStatic);
     VM_registerBuiltin(ctx, "@@GetInstance@@", (BuiltinFunc)builtin_GetInstance);
+    VM_registerBuiltin(ctx, "@@try_hook@@", (BuiltinFunc)builtin_try_hook);
+    VM_registerBuiltin(ctx, "@@try_unhook@@", (BuiltinFunc)builtin_try_unhook);
+    VM_registerBuiltin(ctx, "@@finish_catch@@", (BuiltinFunc)builtin_finish_catch);
+    VM_registerBuiltin(ctx, "@@finish_finally@@", (BuiltinFunc)builtin_finish_finally);
+    VM_registerBuiltin(ctx, "@@throw@@", (BuiltinFunc)builtin_throw);
 #endif
 
     // Path

@@ -201,6 +201,18 @@ target_include_directories(butterscotch PUBLIC vendor/sha1)
 target_sources(butterscotch PRIVATE vendor/base64/base64.c)
 target_include_directories(butterscotch PUBLIC vendor/base64)
 
+# Spatial grid logs
+option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
+if(ENABLE_SPATIAL_GRID_LOGS)
+    add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
+endif()
+
+# VM Exceptions logs
+option(ENABLE_VM_EXCEPTIONS_LOGS "Enable VM Exceptions logs" OFF)
+if(ENABLE_VM_EXCEPTIONS_LOGS)
+    add_compile_definitions(ENABLE_VM_EXCEPTIONS_LOGS)
+endif()
+
 if(PLATFORM STREQUAL "desktop")
     if(NOT ENABLE_LEGACY_GL AND NOT ENABLE_MODERN_GL)
         message(FATAL_ERROR "You must enable at least one renderer!")
@@ -234,12 +246,6 @@ if(PLATFORM STREQUAL "desktop")
     option(ENABLE_VM_OPCODE_PROFILER "Enable Butterscotch VM opcode count profiler" ON)
     if(ENABLE_VM_OPCODE_PROFILER)
         add_compile_definitions(ENABLE_VM_OPCODE_PROFILER)
-    endif()
-
-    # Spatial grid logs
-    option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
-    if(ENABLE_SPATIAL_GRID_LOGS)
-        add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
     endif()
 
     # VM unknown/stubbed function logs
