@@ -644,12 +644,12 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
     // Fit the game inside the 720p backbuffer. On Xbox 360, 1080p backbuffers
     // can fail to allocate; keep 720p and rely on point sampling for crispness.
-    // float scaleX = (float)windowW / (float)gameW;
-    // float scaleY = (float)windowH / (float)gameH;
-    // float fitScale = (scaleX < scaleY) ? scaleX : scaleY;
-    // dr->renderScale = fitScale;
-    // dr->renderOffsetX = ((float)windowW - ((float)gameW * dr->renderScale)) * 0.5f;
-    // dr->renderOffsetY = ((float)windowH - (float)gameH * dr->renderScale) * 0.5f;
+    float scaleX = (float)windowW / (float)gameW;
+    float scaleY = (float)windowH / (float)gameH;
+    float fitScale = (scaleX < scaleY) ? scaleX : scaleY;
+    dr->renderScale = fitScale;
+    dr->renderOffsetX = ((float)windowW - ((float)gameW * dr->renderScale)) * 0.5f;
+    dr->renderOffsetY = ((float)windowH - (float)gameH * dr->renderScale) * 0.5f;
 
     // Debug: print once
     static bool printedOnce = false;
