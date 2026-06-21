@@ -1222,19 +1222,32 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 
     Font* font = &dw->font.fonts[fontIndex];
 
-    // Resolve font texture page
-    int32_t fontTpagIndex = font->tpagIndex;
-    if (0 > fontTpagIndex) return;
+    // Resolve font state: supports both regular and sprite fonts (matching GL renderer)
+    TexturePageItem* fontTpag = NULL;      // single TPAG for regular fonts (NULL for sprite fonts)
+    int16_t fontPageId = -1;               // texture page ID for regular fonts
+    float fontTexW = 0.0f, fontTexH = 0.0f;
+    Sprite* spriteFontSprite = NULL;       // source sprite for sprite fonts (NULL for regular fonts)
 
-    TexturePageItem* fontTpag = &dw->tpag.items[fontTpagIndex];
-    int16_t pageId = fontTpag->texturePageId;
-    if (0 > pageId || dr->textureCount <= (uint32_t)pageId) return;
-    ensureTexturePageLoaded(dr, (uint32_t)pageId);
-    if (!dr->textures[pageId]) return;
+    if (!font->isSpriteFont) {
+        int32_t fontTpagIndex = font->tpagIndex;
+        if (0 > fontTpagIndex) return;
 
-    float texW = (float)dr->textureWidths[pageId];
-    float texH = (float)dr->textureHeights[pageId];
-    if (texW <= 0 || texH <= 0) return;
+        fontTpag = &dw->tpag.items[fontTpagIndex];
+        fontPageId = fontTpag->texturePageId;
+        if (0 > fontPageId || dr->textureCount <= (uint32_t)fontPageId) return;
+        ensureTexturePageLoaded(dr, (uint32_t)fontPageId);
+        if (!dr->textures[fontPageId]) return;
+
+        fontTexW = (float)dr->textureWidths[fontPageId];
+        fontTexH = (float)dr->textureHeights[fontPageId];
+        if (fontTexW <= 0 || fontTexH <= 0) return;
+
+        ensureTexture(dr, (int32_t)fontPageId);
+    } else if (font->spriteIndex >= 0 && dw->sprt.count > (uint32_t)font->spriteIndex) {
+        spriteFontSprite = &dw->sprt.sprites[font->spriteIndex];
+    } else {
+        return;
+    }
 
     // Check if all colors are the same (fast path — no per-vertex interpolation)
     bool uniformColor = (c1 == c2 && c2 == c3 && c3 == c4);
@@ -1250,7 +1263,7 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 
     // Count lines
     int32_t lineCount = TextUtils_countLines(processed, textLen);
-    float lineStride = 0.0f <= lineSeparation ? lineSeparation : TextUtils_lineStride(font);
+    float lineStride = (0.0f > lineSeparation) ? TextUtils_lineStride(font) : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
 
     // Vertical alignment offset
     float totalHeight = (float)lineCount * lineStride;
@@ -1270,10 +1283,8 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
         sinA = sinf(rad);
     }
 
-    ensureTexture(dr, (int32_t)pageId);
-
-    // Iterate through lines
-    float cursorY = valignOffset;
+    // Iterate through lines. HTML5 subtracts ascenderOffset from per-line y offset.
+    float cursorY = valignOffset - (float)font->ascenderOffset;
     int32_t lineStart = 0;
 
     for (int32_t lineIdx = 0; lineCount > lineIdx; lineIdx++) {
@@ -1342,15 +1353,72 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
                 }
 
                 if (drawGlyph) {
-                    // Compute UVs from glyph position in the font's atlas
-                    float u0 = texelStart((float)(fontTpag->sourceX + glyph->sourceX), texW);
-                    float v0 = texelStart((float)(fontTpag->sourceY + glyph->sourceY), texH);
-                    float u1 = texelEnd((float)(fontTpag->sourceX + glyph->sourceX), (float)glyph->sourceWidth, texW);
-                    float v1 = texelEnd((float)(fontTpag->sourceY + glyph->sourceY), (float)glyph->sourceHeight, texH);
+                    // Resolve texture and UVs for this glyph (supports both regular and sprite fonts)
+                    int32_t glyphPageId = -1;
+                    float glyphTexW = 0.0f, glyphTexH = 0.0f;
+                    float gU0, gV0, gU1, gV1;
+                    float localYOff = cursorY;
+
+                    if (!font->isSpriteFont) {
+                        // Regular font: all glyphs share the same atlas page
+                        glyphPageId = fontPageId;
+                        glyphTexW = fontTexW;
+                        glyphTexH = fontTexH;
+                        gU0 = texelStart((float)(fontTpag->sourceX + glyph->sourceX), glyphTexW);
+                        gV0 = texelStart((float)(fontTpag->sourceY + glyph->sourceY), glyphTexH);
+                        gU1 = texelEnd((float)(fontTpag->sourceX + glyph->sourceX), (float)glyph->sourceWidth, glyphTexW);
+                        gV1 = texelEnd((float)(fontTpag->sourceY + glyph->sourceY), (float)glyph->sourceHeight, glyphTexH);
+                    } else {
+                        // Sprite font: each glyph may be on a different texture page
+                        int32_t glyphIndex = (int32_t)(glyph - font->glyphs);
+                        if (0 > glyphIndex || glyphIndex >= (int32_t)spriteFontSprite->textureCount) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
+                        int32_t glyphTpagIdx = spriteFontSprite->tpagIndices[glyphIndex];
+                        if (0 > glyphTpagIdx) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
+                        TexturePageItem* glyphTpag = &dw->tpag.items[glyphTpagIdx];
+                        glyphPageId = glyphTpag->texturePageId;
+                        if (0 > glyphPageId || dr->textureCount <= (uint32_t)glyphPageId) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
+                        ensureTexturePageLoaded(dr, (uint32_t)glyphPageId);
+                        if (!dr->textures[glyphPageId]) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
+
+                        glyphTexW = (float)dr->textureWidths[glyphPageId];
+                        glyphTexH = (float)dr->textureHeights[glyphPageId];
+                        if (glyphTexW <= 0 || glyphTexH <= 0) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
+
+                        gU0 = (float)glyphTpag->sourceX / glyphTexW;
+                        gV0 = (float)glyphTpag->sourceY / glyphTexH;
+                        gU1 = (float)(glyphTpag->sourceX + glyphTpag->sourceWidth) / glyphTexW;
+                        gV1 = (float)(glyphTpag->sourceY + glyphTpag->sourceHeight) / glyphTexH;
+
+                        // Sprite font Y offset includes the glyph's targetY and spriteOriginYAdjust
+                        localYOff = cursorY + (float)(int32_t)glyphTpag->targetY - (float)font->spriteOriginYAdjust;
+
+                        // Switch texture if this glyph uses a different page
+                        ensureTexture(dr, glyphPageId);
+                    }
 
                     // Local quad position
                     float localX0 = cursorX + glyph->offset;
-                    float localY0 = cursorY;
+                    float localY0 = localYOff;
                     float localX1 = localX0 + (float)glyph->sourceWidth;
                     float localY1 = localY0 + (float)glyph->sourceHeight;
 
@@ -1390,11 +1458,12 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
                     v[1].r = vTRr; v[1].g = vTRg; v[1].b = vTRb; v[1].a = vTRa;
                     v[2].r = vBRr; v[2].g = vBRg; v[2].b = vBRb; v[2].a = vBRa;
                     v[3].r = vBLr; v[3].g = vBLg; v[3].b = vBLb; v[3].a = vBLa;
-                    v[0].u = u0; v[0].v = v0;
-                    v[1].u = u1; v[1].v = v0;
-                    v[2].u = u1; v[2].v = v1;
-                    v[3].u = u0; v[3].v = v1;
+                    v[0].u = gU0; v[0].v = gV0;
+                    v[1].u = gU1; v[1].v = gV0;
+                    v[2].u = gU1; v[2].v = gV1;
+                    v[3].u = gU0; v[3].v = gV1;
                 }
+                skip_glyph_draw:;
 
                 // Advance cursor (shift + kerning)
                 cursorX += glyph->shift;
