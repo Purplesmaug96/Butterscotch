@@ -68,6 +68,14 @@ typedef struct {
     uint32_t originalTpagCount;
     uint32_t originalSpriteCount;
 
+    // Saved view transform state for implicitApplicationSurface restore
+    // The D3D9 renderer needs to restore the view state when surface_reset_target pops
+    // back to the application surface implicitly (the GL renderer uses CPort + previousViewMatrix for this).
+    float savedOffsetX, savedOffsetY;
+    float savedPortScaleX, savedPortScaleY;
+    float savedPortOffsetX, savedPortOffsetY;
+    bool savedViewStateValid;
+
     // Dynamic surface management (user-created surfaces via surface_create)
     void** surfaces;          // IDirect3DSurface9*[] render target surfaces
     void** surfaceTexture;    // IDirect3DTexture9*[] color buffer textures

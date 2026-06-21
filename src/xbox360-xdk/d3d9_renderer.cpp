@@ -1698,7 +1698,47 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
     static int logged = 0;
 
     if (surfaceID == APPLICATION_SURFACE_ID) {
-        // Application surface handling (already implemented)
+        if (implicitApplicationSurface && dr->savedViewStateValid) {
+            // surface_reset_target popped back to the application surface implicitly
+            // (the surface stack is now empty). Restore the view state that was saved
+            // when the user surface was set as target, so rendering continues with
+            // the correct camera/projection. This matches the GL renderer's behavior
+            // which restores previousViewMatrix and CPort values.
+            flushBatch(dr);
+            HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->appSurfaceLevel);
+            if (FAILED(hr)) {
+                d3d9DiagLimited(&logged, 64, "D3D9: SetRenderTarget(app_surface implicit) failed hr=0x%08X", (unsigned)hr);
+                return false;
+            }
+            D3DVIEWPORT9 vp;
+            vp.X = 0;
+            vp.Y = 0;
+            vp.Width = (DWORD)dr->appSurfaceW;
+            vp.Height = (DWORD)dr->appSurfaceH;
+            vp.MinZ = 0.0f;
+            vp.MaxZ = 1.0f;
+            dev->SetViewport(&vp);
+
+            // Restore the view transform that was active before the user switched to a surface.
+            dr->offsetX = dr->savedOffsetX;
+            dr->offsetY = dr->savedOffsetY;
+            dr->portScaleX = dr->savedPortScaleX;
+            dr->portScaleY = dr->savedPortScaleY;
+            dr->portOffsetX = dr->savedPortOffsetX;
+            dr->portOffsetY = dr->savedPortOffsetY;
+
+            // We ARE rendering to the application surface — set the flag so that
+            // endFrameInit resolves and presents it correctly at the end of the frame.
+            // The view transform was restored from the saved values, so beginView
+            // (if called again) would work correctly since the saved values were captured
+            // while renderingToApplicationSurface was true and already incorporate renderScale.
+            dr->renderingToApplicationSurface = true;
+            dr->appSurfaceResolved = false;
+            dr->savedViewStateValid = false;
+            return true;
+        }
+
+        // Application surface handling (explicit set or first time)
         if (!dr->appSurfaceLevel) return false;
         flushBatch(dr);
         HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->appSurfaceLevel);
@@ -1721,7 +1761,20 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
         return true;
     }
 
-    // Dynamic surface
+    // Dynamic surface — save the current view state before switching to the user surface.
+    // This allows us to restore it when surface_reset_target pops back (implicitApplicationSurface).
+    if (dr->renderingToApplicationSurface) {
+        // We're currently rendering to the application surface with a game transform.
+        // Save that transform before the user surface takes over.
+        dr->savedOffsetX = dr->offsetX;
+        dr->savedOffsetY = dr->offsetY;
+        dr->savedPortScaleX = dr->portScaleX;
+        dr->savedPortScaleY = dr->portScaleY;
+        dr->savedPortOffsetX = dr->portOffsetX;
+        dr->savedPortOffsetY = dr->portOffsetY;
+        dr->savedViewStateValid = true;
+    }
+
     if (surfaceID < 0 || (uint32_t)surfaceID >= dr->surfaceCount || !dr->surfaces[surfaceID]) {
         static int noSurfaceLog = 0;
         d3d9DiagLimited(&noSurfaceLog, 32, "D3D9: surface_set_target invalid id=%d", surfaceID);
