@@ -1549,15 +1549,68 @@ static bool xdkGroupIsLoaded(AudioSystem* audio, int32_t groupIndex) {
 }
 
 static int32_t xdkCreateStream(AudioSystem* audio, const char* filename) {
-    (void)audio;
-    (void)filename;
-    return -1;
+    XdkAudioSystem* xa = (XdkAudioSystem*)audio;
+
+    // Find a free stream slot
+    int32_t freeSlot = -1;
+    repeat(XDK_MAX_AUDIO_STREAMS, i) {
+        if (!xa->streams[i].active) {
+            freeSlot = (int32_t)i;
+            break;
+        }
+    }
+
+    if (0 > freeSlot) {
+        audioTrace(true, "AUD2: No free stream slots for '%s'\n", filename);
+        return -1;
+    }
+
+    char* resolved = xa->fileSystem->vtable->resolvePath(xa->fileSystem, filename);
+    if (resolved == nullptr) {
+        audioTrace(true, "AUD2: Could not resolve path for stream '%s'\n", filename);
+        return -1;
+    }
+
+    xa->streams[freeSlot].active = true;
+    xa->streams[freeSlot].filePath = resolved;
+    xa->streams[freeSlot].initialGain = 1.0f;
+    xa->streams[freeSlot].initialPitch = 1.0f;
+
+    int32_t streamIndex = XDK_AUDIO_STREAM_INDEX_BASE + freeSlot;
+    audioTrace(true, "AUD2: Created stream %d for '%s' -> '%s'\n", streamIndex, filename, resolved);
+    return streamIndex;
 }
 
 static bool xdkDestroyStream(AudioSystem* audio, int32_t streamIndex) {
-    (void)audio;
-    (void)streamIndex;
-    return false;
+    XdkAudioSystem* xa = (XdkAudioSystem*)audio;
+
+    int32_t slotIndex = streamIndex - XDK_AUDIO_STREAM_INDEX_BASE;
+    if (0 > slotIndex || slotIndex >= XDK_MAX_AUDIO_STREAMS) {
+        audioTrace(true, "Audio: Invalid stream index %d for destroy\n", streamIndex);
+        return false;
+    }
+
+    AudioStreamEntry* entry = &xa->streams[slotIndex];
+    if (!entry->active) return false;
+
+    // Stop all sound instances that were playing this stream
+    repeat(XDK_MAX_SOUND_INSTANCES, i) {
+        // SoundInstance* inst = &xa->instances[i];
+        // if (inst->active && inst->soundIndex == streamIndex) {
+            // ma_sound_stop(&inst->maSound);
+            // ma_sound_uninit(&inst->maSound);
+            // if (inst->ownsDecoder) {
+            //     ma_decoder_uninit(&inst->decoder);
+            // }
+            // inst->active = false;
+        // }
+    }
+
+    free(entry->filePath);
+    entry->filePath = nullptr;
+    entry->active = false;
+    audioTrace(true, "Audio: Destroyed stream %d\n", streamIndex);
+    return true;
 }
 
 static AudioSystemVtable xdkAudioVtable = {};
