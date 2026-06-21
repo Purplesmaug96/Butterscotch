@@ -4402,6 +4402,38 @@ static RValue builtin_ds_list_add(VMContext* ctx, RValue* args, int32_t argCount
     return RValue_makeUndefined();
 }
 
+static RValue builtin_ds_list_insert(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsList* list = dsListGet(runner, id);
+    if (list == nullptr) return RValue_makeUndefined();
+    int32_t pos = RValue_toInt32(args[1]);
+    RValue val = args[2];
+    arrins(list->items, pos, RValue_makeIndependent(val));
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_list_copy(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t destinationId = RValue_toInt32(args[0]);
+    int32_t sourceId = RValue_toInt32(args[1]);
+    DsList* destinationList = dsListGet(runner, destinationId);
+    if (destinationList == nullptr) return RValue_makeUndefined();
+    DsList* sourceList = dsListGet(runner, sourceId);
+    if (sourceList == nullptr) return RValue_makeUndefined();
+
+    repeat(arrlen(destinationList->items), i) {
+        RValue_free(&destinationList->items[i]);
+    }
+
+    arrsetlen(destinationList->items, 0);
+    repeat(arrlen(sourceList->items), i) {
+        arrput(destinationList->items, RValue_makeIndependent(sourceList->items[i]));
+    }
+
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_ds_list_delete(VMContext* ctx, RValue* args, int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
@@ -11660,7 +11692,7 @@ static RValue builtin_position_meeting(VMContext* ctx, RValue* args, int32_t arg
 
 // Misc stubs
 static RValue builtin_get_timer(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    return RValue_makeReal((nowNanos() - ctx->runner->gameStartTime) / 1000000.0);
+    return RValue_makeReal((nowNanos() - ctx->runner->gameStartTime) / 1000.0);
 }
 
 static RValue builtin_action_set_alarm(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -11777,7 +11809,6 @@ static RValue builtin_action_if_dice(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     if (probability <= 1) {
         return RValue_makeBool(probability > 0);
     }
-
     return RValue_makeBool((rand() % probability) == 0);
 }
 
@@ -15623,6 +15654,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_create", (BuiltinFunc)builtin_ds_list_create);
     VM_registerBuiltin(ctx, "ds_list_destroy", (BuiltinFunc)builtin_ds_list_destroy);
     VM_registerBuiltin(ctx, "ds_list_add", (BuiltinFunc)builtin_ds_list_add);
+    VM_registerBuiltin(ctx, "ds_list_insert", (BuiltinFunc)builtin_ds_list_insert);
     VM_registerBuiltin(ctx, "ds_list_delete", (BuiltinFunc)builtin_ds_list_delete);
     VM_registerBuiltin(ctx, "ds_list_empty", (BuiltinFunc)builtin_ds_list_empty);
     VM_registerBuiltin(ctx, "ds_list_size", (BuiltinFunc)builtin_ds_list_size);
@@ -15633,6 +15665,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_write", (BuiltinFunc)builtin_ds_list_write);
     VM_registerBuiltin(ctx, "ds_list_read", (BuiltinFunc)builtin_ds_list_read);
     VM_registerBuiltin(ctx, "ds_list_replace", (BuiltinFunc)builtin_ds_list_replace);
+    VM_registerBuiltin(ctx, "ds_list_copy", (BuiltinFunc)builtin_ds_list_copy);
 
     // ds_grid
     VM_registerBuiltin(ctx, "ds_grid_create", (BuiltinFunc)builtin_ds_grid_create);
