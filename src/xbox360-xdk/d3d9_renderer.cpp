@@ -1648,21 +1648,26 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
 
     uint32_t slot = d3d9FindOrAllocateSurfaceSlot(dr);
 
-    // Create the color buffer texture
+    // Round up to multiple of 8 for hardware alignment (matching ensureApplicationSurface & surfaceResize)
+    int32_t allocW = (width + 7) & ~7;
+    int32_t allocH = (height + 7) & ~7;
+
+    // Create a render-target-capable texture. GetSurfaceLevel(0) provides the surface directly,
+    // avoiding a separate CreateRenderTarget allocation (which comes from a more constrained
+    // memory pool on Xbox 360 and can fail even when texture memory is available).
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)width, (UINT)height, 1, 0, D3DFMT_LIN_A8R8G8B8,
-                                     D3DPOOL_DEFAULT, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
+                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
     if (FAILED(hr) || !tex) {
-        Butterscotch_xdkDiagTrace("D3D9: surface_create CreateTexture failed %dx%d hr=0x%08X", width, height, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: surface_create CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         return -1;
     }
 
-    // Create the render target surface
+    // Get the surface level from the texture itself -- no separate render target allocation needed.
     IDirect3DSurface9* surface = NULL;
-    hr = dev->CreateRenderTarget((UINT)width, (UINT)height, D3DFMT_A8R8G8B8,
-                                  D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+    hr = tex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
-        Butterscotch_xdkDiagTrace("D3D9: surface_create CreateRenderTarget failed %dx%d hr=0x%08X", width, height, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: surface_create GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         tex->Release();
         return -1;
     }
@@ -1672,7 +1677,7 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
     dr->surfaceWidth[slot] = width;
     dr->surfaceHeight[slot] = height;
 
-    Butterscotch_xdkDiagTrace("D3D9: created surface %u size=%dx%d", slot, width, height);
+    Butterscotch_xdkDiagTrace("D3D9: created surface %u size=%dx%d (alloc=%dx%d)", slot, width, height, allocW, allocH);
     return (int32_t)slot;
 }
 
@@ -2000,20 +2005,20 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
     // Release old resources
     d3d9ReleaseSurfaceSlot(dr, (uint32_t)surfaceID);
 
-    // Create new ones
+    // Create a render-target-capable texture (same pattern as d3d9CreateSurface)
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_LIN_A8R8G8B8,
-                                     D3DPOOL_DEFAULT, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
+                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
     if (FAILED(hr) || !tex) {
-        Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture failed %dx%d hr=0x%08X", width, height, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         return;
     }
 
+    // Get the surface level from the texture itself
     IDirect3DSurface9* surface = NULL;
-    hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
-                                  D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+    hr = tex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
-        Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateRenderTarget failed %dx%d hr=0x%08X", width, height, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         tex->Release();
         return;
     }
