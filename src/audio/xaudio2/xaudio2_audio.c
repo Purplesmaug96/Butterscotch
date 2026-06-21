@@ -190,7 +190,11 @@ static inline XdkInstanceArray* Instances(XdkAudioSystem* xa) {
 }
 
 static bool isInstanceId(int32_t value) {
-    return value >= XDK_SOUND_INSTANCE_ID_BASE;
+    return value >= XDK_SOUND_INSTANCE_ID_BASE && value < XDK_AUDIO_STREAM_INDEX_BASE;
+}
+
+static bool isStreamIndex(int32_t value) {
+    return value >= XDK_AUDIO_STREAM_INDEX_BASE;
 }
 
 static uint32_t instanceElapsedMs(const XdkSoundInstance* inst) {
@@ -1061,6 +1065,49 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
     if (!xa->initialized) return -1;
 
+    // Handle stream indices (created by audio_create_stream)
+    if (isStreamIndex(soundIndex)) {
+        int32_t streamSlot = soundIndex - XDK_AUDIO_STREAM_INDEX_BASE;
+        if (streamSlot < 0 || streamSlot >= XDK_MAX_AUDIO_STREAMS || !xa->streams[streamSlot].active) {
+            audioTrace(true, "AUD2: play invalid stream index %d", soundIndex);
+            return -1;
+        }
+        AudioStreamEntry* stream = &xa->streams[streamSlot];
+
+        XdkSoundInstance* inst = findFreeSlot(xa);
+        if (!inst) {
+            audioTrace(true, "AUD2: no free slot for stream %d", soundIndex);
+            return -1;
+        }
+
+        memset(inst, 0, sizeof(XdkSoundInstance));
+        int32_t slotIndex = (int32_t)(inst - Instances(xa)->instances);
+        inst->active = true;
+        inst->soundIndex = soundIndex;
+        inst->instanceId = XDK_SOUND_INSTANCE_ID_BASE + slotIndex;
+        inst->priority = priority;
+        inst->loop = loop;
+        inst->music = false;
+        inst->streaming = true;
+        inst->startedTick = nowMs();
+        inst->currentGain = stream->initialGain;
+        inst->targetGain = stream->initialGain;
+        inst->startGain = stream->initialGain;
+        inst->pitch = 1.0f;
+        inst->soundVolume = 1.0f;
+        inst->soundPitch = stream->initialPitch > 0.0f ? stream->initialPitch : 1.0f;
+        xa->nextInstanceCounter++;
+
+        bool ok = createStreamingVoiceForInstance(xa, inst, stream->filePath, true);
+        if (!ok) {
+            destroyInstance(inst);
+            return -1;
+        }
+        audioTrace(true, "AUD2: playing stream %d instance=%d path=%s loop=%d",
+            soundIndex, inst->instanceId, stream->filePath, loop ? 1 : 0);
+        return inst->instanceId;
+    }
+
     DataWin* dw = getAudioGroup(xa, 0);
     if (!dw || soundIndex < 0 || (uint32_t)soundIndex >= dw->sond.count) return -1;
 
@@ -1594,16 +1641,14 @@ static bool xdkDestroyStream(AudioSystem* audio, int32_t streamIndex) {
     if (!entry->active) return false;
 
     // Stop all sound instances that were playing this stream
-    repeat(XDK_MAX_SOUND_INSTANCES, i) {
-        // SoundInstance* inst = &xa->instances[i];
-        // if (inst->active && inst->soundIndex == streamIndex) {
-            // ma_sound_stop(&inst->maSound);
-            // ma_sound_uninit(&inst->maSound);
-            // if (inst->ownsDecoder) {
-            //     ma_decoder_uninit(&inst->decoder);
-            // }
-            // inst->active = false;
-        // }
+    {
+        XdkInstanceArray* arr = Instances(xa);
+        for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
+            XdkSoundInstance* inst = &arr->instances[i];
+            if (inst->active && inst->soundIndex == streamIndex) {
+                destroyInstance(inst);
+            }
+        }
     }
 
     free(entry->filePath);
