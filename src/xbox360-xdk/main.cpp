@@ -663,9 +663,9 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
 
     char line[256];
     float y = y0 + 12.0f;
-    diagOverlayDrawLine("Butterscotch360-Refresh DIAG  (LB+RB)", &y, 0.42f, 1.0f, 0.90f, 0.45f, 1.0f);
+    diagOverlayDrawLine("Butterscotch Debug Overlay (LB+RB)", &y, 0.42f, 1.0f, 0.90f, 0.45f, 1.0f);
 
-    _snprintf(line, sizeof(line) - 1, "FPS %.1f  dt %.2fms  steps %d  speed %u", gDiagOverlayFps, gDiagOverlayDtMs, gDiagOverlaySteps, roomSpeed);
+    _snprintf(line, sizeof(line) - 1, "FPS: %.1f  dt: %.2fms  steps: %d  speed: %u", gDiagOverlayFps, gDiagOverlayDtMs, gDiagOverlaySteps, roomSpeed);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 1.0f, 1.0f, 1.0f, 0.95f);
 
@@ -673,28 +673,28 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 1.0f, 1.0f, 1.0f, 0.95f);
 
-    _snprintf(line, sizeof(line) - 1, "Room %ux%u  inst %d  pending %d", roomW, roomH, (int32_t)arrlen(runner->instances), runner->pendingRoom);
+    _snprintf(line, sizeof(line) - 1, "Room: %ux%u  inst: %d  pending: %d", roomW, roomH, (int32_t)arrlen(runner->instances), runner->pendingRoom);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 
     SIZE_T usedPhys = gDiagTotalPhys > gDiagAvailPhys ? (gDiagTotalPhys - gDiagAvailPhys) : 0;
-    _snprintf(line, sizeof(line) - 1, "RAM %.1f/%.1f MB  free %.1f MB",
+    _snprintf(line, sizeof(line) - 1, "RAM: %.1f/%.1f MB  free: %.1f MB",
               diagBytesToMb(usedPhys), diagBytesToMb(gDiagTotalPhys),
               diagBytesToMb(gDiagAvailPhys));
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.75f, 1.0f, 0.75f, 0.95f);
 
-    _snprintf(line, sizeof(line) - 1, "Virt free %.1f MB  pad %d  fast %d  roomAge %u hold %u",
+    _snprintf(line, sizeof(line) - 1, "Virt free: %.1f MB  pad: %d  fast: %d  roomAge: %u hold: %u",
               diagBytesToMb(gDiagAvailVirtual), gDiagControllerConnected, gDiagSpeedCapRemoved,
               gDiagRoomAgeFrames, gDiagRoomTransitionHolds);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.75f, 1.0f, 0.75f, 0.95f);
 
-    _snprintf(line, sizeof(line) - 1, "Game %dx%d  frame %dx%d  app %dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, frameW, frameH, runner->applicationWidth, runner->applicationHeight);
+    _snprintf(line, sizeof(line) - 1, "Game: %dx%d  frame: %dx%d  app: %dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, frameW, frameH, runner->applicationWidth, runner->applicationHeight);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 
-    _snprintf(line, sizeof(line) - 1, "GUI %dx%d  surf auto=%d keep=%d id=%d", runner->guiWidth, runner->guiHeight,
+    _snprintf(line, sizeof(line) - 1, "GUI %dx%d:  surf: auto=%d keep=%d id=%d", runner->guiWidth, runner->guiHeight,
               runner->appSurfaceAutoDraw ? 1 : 0, runner->appSurfaceKeepWindowSize ? 1 : 0, runner->applicationSurfaceId);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
