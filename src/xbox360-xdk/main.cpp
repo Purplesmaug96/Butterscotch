@@ -54,7 +54,7 @@ static bool xdkGetWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 static void xdkSetWindowSize(int32_t width, int32_t height) {
-    diagLog("BS: window_set_size ignored on fixed %dx%d backbuffer requested=%dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, width, height);
+    diagLog("Butterscotch: window_set_size ignored on fixed %dx%d backbuffer requested=%dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, width, height);
 }
 
 static HANDLE gDiagLog = INVALID_HANDLE_VALUE;
@@ -133,7 +133,7 @@ static bool diagOpenPath(const char* path, bool overwrite) {
                            FILE_ATTRIBUTE_NORMAL,
                            NULL);
     if (h == INVALID_HANDLE_VALUE) {
-        DbgPrint("BS: open log failed at %s errno=%d gle=%lu\n", path, crtErr, GetLastError());
+        DbgPrint("Butterscotch: open log failed at %s errno=%d gle=%lu\n", path, crtErr, GetLastError());
         return false;
     }
     if (!overwrite) SetFilePointer(h, 0, NULL, FILE_END);
@@ -215,16 +215,16 @@ static void diagOpenLog(void) {
     };
     for (int i = 0; paths[i]; i++) {
         if (diagOpenPath(paths[i], true)) {
-            diagLog("BS: log opened at %s", paths[i]);
+            diagLog("Butterscotch: log opened at %s", paths[i]);
             return;
         }
     }
-    DbgPrint("BS: WARNING: no writable log path found\n");
+    DbgPrint("Butterscotch: WARNING: no writable log path found\n");
 }
 
 static void diagOpenNextToDataWin(const char* dataWinPath) {
     if (gDiagFile || gDiagLog != INVALID_HANDLE_VALUE) {
-        diagLog("BS: keeping existing log while data.win is at %s", dataWinPath);
+        diagLog("Butterscotch: keeping existing log while data.win is at %s", dataWinPath);
         return;
     }
 
@@ -241,9 +241,9 @@ static void diagOpenNextToDataWin(const char* dataWinPath) {
     }
 
     if (diagOpenPath(logPath, true)) {
-        diagLog("BS: logging to %s", logPath);
+        diagLog("Butterscotch: logging to %s", logPath);
     } else {
-        diagLog("BS: WARNING: failed to open log next to data.win at %s gle=%lu", logPath, GetLastError());
+        diagLog("Butterscotch: WARNING: failed to open log next to data.win at %s gle=%lu", logPath, GetLastError());
     }
 }
 
@@ -702,20 +702,20 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
 
 extern "C" void Butterscotch_xdkHang() {
 	while (true) {Sleep(1000);}
-	diagLog("BS: FATAL Somehow the end of Butterscotch_xdkHang was reached???");
+	diagLog("Butterscotch: FATAL Somehow the end of Butterscotch_xdkHang was reached???");
 	drawFatalErrorScreen(&gLoadingScreen);
 }
 
 extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line) {
     diagOpenLog();
-    diagLog("BS: FATAL exit with errcode %d at %s:%d lastChunk=%s index=%d/%d", errcode, file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
+    diagLog("Butterscotch: FATAL exit with errcode %d at %s:%d lastChunk=%s index=%d/%d", errcode, file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
 	drawFatalErrorScreen(&gLoadingScreen);
     Butterscotch_xdkHang();
 }
 
 extern "C" void Butterscotch_xdkAbort(const char* file, int line) {
     diagOpenLog();
-    diagLog("BS: FATAL abort at %s:%d lastChunk=%s index=%d/%d", file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
+    diagLog("Butterscotch: FATAL abort at %s:%d lastChunk=%s index=%d/%d", file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
 	drawFatalErrorScreen(&gLoadingScreen);
     Butterscotch_xdkHang();
 }
@@ -763,7 +763,7 @@ static DataWin* parseDataWinGuarded(const char* dataWinPath, DataWinParserOption
     __try {
         dataWin = DataWin_parse(dataWinPath, parseOpts);
     } __except (exceptionCode = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
-        diagLog("BS: FATAL exception 0x%08X during DataWin_parse lastChunk=%s index=%d/%d", exceptionCode, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
+        diagLog("Butterscotch: FATAL exception 0x%08X during DataWin_parse lastChunk=%s index=%d/%d", exceptionCode, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
         dataWin = NULL;
     }
     return dataWin;
@@ -780,7 +780,7 @@ static bool initFirstRoomGuarded(Runner* runner) {
             roomName = runner->currentRoom->name ? runner->currentRoom->name : "(null)";
             roomIndex = runner->currentRoomIndex;
         }
-        diagLog("BS: FATAL exception 0x%08X during Runner_initFirstRoom room=%d name=%s",
+        diagLog("Butterscotch: FATAL exception 0x%08X during Runner_initFirstRoom room=%d name=%s",
             exceptionCode, roomIndex, roomName);
         return false;
     }
@@ -926,7 +926,7 @@ static void pollGamepadApi(Runner* runner, const XINPUT_STATE* state, WORD butto
     }
     runner->gamepads->connectedCount = 1;
     if (!loggedGamepadConnected) {
-        diagLog("BS: gamepad API slot0 connected desc=%s guid=%s", slot->description, slot->guid);
+        diagLog("Butterscotch: gamepad API slot0 connected desc=%s guid=%s", slot->description, slot->guid);
         loggedGamepadConnected = true;
     }
 }
@@ -966,12 +966,12 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
 VOID __cdecl main() {
     diagOpenLog();
     diagLog("BUILD parse_guard_diag_v2 %s %s", __DATE__, __TIME__);
-    diagLog("BS: guard v2 active; log is overwritten on each launch");
-    diagLog("BS: 01 main() entered");
+    diagLog("Butterscotch: guard v2 active; log is overwritten on each launch");
+    diagLog("Butterscotch: 01 main() entered");
 
     IDirect3D9* pD3D = Direct3DCreate9(D3D_SDK_VERSION);
-    if (!pD3D) { diagLog("BS: FATAL: D3D create failed"); return; }
-    diagLog("BS: 02 D3D9 created");
+    if (!pD3D) { diagLog("Butterscotch: FATAL: D3D create failed"); return; }
+    diagLog("Butterscotch: 02 D3D9 created");
 
     D3DPRESENT_PARAMETERS d3dpp;
     ZeroMemory(&d3dpp, sizeof(d3dpp));
@@ -991,10 +991,10 @@ VOID __cdecl main() {
                                     D3DCREATE_HARDWARE_VERTEXPROCESSING,
                                     &d3dpp, &pd3dDevice);
     if (FAILED(hr)) {
-        diagLog("BS: FATAL: CreateDevice failed hr=0x%08X", hr);
+        diagLog("Butterscotch: FATAL: CreateDevice failed hr=0x%08X", hr);
         return;
     }
-    diagLog("BS: 03 D3D device created");
+    diagLog("Butterscotch: 03 D3D device created");
 
 
     // ===[ Locate data.win ]===
@@ -1015,30 +1015,30 @@ VOID __cdecl main() {
         NULL,
     };
 
-    diagLog("BS: 04 searching for data.win");
+    diagLog("Butterscotch: 04 searching for data.win");
     // char msg[256];
     for (int i = 0; searchPaths[i]; i++) {
-        diagLog("BS: try %s", searchPaths[i]);
+        diagLog("Butterscotch: try %s", searchPaths[i]);
 
         FILE* testFile = fopen(searchPaths[i], "rb");
         if (testFile) {
             fclose(testFile);
             dataWinPath = searchPaths[i];
             diagOpenNextToDataWin(dataWinPath);
-            diagLog("BS: 05 found data.win at %s", dataWinPath);
+            diagLog("Butterscotch: 05 found data.win at %s", dataWinPath);
             break;
         }
     }
 
     if (!dataWinPath) {
-        diagLog("BS: FATAL: data.win not found");
+        diagLog("Butterscotch: FATAL: data.win not found");
 		bool _loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
 		if (_loadingOk) {
-			diagLog("BS: NOTE: had to init loading screen early to display log/error");
+			diagLog("Butterscotch: NOTE: had to init loading screen early to display log/error");
 			drawFatalErrorScreen(&gLoadingScreen);
 		}
 		else {
-			diagLog("BS: NOTE: failed to init loading screen to display log/error");
+			diagLog("Butterscotch: NOTE: failed to init loading screen to display log/error");
 		}
         Butterscotch_xdkHang();
     }
@@ -1046,7 +1046,7 @@ VOID __cdecl main() {
     bool loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
     if (loadingOk) loadingDraw(&gLoadingScreen, 0.02f, "Starting Butterscotch");
 
-    diagLog("BS: 06 parsing data.win");
+    diagLog("Butterscotch: 06 parsing data.win");
     if (loadingOk) loadingDraw(&gLoadingScreen, 0.05f, "Opening data.win");
 
     DataWinParserOptions parseOpts;
@@ -1065,11 +1065,11 @@ VOID __cdecl main() {
     DataWin* dataWin = parseDataWinGuarded(dataWinPath, parseOpts);
 
     if (!dataWin) {
-        diagLog("BS: FATAL: DataWin_parse returned NULL");
+        diagLog("Butterscotch: FATAL: DataWin_parse returned NULL");
 		drawFatalErrorScreen(&gLoadingScreen);
         Butterscotch_xdkHang();
     }
-    diagLog("BS: 07 data.win parsed OK");
+    diagLog("Butterscotch: 07 data.win parsed OK");
     if (loadingOk) {
         loadingDraw(&gLoadingScreen, 1.0f, "data.win loaded");
         loadingDestroy(&gLoadingScreen);
@@ -1081,7 +1081,7 @@ VOID __cdecl main() {
         diagLog("DIAG: overlay renderer unavailable");
     }
 
-    diagLog("BS: game=%s", dataWin->gen8.displayName ? dataWin->gen8.displayName : "Unknown");
+    diagLog("Butterscotch: game=%s", dataWin->gen8.displayName ? dataWin->gen8.displayName : "Unknown");
 
     // ===[ Load CONFIG.JSN (optional) ]===
     char configPath[512];
@@ -1107,35 +1107,35 @@ VOID __cdecl main() {
         configText[bytesRead] = '\0';
         configRoot = JsonReader_parse(configText);
         free(configText);
-        diagLog("BS: Loaded CONFIG.JSN");
+        diagLog("Butterscotch: Loaded CONFIG.JSN");
     }
 
     // ===[ Create Subsystems ]===
-    diagLog("BS: 08 creating subsystems");
+    diagLog("Butterscotch: 08 creating subsystems");
     XdkFileSystem* xdkFs = XdkFileSystem_create(dataWinPath);
     FileSystem* fileSystem = (FileSystem*)xdkFs;
 
-    diagLog("BS: 09 creating renderer");
+    diagLog("Butterscotch: 09 creating renderer");
     renderer = D3D9Renderer_create(pd3dDevice);
 
 	#ifdef USE_XAUDIO2_AUDIO
-    diagLog("BS: 10 creating audio");
+    diagLog("Butterscotch: 10 creating audio");
     XdkAudioSystem* xdkAudio = XdkAudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*)xdkAudio;
 	#else
-	diagLog("BS: 10 creating audio (noop)");
+	diagLog("Butterscotch: 10 creating audio (noop)");
 	NoopAudioSystem* noopAudio = NoopAudioSystem_create();
 	AudioSystem* audioSystem = (AudioSystem*)noopAudio;
 	#endif
 
-    diagLog("BS: 11 creating VM");
+    diagLog("Butterscotch: 11 creating VM");
     VMContext* vm = VM_create(dataWin);
-    diagLog("BS: 12 creating runner");
+    diagLog("Butterscotch: 12 creating runner");
     Runner* runner = Runner_create(dataWin, vm, renderer, fileSystem, audioSystem);
     runner->getWindowSize = xdkGetWindowSize;
     runner->setWindowSize = xdkSetWindowSize;
     runner->osType = OS_WINDOWS;
-    diagLog("BS: 12b runner created with renderer/audio initialized");
+    diagLog("Butterscotch: 12b runner created with renderer/audio initialized");
 
     // Parse CONFIG.JSN options
 	// Commented because:
@@ -1196,20 +1196,20 @@ VOID __cdecl main() {
     // }
 
     if (!xpadMappings) setupDefaultMappings();
-    diagLog("BS: osType=%s (%d)", osTypeName(runner->osType), (int)runner->osType);
-    diagLog("BS: gamepadApi=%s", gamepadApiEnabled ? "enabled" : "disabled");
+    diagLog("Butterscotch: osType=%s (%d)", osTypeName(runner->osType), (int)runner->osType);
+    diagLog("Butterscotch: gamepadApi=%s", gamepadApiEnabled ? "enabled" : "disabled");
 
-    diagLog("BS: 13 audio OK");
-    diagLog("BS: 14 renderer already initialized by Runner_create");
-    diagLog("BS: 15 renderer OK");
+    diagLog("Butterscotch: 13 audio OK");
+    diagLog("Butterscotch: 14 renderer already initialized by Runner_create");
+    diagLog("Butterscotch: 15 renderer OK");
 
     // Initialize first room
-    diagLog("BS: 16 init first room");
+    diagLog("Butterscotch: 16 init first room");
     if (dataWin->gen8.roomOrderCount > 0) {
         int32_t firstRoomIndex = dataWin->gen8.roomOrder[0];
         if (firstRoomIndex >= 0 && dataWin->room.count > (uint32_t)firstRoomIndex) {
             Room* firstRoom = &dataWin->room.rooms[firstRoomIndex];
-            diagLog("BS: first room idx=%d name=%s size=%ux%u objects=%u layers=%u tiles=%u",
+            diagLog("Butterscotch: first room idx=%d name=%s size=%ux%u objects=%u layers=%u tiles=%u",
                 firstRoomIndex,
                 firstRoom->name ? firstRoom->name : "(null)",
                 firstRoom->width,
@@ -1218,23 +1218,23 @@ VOID __cdecl main() {
                 firstRoom->layerCount,
                 firstRoom->tileCount);
         } else {
-            diagLog("BS: first room index out of range idx=%d roomCount=%u",
+            diagLog("Butterscotch: first room index out of range idx=%d roomCount=%u",
                 firstRoomIndex, dataWin->room.count);
         }
     } else {
-        diagLog("BS: no room order entries");
+        diagLog("Butterscotch: no room order entries");
     }
     if (!initFirstRoomGuarded(runner)) {
-		diagLog("BS: FATAL: !initFirstRoomGuarded(runner)");
+		diagLog("Butterscotch: FATAL: !initFirstRoomGuarded(runner)");
 		drawFatalErrorScreen(&gLoadingScreen);
         Butterscotch_xdkHang();
     }
-    diagLog("BS: 17 first room OK");
+    diagLog("Butterscotch: 17 first room OK");
 
     Gen8* gen8 = &dataWin->gen8;
     int32_t gameW = (int32_t)gen8->defaultWindowWidth;
     int32_t gameH = (int32_t)gen8->defaultWindowHeight;
-    diagLog("BS: gameW=%d gameH=%d screenW=%d screenH=%d", gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT);
+    diagLog("Butterscotch: gameW=%d gameH=%d screenW=%d screenH=%d", gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT);
 
     // Parse deferDrawToAfterAllSteps
     bool deferDraw = false;
@@ -1243,7 +1243,7 @@ VOID __cdecl main() {
     //     if (deferVal) deferDraw = JsonReader_getBool(deferVal);
     // }
 
-    diagLog("BS: 18 entering main loop");
+    diagLog("Butterscotch: 18 entering main loop");
 
     // ===[ Main Loop ]===
     LARGE_INTEGER freq, lastTime, currentTime;

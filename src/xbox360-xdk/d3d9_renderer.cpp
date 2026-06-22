@@ -654,7 +654,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     // Debug: print once
     static bool printedOnce = false;
     if (!printedOnce) {
-        DbgPrint("BS: renderScale=%d/1000 offsetX=%d offsetY=%d gameW=%d gameH=%d screenW=%d screenH=%d\n",
+        DbgPrint("D3D9: renderScale=%d/1000 offsetX=%d offsetY=%d gameW=%d gameH=%d screenW=%d screenH=%d\n",
             (int)(dr->renderScale * 1000), (int)dr->renderOffsetX, (int)dr->renderOffsetY,
             gameW, gameH, windowW, windowH);
         printedOnce = true;
