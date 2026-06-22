@@ -158,12 +158,18 @@ static inline double GetFreeMemMB() {
 #define printf diagLog
 #define fprintf fdiagLog
 
-#define exit(errcode) diagLog("exit(%d) called at %s:%d!", errcode, __FILE__, __LINE__);
-#define abort() diagLog("abort() called at %s:%d!\n", __FILE__, __LINE__);
-
 #ifndef __cplusplus
 #error Things must be compiled as C++ for xbox 360 xdk to avoid C89
 #endif
+
+extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line);
+extern "C" void Butterscotch_xdkAbort(const char* file, int line);
+
+#define exit(errcode) Butterscotch_xdkExit(errcode, __FILE__, __LINE__)
+#define abort() Butterscotch_xdkAbort(__FILE__, __LINE__)
+
+// #define exit(errcode) diagLog("exit(%d) called at %s:%d!", errcode, __FILE__, __LINE__);
+// #define abort() diagLog("abort() called at %s:%d!\n", __FILE__, __LINE__);
 
 #include <type_traits>
 

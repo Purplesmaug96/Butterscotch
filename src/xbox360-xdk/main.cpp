@@ -610,6 +610,14 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 }
 
+extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line) {
+    diagOpenFallback();
+    diagLog("BS: FATAL exit with errcode %d at %s:%d lastChunk=%s index=%d/%d", errcode, file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
+    for (;;) {
+        Sleep(1000);
+    }
+}
+
 extern "C" void Butterscotch_xdkAbort(const char* file, int line) {
     diagOpenFallback();
     diagLog("BS: FATAL abort at %s:%d lastChunk=%s index=%d/%d", file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
