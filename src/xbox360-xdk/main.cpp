@@ -60,6 +60,15 @@ static void xdkSetWindowSize(int32_t width, int32_t height) {
 static HANDLE gDiagLog = INVALID_HANDLE_VALUE;
 static FILE* gDiagFile = NULL;
 static bool gDiagTriedFallback = false;
+
+// Log ring buffer — captures the last N lines of _diagLog output
+// so the fatal-error screen can display them to the user.
+#define FATAL_LOG_LINES     512
+#define FATAL_LOG_LINE_LEN  256
+static char gFatalLogLines[FATAL_LOG_LINES][FATAL_LOG_LINE_LEN];
+static volatile int gFatalLogHead  = 0;   // next slot to write
+static volatile int gFatalLogCount = 0;   // total lines stored (capped at FATAL_LOG_LINES)
+
 static char gLastParseChunk[5] = "NONE";
 static int gLastParseChunkIndex = -1;
 static int gLastParseChunkTotal = 0;
@@ -158,6 +167,17 @@ static void _diagLog(FILE* file, const char* fmt, va_list args) {
         WriteFile(gDiagLog, line, (DWORD)strlen(line), &written, NULL);
         FlushFileBuffers(gDiagLog);
     }
+
+    // Append to the in-memory log ring buffer for fatal error display.
+    // Strip the trailing newline so the display lines look clean.
+    size_t copyLen = len;
+    if (copyLen > 0 && line[copyLen - 1] == '\n') copyLen--;
+    if (copyLen >= FATAL_LOG_LINE_LEN) copyLen = FATAL_LOG_LINE_LEN - 1;
+    memcpy(gFatalLogLines[gFatalLogHead], line, copyLen);
+    gFatalLogLines[gFatalLogHead][copyLen] = '\0';
+
+    gFatalLogHead = (gFatalLogHead + 1) % FATAL_LOG_LINES;
+    if (gFatalLogCount < FATAL_LOG_LINES) gFatalLogCount++;
 }
 
 void diagLog(const char* fmt, ...) {
@@ -179,7 +199,7 @@ void fdiagLog(FILE* file, const char* fmt, ...) {
 	va_end(args);
 }
 
-static void diagOpenFallback(void) {
+static void diagOpenLog(void) {
     if (gDiagLog != INVALID_HANDLE_VALUE || gDiagFile || gDiagTriedFallback) return;
     gDiagTriedFallback = true;
 
@@ -195,11 +215,11 @@ static void diagOpenFallback(void) {
     };
     for (int i = 0; paths[i]; i++) {
         if (diagOpenPath(paths[i], true)) {
-            diagLog("BS: fallback log opened at %s", paths[i]);
+            diagLog("BS: log opened at %s", paths[i]);
             return;
         }
     }
-    DbgPrint("BS: WARNING: no writable diagnostic log path found\n");
+    DbgPrint("BS: WARNING: no writable log path found\n");
 }
 
 static void diagOpenNextToDataWin(const char* dataWinPath) {
@@ -509,6 +529,76 @@ static void loadingDraw(LoadingScreen* ls, float progress, const char* stage) {
     dev->Present(NULL, NULL, NULL, NULL);
 }
 
+// Draws a full-screen fatal error screen using the log ring buffer.
+// Can be called even after loading has ended; falls back gracefully if
+// the loading screen resources have been destroyed by trying the diag
+// overlay screen, or simply skips rendering if neither is available.
+static void drawFatalErrorScreen(LoadingScreen* ls) {
+    if (!ls || !ls->available) {
+        // Fall back to the diag overlay screen if the primary loading screen
+        // has been destroyed (e.g. after loading completed).
+        ls = &gDiagOverlayScreen;
+    }
+    if (!ls || !ls->available) return;
+
+    IDirect3DDevice9* dev = ls->dev;
+    dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+    if (FAILED(dev->BeginScene())) return;
+    loadingApplyState(ls);
+
+    const float scale = 0.36f;
+    const float lineH = (float)DEBUGFONT_LINE_HEIGHT * scale + 2.0f;
+    const float marginX = 14.0f;
+    const float marginY = 12.0f;
+    float y = marginY;
+
+    // Title bar
+    loadingDrawText(ls, "FATAL ERROR!!!", marginX, y, 0.48f,
+                    1.0f, 0.2f, 0.2f, 1.0f);
+    y += (float)DEBUGFONT_LINE_HEIGHT * 0.48f + 6.0f;
+
+    // Draw a separator line
+    loadingDrawQuad(ls, NULL, marginX, y, (float)SCREEN_WIDTH - marginX, y + 1.0f,
+                    0.0f, 0.0f, 1.0f, 1.0f, 0.6f, 0.2f, 0.2f, 0.8f);
+    y += 8.0f;
+
+    // Determine the set of lines to display — the most recent ones that fit.
+    int count = gFatalLogCount;
+    int head = gFatalLogHead;
+
+    // How many lines fit on screen?
+    int maxLines = (int)((SCREEN_HEIGHT - y - 10.0f) / lineH);
+    if (maxLines <= 0) maxLines = 1;
+    if (count > maxLines) count = maxLines;
+
+    // Walk backwards from head to get the last 'count' lines.
+    int startIdx = (head - count + FATAL_LOG_LINES) % FATAL_LOG_LINES;
+    for (int i = 0; i < count; i++) {
+        int idx = (startIdx + i) % FATAL_LOG_LINES;
+        const char* line = gFatalLogLines[idx];
+        if (line[0] == '\0') continue;
+
+        // Color-code lines: FATAL / BS: prefix in red/orange
+        float r = 0.85f, g = 0.85f, b = 0.85f; // default light grey
+        if (strstr(line, "FATAL") || strstr(line, "ERROR")) {
+            r = 1.0f; g = 0.3f; b = 0.3f;
+        } else if (strstr(line, "BS:")) {
+            r = 0.7f; g = 0.8f; b = 1.0f;
+        }
+
+        loadingDrawText(ls, line, marginX, y, scale, r, g, b, 0.92f);
+        y += lineH;
+    }
+
+    // Bottom hint
+    y = (float)SCREEN_HEIGHT - 30.0f;
+    loadingDrawText(ls, "Console hung — check log above",
+                    marginX, y, 0.42f, 0.6f, 0.6f, 0.6f, 0.8f);
+
+    dev->EndScene();
+    dev->Present(NULL, NULL, NULL, NULL);
+}
+
 static bool diagOverlayInit(IDirect3DDevice9* dev, const char* dataWinPath) {
     bool ok = loadingInit(&gDiagOverlayScreen, dev, dataWinPath);
     if (gDiagOverlayScreen.splashTex) {
@@ -610,20 +700,24 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 }
 
+extern "C" void Butterscotch_xdkHang() {
+	while (true) {Sleep(1000);}
+	diagLog("BS: FATAL Somehow the end of Butterscotch_xdkHang was reached???");
+	drawFatalErrorScreen(&gLoadingScreen);
+}
+
 extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line) {
-    diagOpenFallback();
+    diagOpenLog();
     diagLog("BS: FATAL exit with errcode %d at %s:%d lastChunk=%s index=%d/%d", errcode, file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
-    for (;;) {
-        Sleep(1000);
-    }
+	drawFatalErrorScreen(&gLoadingScreen);
+    Butterscotch_xdkHang();
 }
 
 extern "C" void Butterscotch_xdkAbort(const char* file, int line) {
-    diagOpenFallback();
+    diagOpenLog();
     diagLog("BS: FATAL abort at %s:%d lastChunk=%s index=%d/%d", file ? file : "(null)", line, gLastParseChunk, gLastParseChunkIndex, gLastParseChunkTotal);
-    for (;;) {
-        Sleep(1000);
-    }
+	drawFatalErrorScreen(&gLoadingScreen);
+    Butterscotch_xdkHang();
 }
 
 extern "C" void Butterscotch_xdkDataWinTrace(const char* fmt, ...) {
@@ -870,7 +964,7 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
 // ===[ Main Entry Point ]===
 
 VOID __cdecl main() {
-    diagOpenFallback();
+    diagOpenLog();
     diagLog("BUILD parse_guard_diag_v2 %s %s", __DATE__, __TIME__);
     diagLog("BS: guard v2 active; log is overwritten on each launch");
     diagLog("BS: 01 main() entered");
@@ -937,8 +1031,16 @@ VOID __cdecl main() {
     }
 
     if (!dataWinPath) {
-        diagLog("BS: FATAL: data.win not found — hanging");
-        for (;;) { Sleep(1000); }
+        diagLog("BS: FATAL: data.win not found");
+		bool _loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
+		if (_loadingOk) {
+			diagLog("BS: NOTE: had to init loading screen early to display log/error");
+			drawFatalErrorScreen(&gLoadingScreen);
+		}
+		else {
+			diagLog("BS: NOTE: failed to init loading screen to display log/error");
+		}
+        Butterscotch_xdkHang();
     }
 
     bool loadingOk = loadingInit(&gLoadingScreen, pd3dDevice, dataWinPath);
@@ -964,7 +1066,8 @@ VOID __cdecl main() {
 
     if (!dataWin) {
         diagLog("BS: FATAL: DataWin_parse returned NULL");
-        for (;;) { }
+		drawFatalErrorScreen(&gLoadingScreen);
+        Butterscotch_xdkHang();
     }
     diagLog("BS: 07 data.win parsed OK");
     if (loadingOk) {
@@ -1122,7 +1225,9 @@ VOID __cdecl main() {
         diagLog("BS: no room order entries");
     }
     if (!initFirstRoomGuarded(runner)) {
-        for (;;) { Sleep(1000); }
+		diagLog("BS: FATAL: !initFirstRoomGuarded(runner)");
+		drawFatalErrorScreen(&gLoadingScreen);
+        Butterscotch_xdkHang();
     }
     diagLog("BS: 17 first room OK");
 
