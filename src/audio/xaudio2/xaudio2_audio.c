@@ -1379,8 +1379,17 @@ static void xdkResumeSystem(AudioSystem* audio) {
 
 static void xdkSetSoundGain(AudioSystem* audio, int32_t soundOrInstance, float gain, uint32_t timeMs) {
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
-    XdkInstanceArray* arr = Instances(xa);
 
+    // If it's a stream index, update the stream entry's initial gain
+    if (isStreamIndex(soundOrInstance)) {
+        int32_t streamSlot = soundOrInstance - XDK_AUDIO_STREAM_INDEX_BASE;
+        if (streamSlot >= 0 && streamSlot < XDK_MAX_AUDIO_STREAMS) {
+            xa->streams[streamSlot].initialGain = gain;
+        }
+        // Fall through to also update any playing instances
+    }
+
+    XdkInstanceArray* arr = Instances(xa);
     for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
         XdkSoundInstance* inst = &arr->instances[i];
         if (!inst->active) continue;
@@ -1403,6 +1412,16 @@ static void xdkSetSoundGain(AudioSystem* audio, int32_t soundOrInstance, float g
 
 static float xdkGetSoundGain(AudioSystem* audio, int32_t soundOrInstance) {
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
+
+    // If it's a stream index, return the initial gain from the stream entry
+    if (isStreamIndex(soundOrInstance)) {
+        int32_t streamSlot = soundOrInstance - XDK_AUDIO_STREAM_INDEX_BASE;
+        if (streamSlot >= 0 && streamSlot < XDK_MAX_AUDIO_STREAMS) {
+            return xa->streams[streamSlot].initialGain;
+        }
+        return 0.0f;
+    }
+
     XdkInstanceArray* arr = Instances(xa);
     for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
         XdkSoundInstance* inst = &arr->instances[i];
@@ -1417,6 +1436,16 @@ static float xdkGetSoundGain(AudioSystem* audio, int32_t soundOrInstance) {
 
 static void xdkSetSoundPitch(AudioSystem* audio, int32_t soundOrInstance, float pitch) {
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
+
+    // If it's a stream index, update the stream entry's initial pitch
+    if (isStreamIndex(soundOrInstance)) {
+        int32_t streamSlot = soundOrInstance - XDK_AUDIO_STREAM_INDEX_BASE;
+        if (streamSlot >= 0 && streamSlot < XDK_MAX_AUDIO_STREAMS) {
+            xa->streams[streamSlot].initialPitch = pitch;
+        }
+        // Fall through to also update any playing instances
+    }
+
     XdkInstanceArray* arr = Instances(xa);
     for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
         XdkSoundInstance* inst = &arr->instances[i];
@@ -1431,6 +1460,16 @@ static void xdkSetSoundPitch(AudioSystem* audio, int32_t soundOrInstance, float 
 
 static float xdkGetSoundPitch(AudioSystem* audio, int32_t soundOrInstance) {
     XdkAudioSystem* xa = (XdkAudioSystem*)audio;
+
+    // If it's a stream index, return the initial pitch from the stream entry
+    if (isStreamIndex(soundOrInstance)) {
+        int32_t streamSlot = soundOrInstance - XDK_AUDIO_STREAM_INDEX_BASE;
+        if (streamSlot >= 0 && streamSlot < XDK_MAX_AUDIO_STREAMS) {
+            return xa->streams[streamSlot].initialPitch;
+        }
+        return 1.0f;
+    }
+
     XdkInstanceArray* arr = Instances(xa);
     for (int i = 0; i < XDK_MAX_SOUND_INSTANCES; i++) {
         XdkSoundInstance* inst = &arr->instances[i];
