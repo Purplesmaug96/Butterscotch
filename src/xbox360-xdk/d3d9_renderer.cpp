@@ -801,6 +801,15 @@ static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
 
+    // Use uniform scale to maintain the GUI's aspect ratio within the port rectangle.
+    // This prevents GUI elements (dialogue boxes, etc.) from stretching when the
+    // screen aspect differs from the game's native aspect (e.g. 4:3 game on 16:9 display).
+    float scaleX = (guiW > 0) ? (float)portW / (float)guiW : 1.0f;
+    float scaleY = (guiH > 0) ? (float)portH / (float)guiH : 1.0f;
+    float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
+    float offsetX = ((float)portW - (float)guiW * uniformScale) * 0.5f;
+    float offsetY = ((float)portH - (float)guiH * uniformScale) * 0.5f;
+
     int32_t scLeft = portX < 0 ? 0 : portX;
     int32_t scTop = portY < 0 ? 0 : portY;
     int32_t scRight = portX + portW;
@@ -818,10 +827,11 @@ static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t
 
     dr->offsetX = 0.0f;
     dr->offsetY = 0.0f;
-    dr->portScaleX = (float)portW / (float)guiW;
-    dr->portScaleY = (float)portH / (float)guiH;
-    dr->portOffsetX = (float)portX;
-    dr->portOffsetY = (float)portY;
+    // Use uniform scale with centering offsets to preserve the GUI's aspect ratio
+    dr->portScaleX = uniformScale;
+    dr->portScaleY = uniformScale;
+    dr->portOffsetX = (float)portX + offsetX;
+    dr->portOffsetY = (float)portY + offsetY;
 }
 
 static void d3d9EndGUI(Renderer* renderer) {
