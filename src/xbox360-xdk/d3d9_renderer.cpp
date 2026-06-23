@@ -151,12 +151,19 @@ static void setGameTargetTransform(D3D9Renderer* dr) {
 }
 
 static void setWindowSurfaceTransform(D3D9Renderer* dr) {
+    // Use uniform scale to preserve the application surface's aspect ratio
+    // within the fixed 720p backbuffer. This prevents stretching when the
+    // app surface aspect differs from the screen aspect (e.g., 4:3 game
+    // content or widescreen mod application surface on a 16:9 display).
+    float scaleX = (dr->appSurfaceW > 0) ? ((float)dr->screenW / (float)dr->appSurfaceW) : 1.0f;
+    float scaleY = (dr->appSurfaceH > 0) ? ((float)dr->screenH / (float)dr->appSurfaceH) : 1.0f;
+    float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
     dr->offsetX = _offx + 0.0f;
     dr->offsetY = 0.0f;
-    dr->portScaleX = (dr->appSurfaceW > 0) ? ((float)dr->screenW / (float)dr->appSurfaceW) : 1.0f;
-    dr->portScaleY = (dr->appSurfaceH > 0) ? ((float)dr->screenH / (float)dr->appSurfaceH) : 1.0f;
-    dr->portOffsetX = _offx + 0.0f;
-    dr->portOffsetY = 0.0f;
+    dr->portScaleX = uniformScale;
+    dr->portScaleY = uniformScale;
+    dr->portOffsetX = _offx + ((float)dr->screenW - (float)dr->appSurfaceW * uniformScale) * 0.5f;
+    dr->portOffsetY = ((float)dr->screenH - (float)dr->appSurfaceH * uniformScale) * 0.5f;
 }
 
 static void setApplicationSurfaceTransform(D3D9Renderer* dr) {
@@ -824,6 +831,20 @@ static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t
     scissor.bottom = scBottom;
     dev->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
     dev->SetScissorRect(&scissor);
+
+    // When the GUI dimensions match the port dimensions exactly (full-window coverage),
+    // the caller (e.g., Runner_drawPost) expects the existing game-to-screen transform
+    // to remain active, not an identity transform. This is critical for widescreen mods
+    // that call draw_surface_stretched(application_surface, 0, 0, 854, 480) during
+    // Post Draw — the 854×480 dest coordinates need to be mapped through the uniform
+    // game-to-screen transform to properly fill the 1280×720 backbuffer.
+    // Only override the transform when actual GUI scaling (aspect-ratio-aware
+    // letterboxing) is needed, i.e., when guiW != portW or guiH != portH.
+    if (guiW == portW && guiH == portH) {
+        // No GUI rescaling needed — preserve the existing transform (set by
+        // setGameTargetTransform in endFrameInit or from a previous view setup).
+        return;
+    }
 
     dr->offsetX = 0.0f;
     dr->offsetY = 0.0f;
@@ -1920,14 +1941,21 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
         bindBackbuffer(dr);
         resetFullBackbufferState(dr);
         dr->renderingToApplicationSurface = false;
-        setWindowSurfaceTransform(dr);
+        // When the application surface is drawn manually by GML (appSurfaceAutoDraw=0),
+        // the game positions it in game-space coordinates (e.g., draw_surface_stretched
+        // to fill the room). Use the game-to-screen transform to map those coordinates
+        // to the backbuffer, preserving aspect ratio.
+        // For auto-draw, setWindowSurfaceTransform would be used, but in the manual
+        // path the GML code handles stretching the app surface to the game frame,
+        // and setGameTargetTransform correctly maps the game frame to the screen.
+        setGameTargetTransform(dr);
         d3d9DiagLimited(&switchLogged, 64,
-                        "D3D9: manual application_surface present room=%d src=%d,%d %dx%d dst=%.2f,%.2f scale=%.2f,%.2f app=%dx%d screen=%dx%d transform=%.3f,%.3f",
+                        "D3D9: manual application_surface present room=%d src=%d,%d %dx%d dst=%.2f,%.2f scale=%.2f,%.2f game=%dx%d screen=%dx%d renderScale=%.3f offX=%.1f offY=%.1f",
                         renderer->runner ? renderer->runner->currentRoomIndex : -1,
                         srcLeft, srcTop, srcWidth, srcHeight,
                         x, y, xscale, yscale,
-                        dr->appSurfaceW, dr->appSurfaceH, dr->screenW, dr->screenH,
-                        dr->portScaleX, dr->portScaleY);
+                        dr->gameW, dr->gameH, dr->screenW, dr->screenH,
+                        dr->renderScale, dr->renderOffsetX, dr->renderOffsetY);
         Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
         applyPointSampling(Dev(dr));
     }
@@ -1987,43 +2015,8 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     float cr, cg, cb, ca;
     bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
-    bool manualPostAppSurface =
-        renderer->runner &&
-        !renderer->runner->appSurfaceKeepWindowSize &&
-        !renderer->runner->appSurfaceAutoDraw &&
-        renderer->drawPhase == RENDER_PHASE_POST;
-    float savedOffsetX = dr->offsetX;
-    float savedOffsetY = dr->offsetY;
-    float savedPortScaleX = dr->portScaleX;
-    float savedPortScaleY = dr->portScaleY;
-    float savedPortOffsetX = dr->portOffsetX;
-    float savedPortOffsetY = dr->portOffsetY;
-    if (manualPostAppSurface) {
-        float insetScaleX = dr->screenW > 0 && dr->appSurfaceW > 0
-            ? (float)dr->screenW / ((float)dr->appSurfaceW * 1.5f)
-            : dr->renderScale;
-        float insetScaleY = dr->screenH > 0 && dr->appSurfaceH > 0
-            ? (float)dr->screenH / ((float)dr->appSurfaceH * 1.125f)
-            : dr->renderScale;
-        float insetScale = insetScaleX < insetScaleY ? insetScaleX : insetScaleY;
-        float insetOffsetX = ((float)dr->screenW - (float)dr->appSurfaceW * insetScale) * 0.5f;
-        float insetOffsetY = ((float)dr->screenH - (float)dr->appSurfaceH * insetScale) * 0.5f;
-
-        static int logged = 0;
-        d3d9DiagLimited(&logged, 64,
-                        "D3D9: Draw Post application_surface using inset viewport room=%d dst=%.2f,%.2f scale=%.2f,%.2f app=%dx%d insetScale=%.3f offs=%.1f,%.1f",
-                        renderer->runner->currentRoomIndex,
-                        x, y, xscale, yscale,
-                        dr->appSurfaceW, dr->appSurfaceH,
-                        insetScale, insetOffsetX, insetOffsetY);
-        dr->offsetX = 0.0f;
-        dr->offsetY = 0.0f;
-        dr->portScaleX = insetScale;
-        dr->portScaleY = insetScale;
-        dr->portOffsetX = insetOffsetX;
-        dr->portOffsetY = insetOffsetY;
-    }
-
+    // Use the current transform (set by setGameTargetTransform already above)
+    // to map game-space coordinates to the screen with proper letterboxing.
     SpriteVertex v[4];
     float sx, sy;
     transformPoint(dr, cx[0], cy[0], &sx, &sy); setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
@@ -2031,15 +2024,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     transformPoint(dr, cx[2], cy[2], &sx, &sy); setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
     transformPoint(dr, cx[3], cy[3], &sx, &sy); setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
     dev->DrawPrimitiveUP(D3DPT_QUADLIST, 1, v, sizeof(SpriteVertex));
-
-    if (manualPostAppSurface) {
-        dr->offsetX = savedOffsetX;
-        dr->offsetY = savedOffsetY;
-        dr->portScaleX = savedPortScaleX;
-        dr->portScaleY = savedPortScaleY;
-        dr->portOffsetX = savedPortOffsetX;
-        dr->portOffsetY = savedPortOffsetY;
-    }
 }
 
 static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width, int32_t height) {
@@ -2051,7 +2035,39 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
                                   width, height, dr->appSurfaceW, dr->appSurfaceH,
                                   renderer->runner ? renderer->runner->currentRoomIndex : -1);
         if (width > 0 && height > 0 && (width != dr->appSurfaceW || height != dr->appSurfaceH)) {
+            // Release the old surface and recreate at the requested dimensions.
+            // This is needed for widescreen mods that call surface_resize(application_surface, ...)
+            // during room initialization to change the app surface size.
             releaseApplicationSurface(dr);
+            // Recreate using the same logic as ensureApplicationSurface but with
+            // the new requested size instead of the game's default window size.
+            flushBatch(dr);
+            int32_t allocW = (width + 7) & ~7;
+            int32_t allocH = (height + 7) & ~7;
+            IDirect3DTexture9* sampleTex = NULL;
+            HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
+                                            D3DPOOL_DEFAULT, &sampleTex, NULL);
+            if (FAILED(hr) || !sampleTex) {
+                Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+                return;
+            }
+            IDirect3DSurface9* surface = NULL;
+            hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
+                                         D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+            if (FAILED(hr) || !surface) {
+                Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateRenderTarget(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+                sampleTex->Release();
+                return;
+            }
+            dr->appSurfaceTexture = sampleTex;
+            dr->appRenderTexture = NULL;
+            dr->appSurfaceLevel = surface;
+            dr->appSurfaceW = width;
+            dr->appSurfaceH = height;
+            dr->appSurfaceAllocW = allocW;
+            dr->appSurfaceAllocH = allocH;
+            dr->appSurfaceResolved = false;
+            Butterscotch_xdkDiagTrace("D3D9: application_surface recreated %dx%d alloc=%dx%d", width, height, allocW, allocH);
         }
         return;
     }

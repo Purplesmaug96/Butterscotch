@@ -807,10 +807,10 @@ static void setupDefaultMappings(void) {
         { XINPUT_GAMEPAD_DPAD_DOWN,  40 },  // VK_DOWN
         { XINPUT_GAMEPAD_DPAD_LEFT,  37 },  // VK_LEFT
         { XINPUT_GAMEPAD_DPAD_RIGHT, 39 },  // VK_RIGHT
-        { XINPUT_GAMEPAD_A,          13 },  // VK_RETURN (confirm)
-        { XINPUT_GAMEPAD_B,          16 },  // VK_SHIFT (cancel)
+        { XINPUT_GAMEPAD_A,          90 },  // 'Z' key (confirm/action — Pizza Tower, Undertale, etc.)
+        { XINPUT_GAMEPAD_B,          88 },  // 'X' key (cancel/dash — Pizza Tower, Undertale, etc.)
         { XINPUT_GAMEPAD_X,          17 },  // VK_CONTROL
-        { XINPUT_GAMEPAD_Y,          88 },  // 'X' key
+        { XINPUT_GAMEPAD_Y,          16 },  // VK_SHIFT
         { XINPUT_GAMEPAD_START,      27 },  // VK_ESCAPE (menu)
         { XINPUT_GAMEPAD_BACK,       27 },  // VK_ESCAPE
     };
@@ -946,10 +946,17 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
     }
 
     if (frameH <= 0) frameH = 1;
-    const float displayScale = (float)SCREEN_HEIGHT / (float)frameH;
+    // Use uniform scaling to fit the game frame into the 720p backbuffer while
+    // preserving aspect ratio. The renderScale is used by setGameTargetTransform
+    // for rendering directly to the backbuffer (non-app-surface path).
+    // When using an application surface, the final composition in
+    // setWindowSurfaceTransform also uses uniform scaling with letterboxing.
+    float scaleX = (float)SCREEN_WIDTH / (float)frameW;
+    float scaleY = (float)SCREEN_HEIGHT / (float)frameH;
+    float displayScale = (scaleX < scaleY) ? scaleX : scaleY;
 	((D3D9Renderer*)renderer)->renderScale = displayScale;
-	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) / 2.0f;
-	((D3D9Renderer*)renderer)->renderOffsetY = 0.0f;
+	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) * 0.5f;
+	((D3D9Renderer*)renderer)->renderOffsetY = (SCREEN_HEIGHT - (frameH * displayScale)) * 0.5f;
 	((D3D9Renderer*)renderer)->renderingToApplicationSurface = false;
     Runner_drawPre(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
     Runner_beginFrame(runner, gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
