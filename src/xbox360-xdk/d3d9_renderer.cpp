@@ -490,6 +490,15 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
                             int32_t srcWidth, int32_t srcHeight, float x, float y,
                             float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
 
+// Forward declarations used by d3d9CreateSpriteFromSurface (C++ needs these before first use)
+static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t height);
+static void d3d9SurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t destX, int32_t destY,
+                             int32_t srcSurfaceID, int32_t srcX, int32_t srcY,
+                             int32_t srcW, int32_t srcH, bool part);
+static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t* outRGBA);
+static void d3d9SurfaceFree(Renderer* renderer, int32_t surfaceID);
+
+
 // ===[ Surface Management Helpers ]===
 
 // Finds a free slot in the surface arrays, or grows them if all slots are in use.
@@ -1553,143 +1562,211 @@ static void d3d9ClearScreen(Renderer* renderer, uint32_t color, float alpha) {
     Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_ARGB(a, r, g, b), 1.0f, 0);
 }
 
-// Compatibility mode implementation: treat the captured region as a dynamic surface-backed sprite.
-    // We allocate a new dynamic surface texture large enough for (w,h), copy the requested region,
-    // then return a synthetic spriteIndex.
-    //
-    // Compatibility note:
-    // - The engine's sprite_create_from_surface will later draw that sprite via sprite APIs.
-    // - Our dynamic-sprite path is implemented by reusing the existing surface-backed drawing
-    //   logic: shader/texture APIs for dynamic sprites remain stubbed, but plain drawSpritePart
-    //   expects TPAG data.
-    //
-    // To avoid build breaks and undefined references, this function currently only creates the
-    // backing surface and returns its slot id.
+// Dynamic sprite creation parity with the GL backend.
+// Reads pixels from `surfaceID`/rect and creates:
+// - a dynamic TXTR page texture
+// - a dynamic TPAG entry
+// - a dynamic sprite slot in dw->sprt
 static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID, int32_t x, int32_t y,
                                             int32_t w, int32_t h, bool removeback,
                                             bool smooth, int32_t xorig, int32_t yorig) {
-
-    (void)removeback; // not supported in compatibility mode
-    (void)smooth;     // not supported in compatibility mode
-    (void)xorig;
-    (void)yorig;
+    (void)removeback;
+    (void)smooth;
 
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
-    static int logged = 0;
-    if (0 > w || 0 > h) {
-        d3d9DiagLimited(&logged, 64,
-                        "D3D9: sprite_create_from_surface invalid w/h surface=%d rect=%d,%d %dx%d origin=%d,%d",
-                        surfaceID, x, y, w, h, xorig, yorig);
+    DataWin* dw = renderer->dataWin;
+    if (!dw) return -1;
+
+    if (0 > w || 0 > h || 0 == w || 0 == h) return -1;
+
+    if (0 > surfaceID) return -1;
+    if (surfaceID != APPLICATION_SURFACE_ID && ((uint32_t)surfaceID >= dr->surfaceCount || !dr->surfaces[surfaceID])) return -1;
+
+    // Read pixels from the source surface into CPU RGBA.
+    // d3d9SurfaceGetPixels expects outRGBA as RGBA.
+    int32_t srcW = w;
+    int32_t srcH = h;
+    uint8_t* rgba = (uint8_t*)malloc((size_t)srcW * (size_t)srcH * 4);
+    if (!rgba) return -1;
+
+    // We can only reuse d3d9SurfaceGetPixels when it copies whole surfaces.
+    // Use surface_copy into a temporary staging surface for the sub-rect.
+    int32_t tempSurface = d3d9CreateSurface(renderer, srcW, srcH);
+    if (0 > tempSurface) {
+        free(rgba);
         return -1;
     }
 
-    if (surfaceID < 0 || (surfaceID != APPLICATION_SURFACE_ID && ((uint32_t)surfaceID >= dr->surfaceCount || !dr->surfaces[surfaceID]))) {
-        d3d9DiagLimited(&logged, 64,
-                        "D3D9: sprite_create_from_surface invalid surfaceID=%d rect=%d,%d %dx%d",
-                        surfaceID, x, y, w, h);
+    // Copy the requested rect into tempSurface.
+    d3d9SurfaceCopy(renderer,
+                    tempSurface, 0, 0,
+                    surfaceID, x, y,
+                    srcW, srcH,
+                    false);
+
+    bool ok = d3d9SurfaceGetPixels(renderer, tempSurface, rgba);
+    // tempSurface is freed after pixels are read.
+    d3d9SurfaceFree(renderer, tempSurface);
+
+    if (!ok) {
+        free(rgba);
         return -1;
     }
 
-    // Allocate a dynamic surface big enough for the requested sprite region.
-    uint32_t slot = d3d9FindOrAllocateSurfaceSlot(dr);
-    if (dr->surfaces == nullptr) return -1;
+    // Allocate a dynamic renderer-side texture page index for this sprite.
+    // This page is not part of dw->txtr; it only exists in dr->textures/* arrays.
+    uint32_t pageId = dr->textureCount;
 
-    // Round up to alignment as done in createSurface.
-    int32_t allocW = (w + 7) & ~7;
-    int32_t allocH = (h + 7) & ~7;
+    // Grow renderer texture arrays.
+    dr->textures = (void**)realloc(dr->textures, (dr->textureCount + 1) * sizeof(void*));
+    dr->textureWidths = (int32_t*)realloc(dr->textureWidths, (dr->textureCount + 1) * sizeof(int32_t));
+    dr->textureHeights = (int32_t*)realloc(dr->textureHeights, (dr->textureCount + 1) * sizeof(int32_t));
+    dr->textureLastUsedFrame = (uint32_t*)realloc(dr->textureLastUsedFrame, (dr->textureCount + 1) * sizeof(uint32_t));
 
-    IDirect3DDevice9* dev = Dev(dr);
+    dr->textureLastUsedFrame[pageId] = 0;
+    dr->textures[pageId] = NULL;
+    dr->textureWidths[pageId] = 0;
+    dr->textureHeights[pageId] = 0;
+    dr->textureCount++;
+
+
+    // Upload captured pixels into a new D3D texture.
     flushBatch(dr);
+    IDirect3DDevice9* dev = Dev(dr);
 
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
-                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
     if (FAILED(hr) || !tex) {
-        d3d9DiagLimited(&logged, 64,
-                        "D3D9: sprite_create_from_surface CreateTexture failed %dx%d slot=%u hr=0x%08X",
-                        allocW, allocH, slot, (unsigned)hr);
+        free(rgba);
         return -1;
     }
 
-    IDirect3DSurface9* surface = NULL;
-    hr = tex->GetSurfaceLevel(0, &surface);
-    if (FAILED(hr) || !surface) {
+    D3DLOCKED_RECT lr;
+    hr = tex->LockRect(0, &lr, NULL, 0);
+    if (FAILED(hr)) {
         tex->Release();
+        free(rgba);
         return -1;
     }
 
-    dr->surfaces[slot] = surface;
-    dr->surfaceTexture[slot] = tex;
-    dr->surfaceWidth[slot] = w;
-    dr->surfaceHeight[slot] = h;
-
-    // Copy pixels from source surface region (x,y,w,h) into the new surface.
-    // Implemented here directly to avoid relying on d3d9SurfaceCopy, which may not
-    // be visible to this compilation configuration.
-    {
-        IDirect3DDevice9* dev2 = Dev(dr);
-
-        // Resolve source surface
-        IDirect3DSurface9* srcSurf = NULL;
-        if (surfaceID == APPLICATION_SURFACE_ID) {
-            if (!dr->appSurfaceLevel) {
-                tex->Release();
-                dr->surfaces[slot] = NULL;
-                dr->surfaceTexture[slot] = NULL;
-                dr->surfaceWidth[slot] = 0;
-                dr->surfaceHeight[slot] = 0;
-                return -1;
-            }
-            resolveApplicationSurface(dr);
-            srcSurf = (IDirect3DSurface9*)dr->appSurfaceLevel;
-        } else if (surfaceID >= 0 && (uint32_t)surfaceID < dr->surfaceCount && dr->surfaces[surfaceID]) {
-            srcSurf = (IDirect3DSurface9*)dr->surfaces[surfaceID];
-        } else {
-            tex->Release();
-            dr->surfaces[slot] = NULL;
-            dr->surfaceTexture[slot] = NULL;
-            dr->surfaceWidth[slot] = 0;
-            dr->surfaceHeight[slot] = 0;
-            return -1;
+    for (int32_t yy = 0; yy < srcH; yy++) {
+        uint8_t* dstRow = (uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch;
+        uint8_t* srcRow = rgba + (size_t)yy * (size_t)srcW * 4;
+        for (int32_t xx = 0; xx < srcW; xx++) {
+            // Convert RGBA -> D3DCOLOR_ARGB(A,R,G,B)
+            uint8_t r = srcRow[xx * 4 + 0];
+            uint8_t g = srcRow[xx * 4 + 1];
+            uint8_t b = srcRow[xx * 4 + 2];
+            uint8_t a = srcRow[xx * 4 + 3];
+            dstRow[xx * 4 + 0] = r;
+            dstRow[xx * 4 + 1] = g;
+            dstRow[xx * 4 + 2] = b;
+            dstRow[xx * 4 + 3] = a;
         }
-
-        // dst surface is the surface we already got
-        // Use D3DXLoadSurfaceFromSurface to copy the region.
-        RECT srcRect;
-        srcRect.left = x;
-        srcRect.top = y;
-        srcRect.right = x + w;
-        srcRect.bottom = y + h;
-
-        RECT dstRect;
-        dstRect.left = 0;
-        dstRect.top = 0;
-        dstRect.right = w;
-        dstRect.bottom = h;
-
-        D3DXLoadSurfaceFromSurface(surface, NULL, &dstRect,
-                                    srcSurf, NULL, &srcRect,
-                                    D3DX_FILTER_POINT, 0);
-
-        (void)dev2; // keep symmetry if dev2 is later used
     }
 
-    // Return synthetic spriteIndex = slot.
-    return (int32_t)slot;
+    tex->UnlockRect(0);
+    dr->textures[pageId] = tex;
+    dr->textureWidths[pageId] = srcW;
+    dr->textureHeights[pageId] = srcH;
+
+    free(rgba);
+
+    // Allocate a TPAG slot for this sprite in dw->tpag.
+    uint32_t tpagIndex = dw->tpag.count;
+    dw->tpag.count++;
+    dw->tpag.items = (TexturePageItem*)safeRealloc(dw->tpag.items, dw->tpag.count * sizeof(TexturePageItem));
+    memset(&dw->tpag.items[tpagIndex], 0, sizeof(TexturePageItem));
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    tpag->sourceX = 0;
+    tpag->sourceY = 0;
+    tpag->sourceWidth = (uint16_t)srcW;
+    tpag->sourceHeight = (uint16_t)srcH;
+    tpag->targetX = 0;
+    tpag->targetY = 0;
+    tpag->targetWidth = (uint16_t)srcW;
+    tpag->targetHeight = (uint16_t)srcH;
+    tpag->boundingWidth = (uint16_t)srcW;
+    tpag->boundingHeight = (uint16_t)srcH;
+    tpag->texturePageId = (int16_t)pageId;
+
+    // Allocate a sprite slot.
+    uint32_t spriteIndex = DataWin_allocSpriteSlot(dw, dr->originalSpriteCount);
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    sprite->width = (uint32_t)srcW;
+    sprite->height = (uint32_t)srcH;
+    sprite->originX = xorig;
+    sprite->originY = yorig;
+    sprite->textureCount = 1;
+
+    sprite->tpagIndices = (int32_t*)safeRealloc(sprite->tpagIndices, sizeof(int32_t));
+    sprite->tpagIndices[0] = (int32_t)tpagIndex;
+
+    sprite->maskCount = 0;
+    sprite->masks = nullptr;
+
+    return (int32_t)spriteIndex;
 }
+
 
 
 
 static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
-    (void)renderer;
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (!dr) return;
     if (0 > spriteIndex) return;
-    uint32_t slot = (uint32_t)spriteIndex;
-    if (slot >= dr->surfaceCount) return;
 
-    // Release dynamic surface resources.
-    d3d9ReleaseSurfaceSlot(dr, slot);
+    // This backend overloads sprite IDs returned by createSpriteFromSurface.
+    // We tagged dynamic sprites by making their tpagIndices point at a
+    // renderer-side dynamic texture page (dr->textureCount+ growth), and
+    // by appending a TPAG entry at the end of dw->tpag.
+    //
+    // Delete must be conservative: never touch original data.win sprites.
+    DataWin* dw = renderer->dataWin;
+    if (!dw) return;
+    if ((uint32_t)spriteIndex >= dw->sprt.count) return;
+
+    Sprite* spr = &dw->sprt.sprites[spriteIndex];
+    if (spr->textureCount == 0 || !spr->tpagIndices) return;
+
+    // If textureCount != 1, or tpags don't look like dynamic pages, fall back.
+    // (We only support dynamic createSpriteFromSurface for now.)
+    if (spr->textureCount != 1) return;
+
+    int32_t tpagIndex = spr->tpagIndices[0];
+    if (tpagIndex < 0 || (uint32_t)tpagIndex >= dw->tpag.count) return;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int32_t pageId = (int32_t)tpag->texturePageId;
+    if (pageId < 0) return;
+    if ((uint32_t)pageId >= dr->textureCount) return;
+
+    // Heuristic: treat pages beyond original txtr.count as dynamic.
+    // (original texture pages are loaded lazily from dw->txtr)
+    if ((uint32_t)pageId < dr->originalTexturePageCount) return;
+
+    // Release dynamic D3D texture page.
+    flushBatch(dr);
+    if (dr->textures[pageId]) {
+        ((IDirect3DTexture9*)dr->textures[pageId])->Release();
+        dr->textures[pageId] = NULL;
+        dr->textureWidths[pageId] = 0;
+        dr->textureHeights[pageId] = 0;
+        if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[pageId] = 0;
+    }
+
+    // Note: we intentionally do not shrink dw->tpag/dw->sprt arrays.
+    // We also do not free spr->tpagIndices because it may have been
+    // grown via safeRealloc and is owned by dw.
+    //
+    // We invalidate the TPAG so Renderer_resolveTPAGIndex won't pick it.
+    // This mirrors how other backends effectively orphan deleted sprites.
+    tpag->texturePageId = -1;
+    spr->tpagIndices[0] = -1;
+    spr->textureCount = 0;
 }
+
 
 
 static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
@@ -2402,38 +2479,63 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t srcX, int32_t srcY,
                               int32_t srcW, int32_t srcH, float dstX, float dstY,
                               float dstW, float dstH, uint32_t color, float alpha) {
-    if (srcW <= 0 || srcH <= 0 || dstW <= 0.0f || dstH <= 0.0f) return;
+    // Used by Renderer_nineSliceTileH/V/Tile2D fast path.
+    // It must:
+    // - tile srcW across dstW and srcH across dstH
+    // - for incomplete edge tiles, draw only the remaining sub-rect
+    // - respect (already-adjusted) srcX/srcY/srcW/srcH and dstX/dstY/dstW/dstH
+    // - not apply mirroring (the fast path only runs for mode != NS_MIRROR)
+
+    if (srcW <= 0 || srcH <= 0) return;
+    if (dstW <= 0.0f || dstH <= 0.0f) return;
+
+    // Fast-path semantics are angle=0 and mode != NS_MIRROR.
+    // Still support fractional dstW/dstH by clamping last tile sizes.
 
     if (renderer->drawPhase == RENDER_PHASE_POST) {
         static int postTileLog = 0;
         d3d9DiagLimited(&postTileLog, 96,
-                        "D3D9POST: tiled tpag=%d src=%d,%d %dx%d dst=%.2f,%.2f %.2fx%.2f room=%d",
-                        tpagIndex, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH,
+                        "D3D9POST: tiledPart tpag=%d src=%d,%d %dx%d dst=%.2f,%.2f %.2fx%.2f room=%d",
+                        tpagIndex, srcX, srcY, srcW, srcH,
+                        dstX, dstY, dstW, dstH,
                         renderer->runner ? renderer->runner->currentRoomIndex : -1);
     }
 
+    // Tile grid: steps are (srcW, srcH) in destination space as well,
+    // because Renderer_nineSliceAdjustForTiledPart passes adW/adH already
+    // in destination pixels with scale applied by the nine-slice computation.
     float y = dstY;
-    float remainingH = dstH;
-    while (remainingH > 0.0f) {
-        int32_t drawH = remainingH < (float)srcH ? (int32_t)remainingH : srcH;
+    float remH = dstH;
+    int32_t tileRow = 0;
+    while (remH > 0.0f) {
+        int32_t drawH = (remH < (float)srcH) ? (int32_t)remH : srcH;
         if (drawH <= 0) drawH = 1;
 
         float x = dstX;
-        float remainingW = dstW;
-        while (remainingW > 0.0f) {
-            int32_t drawW = remainingW < (float)srcW ? (int32_t)remainingW : srcW;
+        float remW = dstW;
+        int32_t tileCol = 0;
+        while (remW > 0.0f) {
+            int32_t drawW = (remW < (float)srcW) ? (int32_t)remW : srcW;
             if (drawW <= 0) drawW = 1;
 
+            // drawSpritePart expects src rect in tpag source-page space.
+            // We draw the same srcX/srcY for each tile and shrink drawW/drawH for edges.
             d3d9DrawSpritePart(renderer, tpagIndex, srcX, srcY, drawW, drawH,
-                               x, y, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color, alpha);
+                               x, y, 1.0f, 1.0f, 0.0f,
+                               0.0f, 0.0f,
+                               color, alpha);
+
             x += (float)drawW;
-            remainingW -= (float)drawW;
+            remW -= (float)drawW;
+            tileCol++;
         }
 
         y += (float)drawH;
-        remainingH -= (float)drawH;
+        remH -= (float)drawH;
+        tileRow++;
     }
 }
+
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
     static int logged = 0;
@@ -2477,8 +2579,9 @@ static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
             int32_t texPageId = tpag->texturePageId;
             if (0 <= texPageId && (uint32_t)texPageId < dr->textureCount) {
                 ensureTexturePageLoaded(dr, (uint32_t)texPageId);
-                if (dr->textures[texPageId] && dr->textureWidths[texPageId] > 0) {
-                    return (float)dr->textureWidths[texPageId];
+                int32_t w = dr->textureWidths[texPageId];
+                if (dr->textures[texPageId] && w > 0) {
+                    return 1.0f / (float)w;
                 }
             }
         }
@@ -2501,8 +2604,9 @@ static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
             int32_t texPageId = tpag->texturePageId;
             if (0 <= texPageId && (uint32_t)texPageId < dr->textureCount) {
                 ensureTexturePageLoaded(dr, (uint32_t)texPageId);
-                if (dr->textures[texPageId] && dr->textureHeights[texPageId] > 0) {
-                    return (float)dr->textureHeights[texPageId];
+                int32_t h = dr->textureHeights[texPageId];
+                if (dr->textures[texPageId] && h > 0) {
+                    return 1.0f / (float)h;
                 }
             }
         }
