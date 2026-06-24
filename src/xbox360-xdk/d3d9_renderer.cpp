@@ -1845,6 +1845,17 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, int32_t height) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
+    // The runner tracks the authoritative application surface size via
+    // applicationWidth/applicationHeight, which are updated by GML's
+    // surface_resize(application_surface, ...) calls. Use those instead of
+    // the passed width/height (which come from data.win's defaultWindowWidth/Height)
+    // so widescreen mod resizes persist across room transitions.
+    Runner* r = renderer->runner;
+    if (r != nullptr && r->applicationWidth > 0 && r->applicationHeight > 0 &&
+        (r->applicationWidth != width || r->applicationHeight != height)) {
+        width = r->applicationWidth;
+        height = r->applicationHeight;
+    }
     int32_t allocW = (width + 7) & ~7;
     int32_t allocH = (height + 7) & ~7;
     if (dr->appSurfaceTexture && dr->appSurfaceW == width && dr->appSurfaceH == height &&
@@ -2026,6 +2037,9 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     dev->DrawPrimitiveUP(D3DPT_QUADLIST, 1, v, sizeof(SpriteVertex));
 }
 
+extern int32_t* gGameW;
+extern int32_t* gGameH;
+
 static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width, int32_t height) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
@@ -2067,6 +2081,8 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
             dr->appSurfaceAllocW = allocW;
             dr->appSurfaceAllocH = allocH;
             dr->appSurfaceResolved = false;
+			*gGameW = width;
+			*gGameH = height;
             Butterscotch_xdkDiagTrace("D3D9: application_surface recreated %dx%d alloc=%dx%d", width, height, allocW, allocH);
         }
         return;

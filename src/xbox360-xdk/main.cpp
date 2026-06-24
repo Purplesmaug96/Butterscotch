@@ -970,6 +970,9 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
 
 // ===[ Main Entry Point ]===
 
+int32_t* gGameW = NULL;
+int32_t* gGameH = NULL;
+
 VOID __cdecl main() {
     diagOpenLog();
     diagLog("Butterscotch: Built at %s: %s", __DATE__, __TIME__);
@@ -1240,6 +1243,8 @@ VOID __cdecl main() {
     Gen8* gen8 = &dataWin->gen8;
     int32_t gameW = (int32_t)gen8->defaultWindowWidth;
     int32_t gameH = (int32_t)gen8->defaultWindowHeight;
+	gGameW = &gameW;
+	gGameH = &gameH;
     diagLog("Butterscotch: gameW=%d gameH=%d screenW=%d screenH=%d", gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT);
 
     // Parse deferDrawToAfterAllSteps
