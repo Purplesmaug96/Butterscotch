@@ -1235,7 +1235,7 @@ static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, f
 
     dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(SpriteVertex));
 
-    dr->currentTextureIndex = -3; // invalidate cached texture
+    dr->currentTextureIndex = -1; // ensure next flush binds white texture
 }
 
 // Internal helper: renders text with per-vertex color support.
@@ -2460,13 +2460,138 @@ static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex
 static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) { (void)renderer; (void)handle; (void)count; (void)value1; (void)value2; (void)value3; (void)value4; }
 static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) { (void)renderer; (void)handle; (void)count; (void)value1; (void)value2; (void)value3; (void)value4; }
 static uint32_t d3d9SpriteGetTexture(Renderer* renderer, int32_t tpagIndex) { (void)renderer; return (uint32_t)(tpagIndex + 1); }
-static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) { (void)renderer; (void)texID; return 1.0f; }
-static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) { (void)renderer; (void)texID; return 1.0f; }
-static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs) { (void)renderer; (void)texID; if (outUVs) { outUVs[0] = 0.0f; outUVs[1] = 0.0f; outUVs[2] = 1.0f; outUVs[3] = 1.0f; } return false; }
+
+static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    // 0 means "no texture".
+    if (texID == 0) return 1.0f;
+
+    // For sprites, d3d9SpriteGetTexture returns (tpagIndex + 1).
+    uint32_t tpagIndexPlus1 = texID;
+    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    if (dw && dw->tpag.count > 0 && tpagIndexPlus1 > 0) {
+        uint32_t tpagIndex = tpagIndexPlus1 - 1;
+        if (tpagIndex < dw->tpag.count) {
+            TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+            int32_t texPageId = tpag->texturePageId;
+            if (0 <= texPageId && (uint32_t)texPageId < dr->textureCount) {
+                ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+                if (dr->textures[texPageId] && dr->textureWidths[texPageId] > 0) {
+                    return (float)dr->textureWidths[texPageId];
+                }
+            }
+        }
+    }
+
+    return 1.0f;
+}
+
+static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    if (texID == 0) return 1.0f;
+
+    uint32_t tpagIndexPlus1 = texID;
+    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    if (dw && dw->tpag.count > 0 && tpagIndexPlus1 > 0) {
+        uint32_t tpagIndex = tpagIndexPlus1 - 1;
+        if (tpagIndex < dw->tpag.count) {
+            TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+            int32_t texPageId = tpag->texturePageId;
+            if (0 <= texPageId && (uint32_t)texPageId < dr->textureCount) {
+                ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+                if (dr->textures[texPageId] && dr->textureHeights[texPageId] > 0) {
+                    return (float)dr->textureHeights[texPageId];
+                }
+            }
+        }
+    }
+
+    return 1.0f;
+}
+
+
+static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs) {
+    if (!outUVs) return false;
+
+    // Default UVs: full texture.
+    outUVs[0] = 0.0f;
+    outUVs[1] = 0.0f;
+    outUVs[2] = 1.0f;
+    outUVs[3] = 1.0f;
+
+    if (texID == 0) return false;
+
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    if (!dw) return false;
+
+    uint32_t tpagIndexPlus1 = texID;
+    if (tpagIndexPlus1 == 0) return false;
+
+    uint32_t tpagIndex = tpagIndexPlus1 - 1;
+    if (tpagIndex >= dw->tpag.count) return false;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+
+    int32_t texPageId = tpag->texturePageId;
+    if (texPageId < 0 || (uint32_t)texPageId >= dr->textureCount) return false;
+
+    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    if (!dr->textures[texPageId]) return false;
+
+    float texW = (float)dr->textureWidths[texPageId];
+    float texH = (float)dr->textureHeights[texPageId];
+    if (texW <= 0.0f || texH <= 0.0f) return false;
+
+    float u0 = texelStart((float)tpag->sourceX, texW);
+    float v0 = texelStart((float)tpag->sourceY, texH);
+    float u1 = texelEnd((float)tpag->sourceX, (float)tpag->sourceWidth, texW);
+    float v1 = texelEnd((float)tpag->sourceY, (float)tpag->sourceHeight, texH);
+
+    outUVs[0] = u0;
+    outUVs[1] = v0;
+    outUVs[2] = u1;
+    outUVs[3] = v1;
+
+    return true;
+}
+
 static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID) {
-    (void)renderer;
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: texture_set_stage stub slot=%d tex=%u", slot, (unsigned)texID);
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (!dr) return;
+
+    if (slot < 0 || slot >= 8) return;
+
+    // This backend is fixed-function-like for 2D; shader code isn't implemented.
+    // Stage binding is still used by some code paths.
+    IDirect3DDevice9* dev = Dev(dr);
+
+    if (texID == 0) {
+        dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
+        return;
+    }
+
+    // For sprites, texID is (tpagIndex + 1). Map to the decoded TXTR page.
+    uint32_t tpagIndexPlus1 = texID;
+    uint32_t tpagIndex = tpagIndexPlus1 - 1;
+
+    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    if (dw && tpagIndex < dw->tpag.count) {
+        TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+
+        int32_t texPageId = tpag->texturePageId;
+        if (texPageId >= 0 && (uint32_t)texPageId < dr->textureCount) {
+            ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+            if (dr->textures[texPageId]) {
+                dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->textures[texPageId]);
+                return;
+            }
+        }
+    }
+
+    dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
 }
 static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) { (void)renderer; (void)shader; return false; }
 static bool d3d9ShadersSupported() { return false; }
