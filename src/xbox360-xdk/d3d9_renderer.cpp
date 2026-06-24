@@ -1553,22 +1553,144 @@ static void d3d9ClearScreen(Renderer* renderer, uint32_t color, float alpha) {
     Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_ARGB(a, r, g, b), 1.0f, 0);
 }
 
+// Compatibility mode implementation: treat the captured region as a dynamic surface-backed sprite.
+    // We allocate a new dynamic surface texture large enough for (w,h), copy the requested region,
+    // then return a synthetic spriteIndex.
+    //
+    // Compatibility note:
+    // - The engine's sprite_create_from_surface will later draw that sprite via sprite APIs.
+    // - Our dynamic-sprite path is implemented by reusing the existing surface-backed drawing
+    //   logic: shader/texture APIs for dynamic sprites remain stubbed, but plain drawSpritePart
+    //   expects TPAG data.
+    //
+    // To avoid build breaks and undefined references, this function currently only creates the
+    // backing surface and returns its slot id.
 static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID, int32_t x, int32_t y,
                                             int32_t w, int32_t h, bool removeback,
                                             bool smooth, int32_t xorig, int32_t yorig) {
-    (void)renderer;
+
+    (void)removeback; // not supported in compatibility mode
+    (void)smooth;     // not supported in compatibility mode
+    (void)xorig;
+    (void)yorig;
+
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
     static int logged = 0;
-    d3d9DiagLimited(&logged, 64,
-                    "D3D9: sprite_create_from_surface stub surface=%d rect=%d,%d %dx%d removeback=%d smooth=%d origin=%d,%d",
-                    surfaceID, x, y, w, h, removeback ? 1 : 0, smooth ? 1 : 0, xorig, yorig);
-    // TODO: Implement surface capture.
-    return -1;
+    if (0 > w || 0 > h) {
+        d3d9DiagLimited(&logged, 64,
+                        "D3D9: sprite_create_from_surface invalid w/h surface=%d rect=%d,%d %dx%d origin=%d,%d",
+                        surfaceID, x, y, w, h, xorig, yorig);
+        return -1;
+    }
+
+    if (surfaceID < 0 || (surfaceID != APPLICATION_SURFACE_ID && ((uint32_t)surfaceID >= dr->surfaceCount || !dr->surfaces[surfaceID]))) {
+        d3d9DiagLimited(&logged, 64,
+                        "D3D9: sprite_create_from_surface invalid surfaceID=%d rect=%d,%d %dx%d",
+                        surfaceID, x, y, w, h);
+        return -1;
+    }
+
+    // Allocate a dynamic surface big enough for the requested sprite region.
+    uint32_t slot = d3d9FindOrAllocateSurfaceSlot(dr);
+    if (dr->surfaces == nullptr) return -1;
+
+    // Round up to alignment as done in createSurface.
+    int32_t allocW = (w + 7) & ~7;
+    int32_t allocH = (h + 7) & ~7;
+
+    IDirect3DDevice9* dev = Dev(dr);
+    flushBatch(dr);
+
+    IDirect3DTexture9* tex = NULL;
+    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
+                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+    if (FAILED(hr) || !tex) {
+        d3d9DiagLimited(&logged, 64,
+                        "D3D9: sprite_create_from_surface CreateTexture failed %dx%d slot=%u hr=0x%08X",
+                        allocW, allocH, slot, (unsigned)hr);
+        return -1;
+    }
+
+    IDirect3DSurface9* surface = NULL;
+    hr = tex->GetSurfaceLevel(0, &surface);
+    if (FAILED(hr) || !surface) {
+        tex->Release();
+        return -1;
+    }
+
+    dr->surfaces[slot] = surface;
+    dr->surfaceTexture[slot] = tex;
+    dr->surfaceWidth[slot] = w;
+    dr->surfaceHeight[slot] = h;
+
+    // Copy pixels from source surface region (x,y,w,h) into the new surface.
+    // Implemented here directly to avoid relying on d3d9SurfaceCopy, which may not
+    // be visible to this compilation configuration.
+    {
+        IDirect3DDevice9* dev2 = Dev(dr);
+
+        // Resolve source surface
+        IDirect3DSurface9* srcSurf = NULL;
+        if (surfaceID == APPLICATION_SURFACE_ID) {
+            if (!dr->appSurfaceLevel) {
+                tex->Release();
+                dr->surfaces[slot] = NULL;
+                dr->surfaceTexture[slot] = NULL;
+                dr->surfaceWidth[slot] = 0;
+                dr->surfaceHeight[slot] = 0;
+                return -1;
+            }
+            resolveApplicationSurface(dr);
+            srcSurf = (IDirect3DSurface9*)dr->appSurfaceLevel;
+        } else if (surfaceID >= 0 && (uint32_t)surfaceID < dr->surfaceCount && dr->surfaces[surfaceID]) {
+            srcSurf = (IDirect3DSurface9*)dr->surfaces[surfaceID];
+        } else {
+            tex->Release();
+            dr->surfaces[slot] = NULL;
+            dr->surfaceTexture[slot] = NULL;
+            dr->surfaceWidth[slot] = 0;
+            dr->surfaceHeight[slot] = 0;
+            return -1;
+        }
+
+        // dst surface is the surface we already got
+        // Use D3DXLoadSurfaceFromSurface to copy the region.
+        RECT srcRect;
+        srcRect.left = x;
+        srcRect.top = y;
+        srcRect.right = x + w;
+        srcRect.bottom = y + h;
+
+        RECT dstRect;
+        dstRect.left = 0;
+        dstRect.top = 0;
+        dstRect.right = w;
+        dstRect.bottom = h;
+
+        D3DXLoadSurfaceFromSurface(surface, NULL, &dstRect,
+                                    srcSurf, NULL, &srcRect,
+                                    D3DX_FILTER_POINT, 0);
+
+        (void)dev2; // keep symmetry if dev2 is later used
+    }
+
+    // Return synthetic spriteIndex = slot.
+    return (int32_t)slot;
 }
 
+
+
 static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
-    (void)renderer; (void)spriteIndex;
-    // TODO: implement dynamic sprite deletion
+    (void)renderer;
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (0 > spriteIndex) return;
+    uint32_t slot = (uint32_t)spriteIndex;
+    if (slot >= dr->surfaceCount) return;
+
+    // Release dynamic surface resources.
+    d3d9ReleaseSurfaceSlot(dr, slot);
 }
+
 
 static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -2516,9 +2638,39 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 
 
 void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
-	static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: setGuiProjection stub");
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    // Compatibility: GUI coordinate mapping is primarily handled in beginGUI().
+    // setGuiProjection is invoked by Runner when GUI size changes mid-pass.
+    // We update the transform parameters used by subsequent surface_reset_target restores.
+
+    if (portW <= 0 || portH <= 0 || guiW <= 0 || guiH <= 0) return;
+
+    if (renderingToUserSurface) {
+        // When rendering directly to a user surface, treat GUI coordinates as 1:1 in that surface.
+        dr->offsetX = 0.0f;
+        dr->offsetY = 0.0f;
+        dr->portScaleX = 1.0f;
+        dr->portScaleY = 1.0f;
+        dr->portOffsetX = 0.0f;
+        dr->portOffsetY = 0.0f;
+        return;
+    }
+
+    // Update uniform letterbox mapping for subsequent GUI draws.
+    float scaleX = (float)portW / (float)guiW;
+    float scaleY = (float)portH / (float)guiH;
+    float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
+
+    float offsetX = ((float)portW - (float)guiW * uniformScale) * 0.5f;
+    float offsetY = ((float)portH - (float)guiH * uniformScale) * 0.5f;
+
+    dr->portScaleX = uniformScale;
+    dr->portScaleY = uniformScale;
+    dr->portOffsetX = (float)portW * 0.0f + offsetX;
+    dr->portOffsetY = (float)portH * 0.0f + offsetY;
 }
+
 
 
 // ===[ Public API ]===
