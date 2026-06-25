@@ -1062,8 +1062,16 @@ bool CreateCustomDeviceLink(void) {
     return true;
 }
 
+char* gameSubPath = NULL;
+char* gameRootPath = NULL;
+
 void ListButterscotchDirectory() {
     WIN32_FIND_DATAA findData;
+
+	char* d = (char*)safeMalloc(MAX_PATH);
+
+	snprintf(d, MAX_PATH - 1, "butterscotch:\\%s*", gameSubPath);
+
     // Look for everything in the root of the custom device link
     HANDLE hFind = FindFirstFileA("butterscotch:\\*", &findData);
 
@@ -1072,7 +1080,7 @@ void ListButterscotchDirectory() {
         return;
     }
 
-    diagLog("--- Listing butterscotch:\\ contents ---");
+    diagLog("--- Listing butterscotch:\\%s contents ---", gameSubPath ? gameSubPath : "");
     do {
         // Skip the standard relative directory dots "." and ".."
         if (strcmp(findData.cFileName, ".") == 0 || strcmp(findData.cFileName, "..") == 0) {
@@ -1094,8 +1102,6 @@ void ListButterscotchDirectory() {
 
 int32_t* gGameW = NULL;
 int32_t* gGameH = NULL;
-
-static char* gameSubPath = NULL;
 
 // Buffer used to carry the pre-computed data.win path from the game_change
 // restart code (bottom of main()) back to the data.win search loop (top of
@@ -1130,6 +1136,10 @@ VOID __cdecl main() {
     }
 
     diagOpenLog();
+
+	if (!gameRootPath) {
+		gameRootPath = "\\Device\\Harddisk0\\Partition1";
+	}
 
     diagLog("Butterscotch: Built at %s: %s", __DATE__, __TIME__);
     diagLog("Butterscotch: (01) main() entered");
@@ -1601,7 +1611,7 @@ VOID __cdecl main() {
             RunnerKeyboard_beginFrame(runner->keyboard);
         }
     }
-    
+
     char* nextWorkingDirectory = nullptr;
     char* nextLaunchParameters = nullptr;
     if (runner->pendingWorkingDirectory != nullptr && runner->pendingLaunchParameters != nullptr) {

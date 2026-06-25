@@ -22,6 +22,8 @@ static void xdkNormalizePath(char* path) {
 }
 
 // ===[ Vtable Implementations ]===
+extern char* gameRootPath;
+extern char* gameSubPath;
 
 static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
     diagLog("FS: xdkResolvePath: fs=%p relativePath=\"%s\"\n", fs, relativePath ? relativePath : "NULL");
@@ -36,29 +38,78 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
         return result;
     }
 
-    // If the path already contains a colon, it's an absolute Xbox 360 path
-    // (e.g. "game:\lang\lang_en.json") — return it verbatim without prepending basePath.
+    // If the path already contains a colon, it's an absolute path
     if (strchr(relativePath, ':') != nullptr) {
         char* result = (char*)malloc(MAX_PATH);
         if (!result) return NULL;
         strncpy(result, relativePath, MAX_PATH - 1);
         result[MAX_PATH - 1] = '\0';
         xdkNormalizePath(result);
+
+        FILE* testfile = fopen(result, "r");
+        if (testfile) {
+            fclose(testfile);
+            return result;
+        }
+
+        // FALLBACK: File wasn't found in the custom path, try the root path
+        char* firstSlash = strstr(result, "\\");
+        if (firstSlash) {
+            char* result_root = (char*)malloc(MAX_PATH);
+            if (result_root) {
+                // Combine gameRootPath with everything past the custom drive name (e.g. "\data.win")
+                int written = snprintf(result_root, MAX_PATH, "%s%s", gameRootPath, firstSlash);
+
+                if (written >= 0 && written < MAX_PATH) {
+                    xdkNormalizePath(result_root);
+
+                    testfile = fopen(result_root, "r");
+                    if (testfile) {
+                        fclose(testfile);
+                        free(result);
+                        return result_root;
+                    }
+                }
+                free(result_root);
+            }
+        }
+
         return result;
     }
 
-    // Use snprintf to safely combine paths and respect MAX_PATH
+    // Relative path processing (Safe and unchanged)
     char* result = (char*)malloc(MAX_PATH);
     if (!result) return NULL;
 
     int written = snprintf(result, MAX_PATH, "%s%s", xfs->basePath, relativePath);
-
     if (written < 0 || written >= MAX_PATH) {
         free(result);
         return NULL;
     }
 
     xdkNormalizePath(result);
+
+    FILE* testfile = fopen(result, "r");
+    if (testfile) {
+        fclose(testfile);
+    }
+    else {
+        char* result_root = (char*)malloc(MAX_PATH);
+        if (result_root) {
+            written = snprintf(result_root, MAX_PATH, "%s%s", gameRootPath, relativePath);
+            if (written >= 0 && written < MAX_PATH) {
+                xdkNormalizePath(result_root);
+                testfile = fopen(result_root, "r");
+                if (testfile) {
+                    fclose(testfile);
+                    free(result);
+                    return result_root;
+                }
+            }
+            free(result_root);
+        }
+    }
+
     return result;
 }
 
