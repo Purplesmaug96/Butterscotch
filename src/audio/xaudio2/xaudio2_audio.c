@@ -5,7 +5,19 @@
 #include <string.h>
 #include <stdarg.h>
 
+#include "utils.h"
+
+// TODO: Fix properly
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4244)
+#endif
+
 #include "stb_vorbis.c"
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #include "stb_ds.h"
 #include "xaudio2_audio.h"

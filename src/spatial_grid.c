@@ -15,8 +15,8 @@ SpatialGrid* SpatialGrid_create(uint32_t roomWidth, uint32_t roomHeight) {
 #ifdef ENABLE_SPATIAL_GRID_LOGS
     fprintf(stderr, "SpatialGrid: Grid size: %dx%d\n", gridWidth, gridHeight);
 #endif
-    grid->gridWidth = gridWidth;
-    grid->gridHeight = gridHeight;
+    grid->gridWidth = (int16_t)gridWidth;
+    grid->gridHeight = (int16_t)gridHeight;
 
     grid->grid = (Instance***)safeCalloc(gridWidth * gridHeight, sizeof(Instance**));
 
@@ -82,7 +82,7 @@ void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
         for (int32_t gx = range.minGridX; range.maxGridX >= gx; gx++) {
             for (int32_t gy = range.minGridY; range.maxGridY >= gy; gy++) {
                 arrput(grid->grid[SpatialGrid_cellIndex(grid, gx, gy)], instance);
-                arrput(instance->collisionCells, SpatialGrid_packGridCoordinates(gx, gy));
+                arrput(instance->collisionCells, (int32_t)SpatialGrid_packGridCoordinates((uint16_t)gx, (uint16_t)gy));
             }
         }
 

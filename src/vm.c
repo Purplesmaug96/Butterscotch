@@ -2994,10 +2994,10 @@ static RValue executeLoop(VMContext* ctx) {
                 if (type1 == GML_TYPE_VARIABLE && varType == VARTYPE_NORMAL) {
                     // Inline fast path for the simple variable-assignment case: type1==VARIABLE, which is ~99.998% of all Pops in real workloads
                     RValue val = stackPop(ctx);
-                    val = coerceIntStoreToReal(val, type2);
+                    val = coerceIntStoreToReal(val, (uint8_t)type2);
                     resolveVariableWrite(ctx, instanceType, varRef, val);
                 } else {
-                    handlePop(ctx, type1, type2, varRef, varType, instanceType);
+                    handlePop(ctx, type1, (uint8_t)type2, varRef, varType, instanceType);
                 }
                 break;
             }

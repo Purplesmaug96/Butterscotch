@@ -31,6 +31,17 @@
 #ifndef MAYBE_UNUSED
     #if defined(__GNUC__) || defined(__clang__)
         #define MAYBE_UNUSED __attribute__((unused))
+	#elif defined(_MSC_VER)
+		// Just gonna disable it globally.
+		#define MAYBE_UNUSED /*__pragma(warning(suppress: 4100 4101 4505 4189))*/
+		// C4100:
+		//   unreferenced formal parameter
+		// C4104:
+		//   unreferenced local variable
+		// C4505:
+		//   unreferenced local function has been removed
+		// C4189:
+		//   local variable is initialized but not referenced
     #else
         #define MAYBE_UNUSED
     #endif

@@ -2976,7 +2976,9 @@ static void dispatchCollisionEvents(Runner* runner) {
             if (!self->active) continue;
 
             InstanceBBox bboxSelf;
+			RESET_STRUCT(&bboxSelf, InstanceBBox);
             Sprite* sprSelf;
+			RESET_STRUCT(&sprSelf, Sprite);
             bool selfDirty = true;
 
             FlattenedCollisionEventList* eventList = &runner->flattenedCollisionEvents[self->objectIndex];

@@ -1291,7 +1291,10 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 
     // Check if all colors are the same (fast path — no per-vertex interpolation)
     bool uniformColor = (c1 == c2 && c2 == c3 && c3 == c4);
-    float cr, cg, cb, ca;
+    float cr = 0;
+	float cg = 0;
+	float cb = 0;
+	float ca = 0;
     if (uniformColor) {
         bgrToFloatColor(c1, alpha, &cr, &cg, &cb, &ca);
     }

@@ -4236,7 +4236,7 @@ static RValue dsMapSetCommon(VMContext* ctx, RValue* args, int32_t argCount, boo
 
     ptrdiff_t existingKeyIndex = shgeti(*mapPtr, key);
 
-    RValue ret;
+    RValue ret = RValue_makeReal(0);
     if (returnCurrentOrNewValue) {
         if (existingKeyIndex != -1) {
             // We are going to steal the ownership :3
@@ -15101,7 +15101,7 @@ static RValue builtin_gpu_set_alphatestenable(VMContext* ctx, RValue* args, int3
 }
 
 static RValue builtin_gpu_set_alphatestref(VMContext* ctx, RValue* args, int32_t argCount) {
-    ctx->runner->renderer->vtable->gpuSetAlphaTestRef(ctx->runner->renderer, RValue_toInt32(args[0]));
+    ctx->runner->renderer->vtable->gpuSetAlphaTestRef(ctx->runner->renderer, (uint8_t)RValue_toInt32(args[0]));
     return RValue_makeUndefined();
 }
 

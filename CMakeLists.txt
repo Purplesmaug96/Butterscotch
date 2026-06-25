@@ -24,7 +24,10 @@ endif()
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 if(PLATFORM STREQUAL "xbox360-xdk")
-    add_compile_options(/nologo /W3 /TP /Zc:wchar_t)
+    add_compile_options(/nologo /W4 /wd4127 /TP /Zc:wchar_t)
+	# Unused warnings should be fixed on desktop already anyways and i cant get MAYBE_UNUSED to work on MSVC
+	add_compile_options(/wd4100 /wd4101 /wd4505 /wd4189)
+	# add_compile_options(/wd9025)
 	if(WERROR)
         add_compile_options(/WX)
     endif()
@@ -689,6 +692,15 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
 	# target_compile_options(butterscotch PRIVATE
 	# 	$<$<COMPILE_LANGUAGE:ASM>:-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/libSDLXenon>
 	# )
+
+	# TODO: Fix properly
+	set_source_files_properties(vendor/bzip2/blocksort.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/bzlib.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/compress.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/crctable.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/decompress.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/huffman.c PROPERTIES COMPILE_FLAGS /wd4244)
+	set_source_files_properties(vendor/bzip2/randtable.c PROPERTIES COMPILE_FLAGS /wd4244)
 
     target_link_options(butterscotch PRIVATE)
 else()
