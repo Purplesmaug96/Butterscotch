@@ -372,7 +372,7 @@ static bool readWholeFile(const char* path, uint8_t** outData, int* outSize) {
         return false;
     }
 
-    uint8_t* data = (uint8_t*)malloc((size_t)size);
+    uint8_t* data = (uint8_t*)safeMalloc((size_t)size);
     if (!data) {
         fclose(f);
         return false;
@@ -509,10 +509,10 @@ static uint32_t d3d9FindOrAllocateSurfaceSlot(D3D9Renderer* dr) {
     // Grow the arrays
     uint32_t newIndex = dr->surfaceCount;
     uint32_t newCount = dr->surfaceCount + 1;
-    dr->surfaces = (void**)realloc(dr->surfaces, newCount * sizeof(void*));
-    dr->surfaceTexture = (void**)realloc(dr->surfaceTexture, newCount * sizeof(void*));
-    dr->surfaceWidth = (int32_t*)realloc(dr->surfaceWidth, newCount * sizeof(int32_t));
-    dr->surfaceHeight = (int32_t*)realloc(dr->surfaceHeight, newCount * sizeof(int32_t));
+    dr->surfaces = (void**)safeRealloc(dr->surfaces, newCount * sizeof(void*));
+    dr->surfaceTexture = (void**)safeRealloc(dr->surfaceTexture, newCount * sizeof(void*));
+    dr->surfaceWidth = (int32_t*)safeRealloc(dr->surfaceWidth, newCount * sizeof(int32_t));
+    dr->surfaceHeight = (int32_t*)safeRealloc(dr->surfaceHeight, newCount * sizeof(int32_t));
     dr->surfaces[newIndex] = NULL;
     dr->surfaceTexture[newIndex] = NULL;
     dr->surfaceWidth[newIndex] = 0;
@@ -544,7 +544,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     renderer->dataWin = dataWin;
 
     // Allocate CPU vertex staging buffer
-    dr->vertexData = (uint8_t*)malloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
+    dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
 
     // Compile shaders from source
     ID3DXBuffer* pCode = NULL;
@@ -596,10 +596,10 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
     // TXTR pages can be huge in fan builds. Decode/upload them on demand.
     dr->textureCount = dataWin->txtr.count;
-    dr->textures = (void**)calloc(dr->textureCount, sizeof(void*));
-    dr->textureWidths = (int32_t*)calloc(dr->textureCount, sizeof(int32_t));
-    dr->textureHeights = (int32_t*)calloc(dr->textureCount, sizeof(int32_t));
-    dr->textureLastUsedFrame = (uint32_t*)calloc(dr->textureCount, sizeof(uint32_t));
+    dr->textures = (void**)safeCalloc(dr->textureCount, sizeof(void*));
+    dr->textureWidths = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
+    dr->textureHeights = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
+    dr->textureLastUsedFrame = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
     dr->loadedTexturePages = 0;
     dr->frameCounter = 1;
     Butterscotch_xdkDiagTrace("D3D9: texture pages will be loaded lazily count=%u", dr->textureCount);
@@ -1586,7 +1586,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     // d3d9SurfaceGetPixels expects outRGBA as RGBA.
     int32_t srcW = w;
     int32_t srcH = h;
-    uint8_t* rgba = (uint8_t*)malloc((size_t)srcW * (size_t)srcH * 4);
+    uint8_t* rgba = (uint8_t*)safeMalloc((size_t)srcW * (size_t)srcH * 4);
     if (!rgba) return -1;
 
     // We can only reuse d3d9SurfaceGetPixels when it copies whole surfaces.
@@ -1618,10 +1618,10 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     uint32_t pageId = dr->textureCount;
 
     // Grow renderer texture arrays.
-    dr->textures = (void**)realloc(dr->textures, (dr->textureCount + 1) * sizeof(void*));
-    dr->textureWidths = (int32_t*)realloc(dr->textureWidths, (dr->textureCount + 1) * sizeof(int32_t));
-    dr->textureHeights = (int32_t*)realloc(dr->textureHeights, (dr->textureCount + 1) * sizeof(int32_t));
-    dr->textureLastUsedFrame = (uint32_t*)realloc(dr->textureLastUsedFrame, (dr->textureCount + 1) * sizeof(uint32_t));
+    dr->textures = (void**)safeRealloc(dr->textures, (dr->textureCount + 1) * sizeof(void*));
+    dr->textureWidths = (int32_t*)safeRealloc(dr->textureWidths, (dr->textureCount + 1) * sizeof(int32_t));
+    dr->textureHeights = (int32_t*)safeRealloc(dr->textureHeights, (dr->textureCount + 1) * sizeof(int32_t));
+    dr->textureLastUsedFrame = (uint32_t*)safeRealloc(dr->textureLastUsedFrame, (dr->textureCount + 1) * sizeof(uint32_t));
 
     dr->textureLastUsedFrame[pageId] = 0;
     dr->textures[pageId] = NULL;
@@ -2905,7 +2905,7 @@ void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_
 // ===[ Public API ]===
 
 Renderer* D3D9Renderer_create(void* pd3dDevice) {
-    D3D9Renderer* dr = (D3D9Renderer*)calloc(1, sizeof(D3D9Renderer));
+    D3D9Renderer* dr = (D3D9Renderer*)safeCalloc(1, sizeof(D3D9Renderer));
     d3d9RendererVtable.init = d3d9Init;
     d3d9RendererVtable.destroy = d3d9Destroy;
     d3d9RendererVtable.beginFrame = d3d9BeginFrame;

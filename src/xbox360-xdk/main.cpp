@@ -336,7 +336,7 @@ static IDirect3DTexture9* loadingLoadPng(IDirect3DDevice9* dev, const char* path
 }
 
 static IDirect3DTexture9* loadingCreateFontTexture(IDirect3DDevice9* dev) {
-    uint8_t* rgba = (uint8_t*)malloc(DEBUGFONT_ATLAS_W * DEBUGFONT_ATLAS_H * 4);
+    uint8_t* rgba = (uint8_t*)safeMalloc(DEBUGFONT_ATLAS_W * DEBUGFONT_ATLAS_H * 4);
     if (!rgba) return NULL;
     for (int i = 0; i < DEBUGFONT_ATLAS_W * DEBUGFONT_ATLAS_H; i++) {
         uint8_t a = debugFontPixels[i];
@@ -816,7 +816,7 @@ static void setupDefaultMappings(void) {
         { XINPUT_GAMEPAD_BACK,       27 },  // VK_ESCAPE
     };
     xpadMappingCount = sizeof(defaults) / sizeof(XpadMapping);
-    xpadMappings = (XpadMapping*)malloc(sizeof(defaults));
+    xpadMappings = (XpadMapping*)safeMalloc(sizeof(defaults));
     memcpy(xpadMappings, defaults, sizeof(defaults));
 }
 
@@ -1302,7 +1302,7 @@ VOID __cdecl main() {
                                  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hConfig != INVALID_HANDLE_VALUE) {
         DWORD configSize = GetFileSize(hConfig, NULL);
-        char* configText = (char*)malloc(configSize + 1);
+        char* configText = (char*)safeMalloc(configSize + 1);
         DWORD bytesRead;
         ReadFile(hConfig, configText, configSize, &bytesRead, NULL);
         CloseHandle(hConfig);
@@ -1377,7 +1377,7 @@ VOID __cdecl main() {
     //     JsonValue* mappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
     //     if (mappingsObj && JsonReader_isObject(mappingsObj)) {
     //         xpadMappingCount = JsonReader_objectLength(mappingsObj);
-    //         xpadMappings = (XpadMapping*)malloc(sizeof(XpadMapping) * xpadMappingCount);
+    //         xpadMappings = (XpadMapping*)safeMalloc(sizeof(XpadMapping) * xpadMappingCount);
     //         for (int i = 0; i < xpadMappingCount; i++) {
     //             const char* btnStr = JsonReader_getObjectKey(mappingsObj, i);
     //             JsonValue* gmlVal = JsonReader_getObjectValue(mappingsObj, i);

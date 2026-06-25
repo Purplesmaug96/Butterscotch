@@ -31,7 +31,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
 
     // Handle NULL or empty paths safely
     if (!relativePath || relativePath[0] == '\0') {
-        char* result = (char*)malloc(MAX_PATH);
+        char* result = (char*)safeMalloc(MAX_PATH);
         if (!result) return NULL;
         strncpy(result, xfs->basePath, MAX_PATH - 1);
         result[MAX_PATH - 1] = '\0';
@@ -40,7 +40,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
 
     // If the path already contains a colon, it's an absolute path
     if (strchr(relativePath, ':') != nullptr) {
-        char* result = (char*)malloc(MAX_PATH);
+        char* result = (char*)safeMalloc(MAX_PATH);
         if (!result) return NULL;
         strncpy(result, relativePath, MAX_PATH - 1);
         result[MAX_PATH - 1] = '\0';
@@ -55,7 +55,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
         // FALLBACK: File wasn't found in the custom path, try the root path
         char* firstSlash = strstr(result, "\\");
         if (firstSlash) {
-            char* result_root = (char*)malloc(MAX_PATH);
+            char* result_root = (char*)safeMalloc(MAX_PATH);
             if (result_root) {
                 // Combine gameRootPath with everything past the custom drive name (e.g. "\data.win")
                 int written = snprintf(result_root, MAX_PATH, "%s%s", gameRootPath, firstSlash);
@@ -78,7 +78,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
     }
 
     // Relative path processing (Safe and unchanged)
-    char* result = (char*)malloc(MAX_PATH);
+    char* result = (char*)safeMalloc(MAX_PATH);
     if (!result) return NULL;
 
     int written = snprintf(result, MAX_PATH, "%s%s", xfs->basePath, relativePath);
@@ -94,7 +94,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
         fclose(testfile);
     }
     else {
-        char* result_root = (char*)malloc(MAX_PATH);
+        char* result_root = (char*)safeMalloc(MAX_PATH);
         if (result_root) {
             written = snprintf(result_root, MAX_PATH, "%s%s", gameRootPath, relativePath);
             if (written >= 0 && written < MAX_PATH) {
@@ -145,7 +145,7 @@ static char* xdkReadFileText(FileSystem* fs, const char* relativePath) {
     }
 
     // Allocate buffer (ensure we don't overflow 32-bit size_t if file is massive)
-    char* buffer = (char*)malloc((size_t)fileSize.QuadPart + 1);
+    char* buffer = (char*)safeMalloc((size_t)fileSize.QuadPart + 1);
     if (!buffer) {
         CloseHandle(hFile);
         return NULL;
@@ -214,7 +214,7 @@ static bool xdkReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t*
         return false;
     }
 
-    *outData = (uint8_t*)malloc((size_t)fileSize.QuadPart);
+    *outData = (uint8_t*)safeMalloc((size_t)fileSize.QuadPart);
     if (!*outData) {
         CloseHandle(hFile);
         return false;
@@ -261,7 +261,7 @@ typedef struct {
 } XdkBinaryHandle;
 
 static XdkBinaryHandle* xdkBinaryHandleNew(HANDLE hFile, char* fullPath) {
-    XdkBinaryHandle* h = (XdkBinaryHandle*)malloc(sizeof(XdkBinaryHandle));
+    XdkBinaryHandle* h = (XdkBinaryHandle*)safeMalloc(sizeof(XdkBinaryHandle));
     if (!h) { free(fullPath); return NULL; }
     h->hFile = hFile;
     h->fullPath = fullPath;
@@ -416,7 +416,7 @@ static FileSystemDirEntry* xdkListDirectory(FileSystem* fs, const char* relative
     if (!fullPath) return NULL;
 
     size_t dirLen = strlen(fullPath);
-    char* search = (char*)malloc(dirLen + 3);
+    char* search = (char*)safeMalloc(dirLen + 3);
     if (!search) { free(fullPath); return NULL; }
     memcpy(search, fullPath, dirLen);
     search[dirLen] = '\\';
@@ -484,7 +484,7 @@ void XdkFileSystem_destroy(FileSystem* fs) {
 // ===[ Public API ]===
 
 XdkFileSystem* XdkFileSystem_create(const char* dataWinPath) {
-    XdkFileSystem* xfs = (XdkFileSystem*)calloc(1, sizeof(XdkFileSystem));
+    XdkFileSystem* xfs = (XdkFileSystem*)safeCalloc(1, sizeof(XdkFileSystem));
     if (!xfs) return NULL;
 
     xfs->base.vtable = &xdkFileSystemVtable;

@@ -98,9 +98,9 @@ static short* resamplePcm16(short* input, uint32_t inputFrames, uint16_t channel
     }
 
     uint32_t outputFrames = (uint32_t)(((uint64_t)inputFrames * outputRate + inputRate - 1) / inputRate);
-    short* output = (short*)malloc(outputFrames * channels * sizeof(short));
+    short* output = (short*)safeMalloc(outputFrames * channels * sizeof(short));
     if (!output) {
-        audioTrace(true, "AUD2: resample malloc failed inFrames=%u ch=%u inRate=%u outRate=%u",
+        audioTrace(true, "AUD2: resample safeMalloc failed inFrames=%u ch=%u inRate=%u outRate=%u",
             inputFrames, channels, inputRate, outputRate);
         return input;
     }
@@ -372,7 +372,7 @@ static bool readWholeFile(const char* path, uint8_t** outData, int* outSize) {
         fclose(f);
         return false;
     }
-    uint8_t* data = (uint8_t*)malloc((size_t)size);
+    uint8_t* data = (uint8_t*)safeMalloc((size_t)size);
     if (!data) {
         fclose(f);
         return false;
@@ -431,7 +431,7 @@ static bool decodeWav16(const uint8_t* data, int size, XdkDecodedSound* decoded,
         return false;
     }
 
-    uint8_t* out = (uint8_t*)malloc(pcmSize);
+    uint8_t* out = (uint8_t*)safeMalloc(pcmSize);
     if (!out) return false;
     memcpy(out, pcmData, pcmSize);
 
@@ -479,7 +479,7 @@ static bool decodeOgg(const uint8_t* data, int size, XdkDecodedSound* decoded, c
             decimation = tryDecimation;
             outputFrames = (uint32_t)((totalFrames + (int)decimation - 1) / (int)decimation);
             outputBytes = outputFrames * (uint32_t)info.channels * sizeof(short);
-            pcm = (short*)malloc(outputBytes);
+            pcm = (short*)safeMalloc(outputBytes);
             if (pcm) {
                 if (decimation > 2) {
                     audioTrace(true, "AUD2: using 1/%u-rate ogg fallback name=%s outBytes=%u fullBytes=%u",
@@ -488,9 +488,9 @@ static bool decodeOgg(const uint8_t* data, int size, XdkDecodedSound* decoded, c
                 break;
             }
         }
-        short* chunk = (short*)malloc(XDK_AUDIO_DECODE_CHUNK_FRAMES * info.channels * sizeof(short));
+        short* chunk = (short*)safeMalloc(XDK_AUDIO_DECODE_CHUNK_FRAMES * info.channels * sizeof(short));
         if (!pcm || !chunk) {
-            audioTrace(true, "AUD2: vorbis downsample malloc failed name=%s div=%u outBytes=%u chunkBytes=%u fullBytes=%u",
+            audioTrace(true, "AUD2: vorbis downsample safeMalloc failed name=%s div=%u outBytes=%u chunkBytes=%u fullBytes=%u",
                 name ? name : "?", decimation, outputBytes,
                 (unsigned)(XDK_AUDIO_DECODE_CHUNK_FRAMES * info.channels * sizeof(short)), bytes);
             if (pcm) free(pcm);
@@ -535,9 +535,9 @@ static bool decodeOgg(const uint8_t* data, int size, XdkDecodedSound* decoded, c
         return true;
     }
 
-    short* pcm = (short*)malloc(bytes);
+    short* pcm = (short*)safeMalloc(bytes);
     if (!pcm) {
-        audioTrace(true, "AUD2: vorbis pcm malloc failed name=%s bytes=%u frames=%d ch=%d",
+        audioTrace(true, "AUD2: vorbis pcm safeMalloc failed name=%s bytes=%u frames=%d ch=%d",
             name ? name : "?", bytes, totalFrames, info.channels);
         stb_vorbis_close(vorbis);
         return false;
@@ -656,9 +656,9 @@ static XdkDecodedSound* decodeSoundCached(XdkAudioSystem* xa, int32_t soundIndex
         return cache;
     }
 
-    XdkDecodedSound* owned = (XdkDecodedSound*)malloc(sizeof(XdkDecodedSound));
+    XdkDecodedSound* owned = (XdkDecodedSound*)safeMalloc(sizeof(XdkDecodedSound));
     if (!owned) {
-        audioTrace(true, "AUD2: decoded struct malloc failed idx=%d bytes=%u", soundIndex, decoded.pcmSize);
+        audioTrace(true, "AUD2: decoded struct safeMalloc failed idx=%d bytes=%u", soundIndex, decoded.pcmSize);
         free(decoded.pcmData);
         if (cache) cache->failed = true;
         return NULL;
@@ -827,9 +827,9 @@ static bool createStreamingVoiceForInstance(XdkAudioSystem* xa, XdkSoundInstance
     inst->streamEof = false;
 
     for (int i = 0; i < XDK_AUDIO_STREAM_BUFFER_COUNT; i++) {
-        inst->streamBuffers[i] = (short*)malloc(XDK_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels * sizeof(short));
+        inst->streamBuffers[i] = (short*)safeMalloc(XDK_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels * sizeof(short));
         if (!inst->streamBuffers[i]) {
-            audioTrace(true, "AUD2: stream buffer malloc failed idx=%d buffer=%d bytes=%u",
+            audioTrace(true, "AUD2: stream buffer safeMalloc failed idx=%d buffer=%d bytes=%u",
                 inst->soundIndex, i,
                 (unsigned)(XDK_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels * sizeof(short)));
             return false;
@@ -1700,7 +1700,7 @@ static bool xdkDestroyStream(AudioSystem* audio, int32_t streamIndex) {
 static AudioSystemVtable xdkAudioVtable = {};
 
 XdkAudioSystem* XdkAudioSystem_create(void) {
-    XdkAudioSystem* xa = (XdkAudioSystem*)calloc(1, sizeof(XdkAudioSystem));
+    XdkAudioSystem* xa = (XdkAudioSystem*)safeCalloc(1, sizeof(XdkAudioSystem));
     xdkAudioVtable.init = xdkAudioInit;
     xdkAudioVtable.destroy = xdkAudioDestroy;
     xdkAudioVtable.update = xdkAudioUpdate;
@@ -1729,6 +1729,6 @@ XdkAudioSystem* XdkAudioSystem_create(void) {
     xdkAudioVtable.destroyStream = xdkDestroyStream;
     xa->base.vtable = &xdkAudioVtable;
     xa->masterGain = 1.0f;
-    xa->instanceData = calloc(1, sizeof(XdkInstanceArray));
+    xa->instanceData = safeCalloc(1, sizeof(XdkInstanceArray));
     return xa;
 }
