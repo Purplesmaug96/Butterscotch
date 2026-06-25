@@ -444,14 +444,14 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index) {
     char path[256];
     const char* formats[] = {
-        "game:\\texture_%u.png",
-        "game:\\texture_%u.PNG",
-        "game:\\texture_page_%u.png",
-        "game:\\texture_page_%u.PNG",
-        "game:\\textures\\texture_%u.png",
-        "game:\\textures\\texture_%u.PNG",
-        "game:\\textures\\texture_page_%u.png",
-        "game:\\textures\\texture_page_%u.PNG",
+        "butterscotch:\\texture_%u.png",
+        "butterscotch:\\texture_%u.PNG",
+        "butterscotch:\\texture_page_%u.png",
+        "butterscotch:\\texture_page_%u.PNG",
+        "butterscotch:\\textures\\texture_%u.png",
+        "butterscotch:\\textures\\texture_%u.PNG",
+        "butterscotch:\\textures\\texture_page_%u.png",
+        "butterscotch:\\textures\\texture_page_%u.PNG",
     };
 
     for (uint32_t i = 0; i < sizeof(formats) / sizeof(formats[0]); i++) {

@@ -4,7 +4,7 @@
 
 typedef struct {
     FileSystem base;
-    char basePath[512]; // directory containing data.win (e.g. "game:\\")
+    char basePath[512]; // directory containing data.win (e.g. "butterscotch:\\")
 } XdkFileSystem;
 
 XdkFileSystem* XdkFileSystem_create(const char* dataWinPath);

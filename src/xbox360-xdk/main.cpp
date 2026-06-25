@@ -204,6 +204,7 @@ static void diagOpenLog(void) {
     gDiagTriedFallback = true;
 
     static const char* paths[] = {
+        "butterscotch:\\butterscotch.log",
         "game:\\butterscotch.log",
         "d:\\butterscotch.log",
         "hdd:\\butterscotch.log",
@@ -968,15 +969,172 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
     renderer->vtable->endFrameEnd(renderer);
 }
 
+// Define the internal kernel string structure needed for Object Manager APIs
+typedef struct _STRING {
+    USHORT Length;
+    USHORT MaximumLength;
+    PCHAR Buffer;
+} STRING, *PSTRING;
+
+// Explicitly declare the kernel exports since they are omitted from standard XTL headers
+extern "C" {
+    LONG __stdcall ObDeleteSymbolicLink(PSTRING SymbolicLinkName);
+    LONG __stdcall ObCreateSymbolicLink(PSTRING SymbolicLinkName, PSTRING DeviceName);
+}
+
+// bool RemapGameDevice(const char* inputPath) {
+//     if (!inputPath || inputPath[0] == '\0') return false;
+
+//     // 1. Skip any leading slashes (handles both '/' and '\')
+//     const char* cleanPath = inputPath;
+//     while (*cleanPath == '/' || *cleanPath == '\\') {
+//         cleanPath++;
+//     }
+
+//     // 2. Format the absolute device target path
+//     char absoluteDevicePath[MAX_PATH];
+//     int written = snprintf(absoluteDevicePath, MAX_PATH, "\\Device\\Harddisk0\\Partition1\\%s", cleanPath);
+//     if (written < 0 || written >= MAX_PATH) {
+//         return false;
+//     }
+
+//     // 3. Normalize all forward slashes to backward slashes for the Object Manager
+//     for (int i = 0; absoluteDevicePath[i] != '\0'; i++) {
+//         if (absoluteDevicePath[i] == '/') {
+//             absoluteDevicePath[i] = '\\';
+//         }
+//     }
+
+//     // 4. Setup Symbolic Link Target Name
+//     STRING symLinkName;
+//     symLinkName.Buffer = (PCHAR)"\\??\\game:";
+//     symLinkName.Length = (USHORT)strlen(symLinkName.Buffer);
+//     symLinkName.MaximumLength = symLinkName.Length + 1;
+
+//     // 5. Delete the default OS mapping
+//     ObDeleteSymbolicLink(&symLinkName);
+
+//     // 6. Bind to our new sanitized subdirectory path
+//     STRING deviceTarget;
+//     deviceTarget.Buffer = absoluteDevicePath;
+//     deviceTarget.Length = (USHORT)strlen(deviceTarget.Buffer);
+//     deviceTarget.MaximumLength = deviceTarget.Length + 1;
+
+//     LONG status = ObCreateSymbolicLink(&symLinkName, &deviceTarget);
+//     return (status >= 0);
+// }
+
+static bool butterscotchDeviceLinkCreated = false;
+bool CreateCustomDeviceLink(const char* inputPath) {
+    // 1. Sanitize the incoming subdirectory path
+    const char* cleanPath = inputPath ? inputPath : "";
+    while (*cleanPath == '/' || *cleanPath == '\\') {
+        cleanPath++;
+    }
+
+    // 2. Build the absolute destination path pointing directly to the hard disk partition
+    char absoluteDevicePath[MAX_PATH];
+    if (cleanPath[0] != '\0') {
+        snprintf(absoluteDevicePath, MAX_PATH, "\\Device\\Harddisk0\\Partition1\\%s", cleanPath);
+    } else {
+        snprintf(absoluteDevicePath, MAX_PATH, "\\Device\\Harddisk0\\Partition1");
+    }
+
+    // 3. Normalize all forward slashes to backward slashes for the kernel Object Manager
+    for (int i = 0; absoluteDevicePath[i] != '\0'; i++) {
+        if (absoluteDevicePath[i] == '/') {
+            absoluteDevicePath[i] = '\\';
+        }
+    }
+
+    // 4. Setup the custom symbolic link target name: "\??\butterscotch:"
+    STRING customSymLinkName;
+    customSymLinkName.Buffer = (PCHAR)"\\??\\butterscotch:";
+    customSymLinkName.Length = (USHORT)strlen(customSymLinkName.Buffer);
+    customSymLinkName.MaximumLength = customSymLinkName.Length + 1;
+
+    // 5. If this isn't the first initialization call, wipe the old link mapping first
+    if (butterscotchDeviceLinkCreated) {
+        ObDeleteSymbolicLink(&customSymLinkName);
+    }
+    butterscotchDeviceLinkCreated = true;
+
+    // 6. Securely bind the "butterscotch:" namespace directly to the target storage location
+    STRING finalDeviceTarget;
+    finalDeviceTarget.Buffer = absoluteDevicePath;
+    finalDeviceTarget.Length = (USHORT)strlen(finalDeviceTarget.Buffer);
+    finalDeviceTarget.MaximumLength = finalDeviceTarget.Length + 1;
+
+    LONG status = ObCreateSymbolicLink(&customSymLinkName, &finalDeviceTarget);
+    
+    return (status >= 0);
+}
+
+void ListButterscotchDirectory() {
+    WIN32_FIND_DATAA findData;
+    // Look for everything in the root of the custom device link
+    HANDLE hFind = FindFirstFileA("butterscotch:\\*", &findData);
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        diagLog("Butterscotch: Cannot list directory. FindFirstFileA failed with error: %d", GetLastError());
+        return;
+    }
+
+    diagLog("--- Listing butterscotch:\\ contents ---");
+    do {
+        // Skip the standard relative directory dots "." and ".."
+        if (strcmp(findData.cFileName, ".") == 0 || strcmp(findData.cFileName, "..") == 0) {
+            continue;
+        }
+
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            diagLog("  [DIR]  %s", findData.cFileName);
+        } else {
+            diagLog("  [FILE] %s (%d bytes)", findData.cFileName, findData.nFileSizeLow);
+        }
+    } while (FindNextFileA(hFind, &findData));
+
+    FindClose(hFind);
+    diagLog("---------------------------------------");
+}
+
 // ===[ Main Entry Point ]===
 
 int32_t* gGameW = NULL;
 int32_t* gGameH = NULL;
 
+static char* gameSubPath = NULL;
 VOID __cdecl main() {
     diagOpenLog();
+
+    diagLog("Butterscotch: Built at %s: %s", __DATE__, __TIME__);
+
+    diagLog("Butterscotch: Trying to open butterscotch:\\ device link to %s%s", "game:\\", gameSubPath ? gameSubPath : "");
+
+    if (!CreateCustomDeviceLink(gameSubPath ? gameSubPath : "")) {
+        diagLog("Butterscotch: FATAL: Failed to create custom device link");
+        return;
+    }
+
+    ListButterscotchDirectory();
+
+    // Close diagnostic log handles
+    if (gDiagFile) {
+        diagLog("Butterscotch: Closing log file");
+        fclose(gDiagFile);
+        gDiagFile = NULL;
+    }
+    if (gDiagLog != INVALID_HANDLE_VALUE) {
+        diagLog("Butterscotch: Closing log handle");
+        CloseHandle(gDiagLog);
+        gDiagLog = INVALID_HANDLE_VALUE;
+    }
+
+    diagOpenLog();
+
     diagLog("Butterscotch: Built at %s: %s", __DATE__, __TIME__);
     diagLog("Butterscotch: (01) main() entered");
+    diagLog("Butterscotch: gameSubPath=%s", gameSubPath ? gameSubPath : "(null)");
 
     IDirect3D9* pD3D = Direct3DCreate9(D3D_SDK_VERSION);
     if (!pD3D) { diagLog("Butterscotch: FATAL: D3D create failed"); return; }
@@ -1007,17 +1165,21 @@ VOID __cdecl main() {
 
 
     // ===[ Locate data.win ]===
-    // On Xbox 360, game content is at game:\ (DVD/HDD) or d:\ (dev kit)
+    // On Xbox 360, game content is at butterscotch:\ (DVD/HDD) or d:\ (dev kit)
     const char* dataWinPath = NULL;
 
     // Try multiple paths. Use fopen() for detection since it goes through
-    // the Xbox CRT which handles game:\ paths reliably on both hardware and emulators.
+    // the Xbox CRT which handles butterscotch:\ paths reliably on both hardware and emulators.
     static const char* searchPaths[] = {
+        "butterscotch:\\data.win",
+        "butterscotch:\\butterscotch\\data.win",
         "game:\\data.win",
         "game:\\butterscotch\\data.win",
         "d:\\data.win",
         "d:\\butterscotch\\data.win",
-		"game:\\game.unx",
+		"butterscotch:\\game.unx",
+        "butterscotch:\\butterscotch\\game.unx",
+        "game:\\game.unx",
         "game:\\butterscotch\\game.unx",
         "d:\\game.unx",
         "d:\\butterscotch\\game.unx",
@@ -1034,6 +1196,7 @@ VOID __cdecl main() {
             fclose(testFile);
             dataWinPath = searchPaths[i];
             diagOpenNextToDataWin(dataWinPath);
+            ListButterscotchDirectory();
             diagLog("Butterscotch: (05) found data.win at %s", dataWinPath);
             break;
         }
@@ -1269,6 +1432,11 @@ VOID __cdecl main() {
     diagOverlayPollSystem();
 
     while (!runner->shouldExit) {
+		if (runner->pendingWorkingDirectory != nullptr && runner->pendingLaunchParameters != nullptr) {
+            // Break from the game loop, we'll handle this later
+            break;
+        }
+
         QueryPerformanceCounter(&currentTime);
         double deltaTime = (double)(currentTime.QuadPart - lastTime.QuadPart) / (double)freq.QuadPart;
         lastTime = currentTime;
@@ -1413,6 +1581,21 @@ VOID __cdecl main() {
             RunnerKeyboard_beginFrame(runner->keyboard);
         }
     }
+    
+    char* nextWorkingDirectory = nullptr;
+    char* nextLaunchParameters = nullptr;
+    if (runner->pendingWorkingDirectory != nullptr && runner->pendingLaunchParameters != nullptr) {
+        diagLog("Butterscotch: game_change requested, exiting main loop to restart with new working directory '%s' and launch parameters '%s'", runner->pendingWorkingDirectory, runner->pendingLaunchParameters);
+        // Snapshot any pending game_change request before we tear the runner down
+        nextWorkingDirectory = (char*)safeMalloc(strlen(runner->pendingWorkingDirectory) + 1);
+        nextLaunchParameters = (char*)safeMalloc(strlen(runner->pendingLaunchParameters) + 1);
+        strcpy(nextWorkingDirectory, runner->pendingWorkingDirectory);
+        strcpy(nextLaunchParameters, runner->pendingLaunchParameters);
+        free(runner->pendingWorkingDirectory);
+        free(runner->pendingLaunchParameters);
+        runner->pendingWorkingDirectory = nullptr;
+        runner->pendingLaunchParameters = nullptr;
+    }
 
     // ===[ Cleanup ]===
     // Free subsystems in reverse creation order.
@@ -1431,15 +1614,70 @@ VOID __cdecl main() {
     pd3dDevice->Release();
     pD3D->Release();
 
+    free(xpadMappings);
+
+    diagLog("Butterscotch: %p %p", nextWorkingDirectory, nextLaunchParameters);
+
+
+    // game_change was called, so we need to restart the runner with the new data.win and launch parameters
+    if (nextWorkingDirectory != nullptr && nextLaunchParameters != nullptr) {
+        // diagLog("Butterscotch: game_change requested, restarting with new working directory '%s' and launch parameters '%s'", nextWorkingDirectory, nextLaunchParameters);
+
+        // if (!RemapGameDevice(nextWorkingDirectory)) {
+        //     diagLog("Butterscotch: Failed to remap game device");
+        // }
+
+        
+        gameSubPath = (char*)safeMalloc(strlen(nextWorkingDirectory) + 1);
+        strcpy(gameSubPath, nextWorkingDirectory);
+        if (gameSubPath[0] == '\0') {
+            free(gameSubPath);
+            gameSubPath = NULL;
+        }
+        else if (gameSubPath[0] == '/' || gameSubPath[0] == '\\') {
+            // Remove leading slash if present
+            memmove(gameSubPath, gameSubPath + 1, strlen(gameSubPath));
+        }
+
+        free(nextWorkingDirectory);
+        free(nextLaunchParameters);
+
+        diagLog("Butterscotch: Restarting main loop with new working directory '%s'", gameSubPath ? gameSubPath : "(null)");
+
+        // drawFatalErrorScreen(&gLoadingScreen);
+        // Butterscotch_xdkHang();
+
+        // Close diagnostic log handles
+        if (gDiagFile) {
+            diagLog("Butterscotch: Closing log file");
+            fclose(gDiagFile);
+            gDiagFile = NULL;
+        }
+        if (gDiagLog != INVALID_HANDLE_VALUE) {
+            diagLog("Butterscotch: Closing log handle");
+            CloseHandle(gDiagLog);
+            gDiagLog = INVALID_HANDLE_VALUE;
+        }
+        
+        // Restart the main loop with the new working directory and launch parameters
+		main(); 
+        return;
+	}
+
     // Close diagnostic log handles
     if (gDiagFile) {
+        diagLog("Butterscotch: Closing log file");
         fclose(gDiagFile);
         gDiagFile = NULL;
     }
     if (gDiagLog != INVALID_HANDLE_VALUE) {
+        diagLog("Butterscotch: Closing log handle");
         CloseHandle(gDiagLog);
         gDiagLog = INVALID_HANDLE_VALUE;
     }
 
-    free(xpadMappings);
+    if (gameSubPath) {
+        free(gameSubPath);
+        gameSubPath = NULL;
+    }
 }

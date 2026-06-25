@@ -37,7 +37,7 @@ static char* xdkResolvePath(FileSystem* fs, const char* relativePath) {
     }
 
     // If the path already contains a colon, it's an absolute Xbox 360 path
-    // (e.g. "game:\lang\lang_en.json") — return it verbatim without prepending basePath.
+    // (e.g. "butterscotch:\lang\lang_en.json") — return it verbatim without prepending basePath.
     if (strchr(relativePath, ':') != nullptr) {
         char* result = (char*)malloc(MAX_PATH);
         if (!result) return NULL;
@@ -449,7 +449,7 @@ XdkFileSystem* XdkFileSystem_create(const char* dataWinPath) {
         memcpy(xfs->basePath, dataWinPath, dirLen);
         xfs->basePath[dirLen] = '\0';
     } else {
-        strncpy(xfs->basePath, "game:\\", sizeof(xfs->basePath) - 1);
+        strncpy(xfs->basePath, "butterscotch:\\", sizeof(xfs->basePath) - 1);
     }
 
     xdkNormalizePath(xfs->basePath);
