@@ -941,17 +941,18 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
     int32_t frameH = gameH;
     if (runner && !runner->appSurfaceKeepWindowSize && !runner->appSurfaceAutoDraw && runner->currentRoom &&
         runner->currentRoom->width > 0 && runner->currentRoom->height > 0 &&
-        runner->currentRoom->width < (uint32_t)frameW && runner->currentRoom->height < (uint32_t)frameH) {
+        runner->currentRoom->width < (uint32_t)frameW && runner->currentRoom->height < (uint32_t)frameH &&
+        (runner->applicationWidth <= 0 || runner->applicationWidth == gameW)) {
         frameW = (int32_t)runner->currentRoom->width;
         frameH = (int32_t)runner->currentRoom->height;
     }
 
     if (frameH <= 0) frameH = 1;
     // Use uniform scaling to fit the game frame into the 720p backbuffer while
-    // preserving aspect ratio. The renderScale is used by setGameTargetTransform
-    // for rendering directly to the backbuffer (non-app-surface path).
-    // When using an application surface, the final composition in
-    // setWindowSurfaceTransform also uses uniform scaling with letterboxing.
+    // preserving aspect ratio. The renderScale is computed here as a fallback,
+    // but d3d9BeginFrame (called inside Runner_beginFrame) will override it
+    // with the correct value based on runner->applicationWidth/applicationHeight
+    // for widescreen mods and native_res mode.
     float scaleX = (float)SCREEN_WIDTH / (float)frameW;
     float scaleY = (float)SCREEN_HEIGHT / (float)frameH;
     float displayScale = (scaleX < scaleY) ? scaleX : scaleY;
@@ -1145,7 +1146,11 @@ VOID __cdecl main() {
     diagLog("Butterscotch: (01) main() entered");
 
     IDirect3D9* pD3D = Direct3DCreate9(D3D_SDK_VERSION);
-    if (!pD3D) { diagLog("Butterscotch: FATAL: D3D create failed"); return; }
+    if (!pD3D) {
+		diagLog("Butterscotch: FATAL: D3D create failed");
+		drawFatalErrorScreen(&gLoadingScreen);
+		Butterscotch_xdkHang();
+	}
     diagLog("Butterscotch: (02) D3D9 created");
 
     D3DPRESENT_PARAMETERS d3dpp;
@@ -1167,7 +1172,8 @@ VOID __cdecl main() {
                                     &d3dpp, &pd3dDevice);
     if (FAILED(hr)) {
         diagLog("Butterscotch: FATAL: CreateDevice failed hr=0x%08X", hr);
-        return;
+        drawFatalErrorScreen(&gLoadingScreen);
+		Butterscotch_xdkHang();
     }
     diagLog("Butterscotch: (03) D3D device created");
 
@@ -1340,62 +1346,53 @@ VOID __cdecl main() {
     diagLog("Butterscotch: runner created with renderer/audio initialized");
 
     // Parse CONFIG.JSN options
-	// Commented because:
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1018) : error C3861: 'JsonReader_getObject': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1029) : error C3861: 'JsonReader_getObject': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1042) : error C3861: 'JsonReader_getObject': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1047) : error C3861: 'JsonReader_getObjectKey': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1048) : error C3861: 'JsonReader_getObjectValue': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1054) : error C3861: 'JsonReader_getObject': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1059) : error C3861: 'JsonReader_getObject': identifier not found
-	// Z:\hdd\Butterscotch\src\xbox360-xdk\main.cpp(1107) : error C3861: 'JsonReader_getObject': identifier not found
-    // if (configRoot) {
-    //     JsonValue* osTypeVal = JsonReader_getObject(configRoot, "osType");
-    //     if (osTypeVal && JsonReader_isString(osTypeVal)) {
-    //         YoYoOperatingSystem configuredOsType;
-    //         const char* osText = JsonReader_getString(osTypeVal);
-    //         if (parseOsTypeName(osText, &configuredOsType)) {
-    //             runner->osType = configuredOsType;
-    //         } else {
-    //             diagLog("CONFIG.JSN: unknown osType '%s', keeping %s", osText, osTypeName(runner->osType));
-    //         }
-    //     }
+    if (configRoot) {
+        JsonValue* osTypeVal = JsonReader_getJsonValueByKey(configRoot, "osType");
+        if (osTypeVal && JsonReader_isString(osTypeVal)) {
+            YoYoOperatingSystem configuredOsType;
+            const char* osText = JsonReader_getString(osTypeVal);
+            if (parseOsTypeName(osText, &configuredOsType)) {
+                runner->osType = configuredOsType;
+            } else {
+                diagLog("CONFIG.JSN: unknown osType '%s', keeping %s", osText, osTypeName(runner->osType));
+            }
+        }
 
-    //     JsonValue* disabledArr = JsonReader_getObject(configRoot, "disabledObjects");
-    //     if (disabledArr && JsonReader_isArray(disabledArr)) {
-    //         sh_new_strdup(runner->disabledObjects);
-    //         int count = JsonReader_arrayLength(disabledArr);
-    //         for (int i = 0; i < count; i++) {
-    //             JsonValue* elem = JsonReader_getArrayElement(disabledArr, i);
-    //             if (elem && JsonReader_isString(elem)) {
-    //                 const char* name = JsonReader_getString(elem);
-    //                 shput(runner->disabledObjects, name, 1);
-    //             }
-    //         }
-    //     }
+        JsonValue* disabledArr = JsonReader_getJsonValueByKey(configRoot, "disabledObjects");
+        if (disabledArr && JsonReader_isArray(disabledArr)) {
+            sh_new_strdup(runner->disabledObjects);
+            int count = JsonReader_arrayLength(disabledArr);
+            for (int i = 0; i < count; i++) {
+                JsonValue* elem = JsonReader_getArrayElement(disabledArr, i);
+                if (elem && JsonReader_isString(elem)) {
+                    const char* name = JsonReader_getString(elem);
+                    shput(runner->disabledObjects, name, 1);
+                }
+            }
+        }
 
-    //     JsonValue* mappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
-    //     if (mappingsObj && JsonReader_isObject(mappingsObj)) {
-    //         xpadMappingCount = JsonReader_objectLength(mappingsObj);
-    //         xpadMappings = (XpadMapping*)safeMalloc(sizeof(XpadMapping) * xpadMappingCount);
-    //         for (int i = 0; i < xpadMappingCount; i++) {
-    //             const char* btnStr = JsonReader_getObjectKey(mappingsObj, i);
-    //             JsonValue* gmlVal = JsonReader_getObjectValue(mappingsObj, i);
-    //             xpadMappings[i].xpadButton = (WORD)atoi(btnStr);
-    //             xpadMappings[i].gmlKey = (int32_t)JsonReader_getInt(gmlVal);
-    //         }
-    //     }
+        JsonValue* mappingsObj = JsonReader_getJsonValueByKey(configRoot, "controllerMappings");
+        if (mappingsObj && JsonReader_isObject(mappingsObj)) {
+            xpadMappingCount = JsonReader_objectLength(mappingsObj);
+            xpadMappings = (XpadMapping*)safeMalloc(sizeof(XpadMapping) * xpadMappingCount);
+            for (int i = 0; i < xpadMappingCount; i++) {
+                const char* btnStr = JsonReader_getJsonKeyByIndex(mappingsObj, i);
+                JsonValue* gmlVal = JsonReader_getJsonValueByIndex(mappingsObj, i);
+                xpadMappings[i].xpadButton = (WORD)atoi(btnStr);
+                xpadMappings[i].gmlKey = (int32_t)JsonReader_getInt(gmlVal);
+            }
+        }
 
-    //     JsonValue* gamepadApiVal = JsonReader_getObject(configRoot, "gamepadApi");
-    //     if (gamepadApiVal) {
-    //         if (JsonReader_isBool(gamepadApiVal)) {
-    //             gamepadApiEnabled = JsonReader_getBool(gamepadApiVal);
-    //         } else if (JsonReader_isObject(gamepadApiVal)) {
-    //             JsonValue* enabledVal = JsonReader_getObject(gamepadApiVal, "enabled");
-    //             if (enabledVal) gamepadApiEnabled = JsonReader_getBool(enabledVal);
-    //         }
-    //     }
-    // }
+        JsonValue* gamepadApiVal = JsonReader_getJsonValueByKey(configRoot, "gamepadApi");
+        if (gamepadApiVal) {
+            if (JsonReader_isBool(gamepadApiVal)) {
+                gamepadApiEnabled = JsonReader_getBool(gamepadApiVal);
+            } else if (JsonReader_isObject(gamepadApiVal)) {
+                JsonValue* enabledVal = JsonReader_getJsonValueByKey(gamepadApiVal, "enabled");
+                if (enabledVal) gamepadApiEnabled = JsonReader_getBool(enabledVal);
+            }
+        }
+    }
 
     if (!xpadMappings) setupDefaultMappings();
     diagLog("Butterscotch: osType=%s (%d)", osTypeName(runner->osType), (int)runner->osType);
@@ -1443,7 +1440,7 @@ VOID __cdecl main() {
     // Parse deferDrawToAfterAllSteps
     bool deferDraw = false;
     // if (configRoot) {
-    //     JsonValue* deferVal = JsonReader_getObject(configRoot, "deferDrawToAfterAllSteps");
+    //     JsonValue* deferVal = JsonReader_getJsonValueByKey(configRoot, "deferDrawToAfterAllSteps");
     //     if (deferVal) deferDraw = JsonReader_getBool(deferVal);
     // }
 
