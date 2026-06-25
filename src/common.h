@@ -22,29 +22,14 @@
 #define IS_BIG_ENDIAN
 #endif
 
-#if defined(__has_c_attribute)
-    #if __has_c_attribute(maybe_unused)
-        #define MAYBE_UNUSED [[maybe_unused]]
-    #endif
-#endif
-
-#ifndef MAYBE_UNUSED
-    #if defined(__GNUC__) || defined(__clang__)
-        #define MAYBE_UNUSED __attribute__((unused))
-	#elif defined(_MSC_VER)
-		// Just gonna disable it globally.
-		#define MAYBE_UNUSED /*__pragma(warning(suppress: 4100 4101 4505 4189))*/
-		// C4100:
-		//   unreferenced formal parameter
-		// C4104:
-		//   unreferenced local variable
-		// C4505:
-		//   unreferenced local function has been removed
-		// C4189:
-		//   local variable is initialized but not referenced
-    #else
-        #define MAYBE_UNUSED
-    #endif
+#if defined(__cplusplus) && __cplusplus >= 201703L
+    #define MAYBE_UNUSED [[maybe_unused]]
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+    #define MAYBE_UNUSED [[maybe_unused]]
+#elif defined(__GNUC__) || defined(__clang__)
+    #define MAYBE_UNUSED __attribute__((unused))
+#else
+    #define MAYBE_UNUSED
 #endif
 
 #if (defined(__GNUC__) && (__GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 8))) || defined(__TINYC__)
