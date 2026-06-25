@@ -49,7 +49,7 @@ static void removeInstanceFromGridCells(SpatialGrid* grid, Instance* instance) {
 }
 
 void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
-    bool requiresResync = arrlen(grid->dirtyInstances);
+    bool requiresResync = arrlen(grid->dirtyInstances) > 0;
     if (!requiresResync) return;
 
 #ifdef ENABLE_SPATIAL_GRID_LOGS

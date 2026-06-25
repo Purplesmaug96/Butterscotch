@@ -33,7 +33,9 @@
 #include "base64.h"
 #include "gettime.h"
 
+#ifdef __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 
 #define MAX_BACKGROUNDS 8
 
@@ -2821,7 +2823,7 @@ static bool rvalueIsMatrix(RValue rv) {
 static bool matrixFromGml(Matrix4f *mat, GMLArray *arr) {
     if (GMLArray_length1D(arr) != 16) return false;
     repeat (16, i) {
-        mat->m[i] = RValue_toReal(*GMLArray_slot(arr, i));
+        mat->m[i] = (float)RValue_toReal(*GMLArray_slot(arr, i));
     }
     return true;
 }
@@ -2895,12 +2897,12 @@ static RValue builtin_matrix_build_projection_ortho(MAYBE_UNUSED VMContext *ctx,
     Matrix4f mat;
 
     memset(mat.m, 0, sizeof(mat.m));
-    mat.m[Matrix_getIndex(0,0)] = 2.0f / width;
-    mat.m[Matrix_getIndex(1,1)] = 2.0f / height;
-    mat.m[Matrix_getIndex(2,2)] = 1.0f / (zfar - znear);
+    mat.m[Matrix_getIndex(0,0)] = 2.0f / (float)width;
+    mat.m[Matrix_getIndex(1,1)] = 2.0f / (float)height;
+    mat.m[Matrix_getIndex(2,2)] = 1.0f / (float)(zfar - znear);
     mat.m[Matrix_getIndex(3,3)] = 1.0f;
 
-    mat.m[Matrix_getIndex(2,3)] = znear / (znear - zfar);
+    mat.m[Matrix_getIndex(2,3)] = (float)znear / (float)(znear - zfar);
 
     if (!toPrevMatrix) {
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
@@ -2929,11 +2931,11 @@ static RValue builtin_matrix_build_projection_perspective_fov(MAYBE_UNUSED VMCon
     Matrix4f mat;
     memset(mat.m, 0, sizeof(mat.m));
 
-    mat.m[Matrix_getIndex(0, 0)] = scaleX;
-    mat.m[Matrix_getIndex(1, 1)] = scaleY;
-    mat.m[Matrix_getIndex(2, 2)] = zfar / (zfar - znear);
-    mat.m[Matrix_getIndex(2, 3)] = -(zfar * znear) / (zfar - znear);
-    mat.m[Matrix_getIndex(3, 2)] = 1.;
+    mat.m[Matrix_getIndex(0, 0)] = (float)scaleX;
+    mat.m[Matrix_getIndex(1, 1)] = (float)scaleY;
+    mat.m[Matrix_getIndex(2, 2)] = (float)zfar / (float)(zfar - znear);
+    mat.m[Matrix_getIndex(2, 3)] = -((float)(zfar * znear)) / (float)(zfar - znear);
+    mat.m[Matrix_getIndex(3, 2)] = 1.0f;
 
     if (!toPrevMatrix) {
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
@@ -2998,21 +3000,21 @@ static RValue builtin_matrix_build_lookat(MAYBE_UNUSED VMContext *ctx, RValue *a
     Matrix4f matrix;
     Matrix4f_identity(&matrix);
 
-    matrix.m[Matrix_getIndex(0, 0)] = xRight;
-    matrix.m[Matrix_getIndex(0, 1)] = xUp;
-    matrix.m[Matrix_getIndex(0, 2)] = xLook;
+    matrix.m[Matrix_getIndex(0, 0)] = (float)xRight;
+    matrix.m[Matrix_getIndex(0, 1)] = (float)xUp;
+    matrix.m[Matrix_getIndex(0, 2)] = (float)xLook;
 
-    matrix.m[Matrix_getIndex(1, 0)] = yRight;
-    matrix.m[Matrix_getIndex(1, 1)] = yUp;
-    matrix.m[Matrix_getIndex(1, 2)] = yLook;
+    matrix.m[Matrix_getIndex(1, 0)] = (float)yRight;
+    matrix.m[Matrix_getIndex(1, 1)] = (float)yUp;
+    matrix.m[Matrix_getIndex(1, 2)] = (float)yLook;
 
-    matrix.m[Matrix_getIndex(2, 0)] = zRight;
-    matrix.m[Matrix_getIndex(2, 1)] = zUp;
-    matrix.m[Matrix_getIndex(2, 2)] = zLook;
+    matrix.m[Matrix_getIndex(2, 0)] = (float)zRight;
+    matrix.m[Matrix_getIndex(2, 1)] = (float)zUp;
+    matrix.m[Matrix_getIndex(2, 2)] = (float)zLook;
 
-    matrix.m[Matrix_getIndex(3, 0)] = -x;
-    matrix.m[Matrix_getIndex(3, 1)] = -y;
-    matrix.m[Matrix_getIndex(3, 2)] = -z;
+    matrix.m[Matrix_getIndex(3, 0)] = (float)-x;
+    matrix.m[Matrix_getIndex(3, 1)] = (float)-y;
+    matrix.m[Matrix_getIndex(3, 2)] = (float)-z;
 
     bool toPrevMatrix = argCount == 10;
     GMLArray *destArray = toPrevMatrix ? args[9].array : nullptr;
@@ -5900,10 +5902,10 @@ static RValue builtin_place_free(VMContext* ctx, RValue* args, int32_t argCount)
     GMLReal testY = RValue_toReal(args[1]);
 
     // Save current position and temporarily move to test position
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool free = true;
@@ -5933,10 +5935,10 @@ static RValue builtin_place_free(VMContext* ctx, RValue* args, int32_t argCount)
 
 // place_empty(x, y) - returns true if no instance overlaps at position (x, y), checking ALL instances (not just solid)
 static bool placeEmptyAt(Runner* runner, Instance* caller, GMLReal testX, GMLReal testY) {
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool empty = true;
@@ -5964,10 +5966,10 @@ static bool placeEmptyAt(Runner* runner, Instance* caller, GMLReal testX, GMLRea
 
 // placeFreeAt - returns true if no SOLID instance overlaps at position (x, y)
 static bool placeFreeAt(Runner* runner, Instance* caller, GMLReal testX, GMLReal testY) {
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool free = true;
@@ -5995,10 +5997,10 @@ static bool placeFreeAt(Runner* runner, Instance* caller, GMLReal testX, GMLReal
 
 // noCollisionWithObject - returns true if no instance of the given object overlaps at position (x, y)
 static bool noCollisionWithObject(Runner* runner, Instance* caller, GMLReal testX, GMLReal testY, int32_t objIndex) {
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool free = true;
@@ -9637,7 +9639,7 @@ static RValue builtin_draw_clear_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSE
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
         uint32_t color = (uint32_t) RValue_toInt32(args[0]);
-        float alpha = RValue_toReal(args[1]);
+        float alpha = (float)RValue_toReal(args[1]);
         runner->renderer->vtable->clearScreen(runner->renderer, color, alpha);
     }
     return RValue_makeUndefined();
@@ -9646,7 +9648,7 @@ static RValue builtin_draw_clear_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSE
 static RValue builtin_draw_set_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
-        runner->renderer->drawAlpha = (float) RValue_toReal(args[0]);
+        runner->renderer->drawAlpha = (float)RValue_toReal(args[0]);
     }
     return RValue_makeUndefined();
 }
@@ -9772,10 +9774,10 @@ static RValue builtin_draw_text_color(VMContext* ctx, RValue* args, MAYBE_UNUSED
     float x = (float) RValue_toReal(args[0]);
     float y = (float) RValue_toReal(args[1]);
     char* str = RValue_toString(args[2]);
-    int32_t c1 = (float) RValue_toInt32(args[3]);
-    int32_t c2 = (float) RValue_toInt32(args[4]);
-    int32_t c3 = (float) RValue_toInt32(args[5]);
-    int32_t c4 = (float) RValue_toInt32(args[6]);
+    int32_t c1 = (int32_t) RValue_toInt32(args[3]);
+    int32_t c2 = (int32_t) RValue_toInt32(args[4]);
+    int32_t c3 = (int32_t) RValue_toInt32(args[5]);
+    int32_t c4 = (int32_t) RValue_toInt32(args[6]);
     float alpha = (float) RValue_toReal(args[7]);
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
@@ -9795,10 +9797,10 @@ static RValue builtin_draw_text_color_transformed(VMContext* ctx, RValue* args, 
     float xscale = (float) RValue_toReal(args[3]);
     float yscale = (float) RValue_toReal(args[4]);
     float angle = (float) RValue_toReal(args[5]);
-    int32_t c1 = (float) RValue_toInt32(args[6]);
-    int32_t c2 = (float) RValue_toInt32(args[7]);
-    int32_t c3 = (float) RValue_toInt32(args[8]);
-    int32_t c4 = (float) RValue_toInt32(args[9]);
+    int32_t c1 = (int32_t) RValue_toInt32(args[6]);
+    int32_t c2 = (int32_t) RValue_toInt32(args[7]);
+    int32_t c3 = (int32_t) RValue_toInt32(args[8]);
+    int32_t c4 = (int32_t) RValue_toInt32(args[9]);
     float alpha = (float) RValue_toReal(args[10]);
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
@@ -9830,10 +9832,10 @@ static RValue builtin_draw_text_color_ext(VMContext* ctx, RValue* args, MAYBE_UN
     char* str = RValue_toString(args[2]);
     int32_t separation = RValue_toInt32(args[3]);
     int32_t width = RValue_toInt32(args[4]);
-    int32_t c1 = (float) RValue_toInt32(args[5]);
-    int32_t c2 = (float) RValue_toInt32(args[6]);
-    int32_t c3 = (float) RValue_toInt32(args[7]);
-    int32_t c4 = (float) RValue_toInt32(args[8]);
+    int32_t c1 = (int32_t) RValue_toInt32(args[5]);
+    int32_t c2 = (int32_t) RValue_toInt32(args[6]);
+    int32_t c3 = (int32_t) RValue_toInt32(args[7]);
+    int32_t c4 = (int32_t) RValue_toInt32(args[8]);
     float alpha = (float) RValue_toReal(args[9]);
 
     drawTextColorExtCommon(runner, str, x, y, 1.0f, 1.0f, 0.0f, separation, width, c1, c2, c3, c4, alpha);
@@ -9853,10 +9855,10 @@ static RValue builtin_draw_text_color_ext_transformed(VMContext* ctx, RValue* ar
     float xscale = (float) RValue_toReal(args[5]);
     float yscale = (float) RValue_toReal(args[6]);
     float angle = (float) RValue_toReal(args[7]);
-    int32_t c1 = (float) RValue_toInt32(args[8]);
-    int32_t c2 = (float) RValue_toInt32(args[9]);
-    int32_t c3 = (float) RValue_toInt32(args[10]);
-    int32_t c4 = (float) RValue_toInt32(args[11]);
+    int32_t c1 = (int32_t) RValue_toInt32(args[8]);
+    int32_t c2 = (int32_t) RValue_toInt32(args[9]);
+    int32_t c3 = (int32_t) RValue_toInt32(args[10]);
+    int32_t c4 = (int32_t) RValue_toInt32(args[11]);
     float alpha = (float) RValue_toReal(args[12]);
 
     drawTextColorExtCommon(runner, str, x, y, xscale, yscale, angle, separation, width, c1, c2, c3, c4, alpha);
@@ -10045,8 +10047,8 @@ static RValue builtin_draw_line_colour(VMContext* ctx, RValue* args, MAYBE_UNUSE
         float y1 = (float) RValue_toReal(args[1]);
         float x2 = (float) RValue_toReal(args[2]);
         float y2 = (float) RValue_toReal(args[3]);
-        float col1 = (float) RValue_toReal(args[4]);
-        float col2 = (float) RValue_toReal(args[5]);
+        uint32_t col1 = (uint32_t) RValue_toReal(args[4]);
+        uint32_t col2 = (uint32_t) RValue_toReal(args[5]);
         runner->renderer->vtable->drawLineColor(runner->renderer, x1, y1, x2, y2, 1.0f, col1, col2, runner->renderer->drawAlpha);
     }
     return RValue_makeUndefined();
@@ -10092,7 +10094,7 @@ static RValue builtin_draw_triangle(VMContext* ctx, RValue* args, MAYBE_UNUSED i
         float y2 = (float) RValue_toReal(args[3]);
         float x3 = (float) RValue_toReal(args[4]);
         float y3 = (float) RValue_toReal(args[5]);
-        bool outline = (float) RValue_toBool(args[6]);
+        bool outline = (bool) RValue_toBool(args[6]);
         uint32_t color = runner->renderer->drawColor;
         runner->renderer->vtable->drawTriangle(runner->renderer, x1, y1, x2, y2, x3, y3, color, color, color, runner->renderer->drawAlpha, outline);
     }
@@ -10324,13 +10326,13 @@ static RValue builtin_surface_resize(VMContext* ctx, RValue* args, MAYBE_UNUSED 
 
 static RValue builtin_surface_copy_part(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t sourceID = (int32_t) RValue_toReal(args[0]);
-    float x = (float) RValue_toReal(args[1]);
-    float y = (float) RValue_toReal(args[2]);
+    int32_t x = (int32_t) RValue_toReal(args[1]);
+    int32_t y = (int32_t) RValue_toReal(args[2]);
     int32_t destinationID = (int32_t) RValue_toReal(args[3]);
-    float xs = (float) RValue_toReal(args[4]);
-    float ys = (float) RValue_toReal(args[5]);
-    float ws = (float) RValue_toReal(args[6]);
-    float hs = (float) RValue_toReal(args[7]);
+    int32_t xs = (int32_t) RValue_toReal(args[4]);
+    int32_t ys = (int32_t) RValue_toReal(args[5]);
+    int32_t ws = (int32_t) RValue_toReal(args[6]);
+    int32_t hs = (int32_t) RValue_toReal(args[7]);
     //fprintf(stderr, "Set Surface Target Yes\n");
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
@@ -10341,13 +10343,13 @@ static RValue builtin_surface_copy_part(VMContext* ctx, RValue* args, MAYBE_UNUS
 
 static RValue builtin_surface_copy(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t sourceID = (int32_t) RValue_toReal(args[0]);
-    float x = (float) RValue_toReal(args[1]);
-    float y = (float) RValue_toReal(args[2]);
+    int32_t x = (int32_t) RValue_toReal(args[1]);
+    int32_t y = (int32_t) RValue_toReal(args[2]);
     int32_t destinationID = (int32_t) RValue_toReal(args[3]);
     //fprintf(stderr, "Set Surface Target Yes\n");
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
-        runner->renderer->vtable->surfaceCopy(runner->renderer, sourceID, x, y, destinationID, 0.0, 0.0, 0.0, 0.0, false);
+        runner->renderer->vtable->surfaceCopy(runner->renderer, sourceID, x, y, destinationID, 0, 0, 0, 0, false);
     }
     return RValue_makeUndefined();
 }
@@ -10967,10 +10969,10 @@ static RValue builtin_place_meeting(VMContext* ctx, RValue* args, int32_t argCou
     SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
     // Save current position and temporarily move to test position
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     bool found = false;
@@ -11497,10 +11499,10 @@ static RValue builtin_instance_place(VMContext* ctx, RValue* args, int32_t argCo
     // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
     SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     int32_t resultId = INSTANCE_NOONE;
@@ -11560,10 +11562,10 @@ static RValue builtin_instance_place_list(VMContext* ctx, RValue* args, int32_t 
     // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
     SpatialGrid_syncGrid(runner, runner->spatialGrid);
 
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
+    float savedX = caller->x;
+    float savedY = caller->y;
+    caller->x = (float)testX;
+    caller->y = (float)testY;
 
     InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
     int32_t count = 0;
@@ -13251,8 +13253,8 @@ static RValue builtin_layer_tilemap_get_id(VMContext* ctx, RValue* args, MAYBE_U
 static RValue builtin_draw_tilemap(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (3 > argCount) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
-    GMLReal x = RValue_toReal(args[1]);
-    GMLReal y = RValue_toReal(args[2]);
+    float x = (float) RValue_toReal(args[1]);
+    float y = (float) RValue_toReal(args[2]);
 
     RoomLayerTilesData* tilesData = findTilemapData(runner, RValue_toInt32(args[0]), nullptr);
     if (tilesData != nullptr) {
@@ -13510,7 +13512,7 @@ static RValue builtin_array_create(VMContext* ctx, RValue* args, int32_t argCoun
     RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
     RValue fill = (argCount > 1) ? args[1] : RValue_makeUndefined();
     repeat(RValue_toReal(args[0]), i) {
-        GMLArray_setOnArrayRef(&arr, i, fill);
+        GMLArray_setOnArrayRef(&arr, (int32_t)i, fill);
     }
     return arr;
 }
@@ -14754,7 +14756,7 @@ static RValue builtin_object_set_depth(VMContext* ctx, RValue* args, int32_t arg
     int32_t id = RValue_toInt32(args[0]);
     GMLReal depth = RValue_toReal(args[1]);
     if (0 <= id && (uint32_t) id < ctx->dataWin->objt.count) {
-        ctx->dataWin->objt.objects[id].depth = depth;
+        ctx->dataWin->objt.objects[id].depth = (int32_t)depth;
     }
     return RValue_makeUndefined();
 }
@@ -14796,7 +14798,7 @@ static RValue builtin_object_set_sprite(VMContext* ctx, RValue* args, int32_t ar
     if (2 > argCount) return RValue_makeUndefined();
 
     int32_t id = RValue_toInt32(args[0]);
-    int32_t spriteIndex = RValue_toReal(args[1]);
+    int32_t spriteIndex = (int32_t)RValue_toReal(args[1]);
     if (0 <= id && (uint32_t) id < ctx->dataWin->objt.count) {
         ctx->dataWin->objt.objects[id].spriteId = spriteIndex;
     }
@@ -15070,14 +15072,14 @@ static RValue builtin_asset_get_index(VMContext* ctx, RValue* args, int32_t argC
 }
 
 static RValue builtin_gpu_set_blendmode(VMContext* ctx, RValue* args, int32_t argCount) {
-    int mode = RValue_toReal(args[0]);
+    int mode = (int)RValue_toReal(args[0]);
     ctx->runner->renderer->vtable->gpuSetBlendMode(ctx->runner->renderer, mode);
     return RValue_makeUndefined();
 }
 
 static RValue builtin_gpu_set_blendmode_ext(VMContext* ctx, RValue* args, int32_t argCount) {
-    int sfactor = RValue_toReal(args[0]);
-    int dfactor = RValue_toReal(args[1]);
+    int sfactor = (int)RValue_toReal(args[0]);
+    int dfactor = (int)RValue_toReal(args[1]);
     ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor);
     return RValue_makeUndefined();
 }

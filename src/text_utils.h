@@ -120,7 +120,7 @@ static inline int32_t TextUtils_utf8EncodeCodepoint(uint32_t cp, char* out) {
 // - Falls back to emSize only if the font has no glyphs recorded.
 static inline float TextUtils_lineStride(Font* font) {
     if (font->maxGlyphHeight > 0) return (float) font->maxGlyphHeight;
-    return font->emSize;
+    return (float)font->emSize;
 }
 
 static inline float TextUtils_measureLineWidth(Font* font, const char* line, int32_t len) {

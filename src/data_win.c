@@ -747,7 +747,7 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
                 // even though the data.win is NOT GM:S 2+
                 if (DataWin_isVersionAtLeast(dw, 2, 0, 0, 0)) {
                     spr->gms2PlaybackSpeed = BinaryReader_readFloat32(reader);
-                    spr->gms2PlaybackSpeedType = BinaryReader_readUint32(reader);
+                    spr->gms2PlaybackSpeedType = (BinaryReader_readUint32(reader) != 0);
                     if (spr->sVersion >= 2) {
                         BinaryReader_skip(reader, 4); //sequenceOffset;
                         if (spr->sVersion >= 3) {

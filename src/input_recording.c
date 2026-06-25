@@ -80,11 +80,11 @@ InputRecording* InputRecording_createPlayer(const char* playbackFilePath, const 
         int32_t* keysReleasedArray = nullptr;
 
         repeat(keysPressedLength, j) {
-            arrput(keysPressedArray, JsonReader_getInt(JsonReader_getArrayElement(keysPressed, j)));
+            arrput(keysPressedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysPressed, j)));
         }
 
         repeat(keysReleasedLength, j) {
-            arrput(keysReleasedArray, JsonReader_getInt(JsonReader_getArrayElement(keysReleased, j)));
+            arrput(keysReleasedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysReleased, j)));
         }
 
         InputFrame inputFrame = {0};

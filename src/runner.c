@@ -1535,8 +1535,8 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         dst->backgroundIndex = src->backgroundDefinition;
         dst->x = (float) src->x;
         dst->y = (float) src->y;
-        dst->tileX = (bool) src->tileX;
-        dst->tileY = (bool) src->tileY;
+        dst->tileX = (src->tileX != 0);
+        dst->tileY = (src->tileY != 0);
         dst->speedX = (float) src->speedX;
         dst->speedY = (float) src->speedY;
         dst->xScale = 1.0f;
@@ -3577,7 +3577,7 @@ void Runner_step(Runner* runner) {
                 if (sprite->gms2PlaybackSpeedType == true) {
                     inst->imageIndex += inst->imageSpeed * sprite->gms2PlaybackSpeed;
                 } else {
-                    inst->imageIndex += (1.0/runner->currentRoom->speed) * sprite->gms2PlaybackSpeed * inst->imageSpeed;
+                    inst->imageIndex += (1.0f/runner->currentRoom->speed) * sprite->gms2PlaybackSpeed * inst->imageSpeed;
                 }
             }
         } else {
