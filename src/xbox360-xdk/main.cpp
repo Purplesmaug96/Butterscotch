@@ -1645,9 +1645,7 @@ VOID __cdecl main() {
     pD3D->Release();
 
     free(xpadMappings);
-
-    diagLog("Butterscotch: game_change end nextWD=%p nextLP=%p dataWinPath=%s",
-        nextWorkingDirectory, nextLaunchParameters, dataWinPath);
+	xpadMappings = NULL;
 
 
     // game_change was called: compute the new data.win path and restart.
