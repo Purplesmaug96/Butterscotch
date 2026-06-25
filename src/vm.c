@@ -850,7 +850,8 @@ static void writeSingleInstanceVariable(VMContext* ctx, Instance* inst, Variable
 }
 
 // Force out-of-line so the OP_POP fast path in executeLoop doesn't inline this, because we already have an "optimized" version for common writes
-NOINLINE static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t varRef, RValue val) {
+NOINLINE
+static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t varRef, RValue val) {
     Variable* varDef = resolveVarDef(ctx, varRef);
 
     // Fast path: When the varType==VARTYPE_NORMAL...
@@ -1467,7 +1468,8 @@ static void handlePopz(VMContext* ctx) {
     RValue_free(&val);
 }
 
-NOINLINE static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
+NOINLINE
+static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
     if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
         // String concatenation
         const char* sa = a.string != nullptr ? a.string : "";
@@ -1507,7 +1509,8 @@ NOINLINE static void handleAddString(VMContext* ctx, RValue a, RValue b, uint8_t
     }
 }
 
-NOINLINE static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
+NOINLINE
+static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultType) {
     // a.type == RVALUE_STRING; b is the repetition count.
     int count = RValue_toInt32(b);
     const char* str = a.string != nullptr ? a.string : "";
