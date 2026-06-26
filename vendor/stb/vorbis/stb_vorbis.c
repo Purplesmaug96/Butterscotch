@@ -4700,11 +4700,11 @@ static int go_to_page_before(stb_vorbis *f, unsigned int limit_offset)
 static int seek_to_sample_coarse(stb_vorbis *f, uint32 sample_number)
 {
    ProbedPage left, right, mid;
-   // Only if RESET_STRUCT macro from Butterscotch if defined, clear them to 0
-   #ifdef RESET_STRUCT
-   RESET_STRUCT(&left, ProbedPage);
-   RESET_STRUCT(&right, ProbedPage);
-   RESET_STRUCT(&mid, ProbedPage);
+   // Only if ZERO_STRUCT macro from Butterscotch if defined, clear them to 0
+   #ifdef ZERO_STRUCT
+   ZERO_STRUCT(left);
+   ZERO_STRUCT(right);
+   ZERO_STRUCT(mid);
    #endif
    int i, start_seg_with_known_loc, end_pos, page_start;
    uint32 delta, stream_length, padding, last_sample_limit;

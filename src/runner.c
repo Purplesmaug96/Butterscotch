@@ -1850,7 +1850,7 @@ static void cleanupState(Runner* runner) {
             free(file->content);
             free(file->writeBuffer);
             free(file->filePath);
-			RESET_STRUCT(file, OpenTextFile);
+			ZERO_STRUCT(*file);
         }
     }
 
@@ -1860,7 +1860,7 @@ static void cleanupState(Runner* runner) {
         OpenBinaryFile* file = &runner->openBinaryFiles[i];
         if (file->isOpen) {
             runner->fileSystem->vtable->binaryClose(runner->fileSystem, file->handle);
-            RESET_STRUCT(file, OpenBinaryFile);
+            ZERO_STRUCT(*file);
         }
     }
 
@@ -2976,9 +2976,9 @@ static void dispatchCollisionEvents(Runner* runner) {
             if (!self->active) continue;
 
             InstanceBBox bboxSelf;
-			RESET_STRUCT(&bboxSelf, InstanceBBox);
+			ZERO_STRUCT(bboxSelf);
             Sprite* sprSelf;
-			RESET_STRUCT(&sprSelf, Sprite);
+			ZERO_STRUCT(sprSelf);
             bool selfDirty = true;
 
             FlattenedCollisionEventList* eventList = &runner->flattenedCollisionEvents[self->objectIndex];
