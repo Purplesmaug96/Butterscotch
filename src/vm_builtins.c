@@ -15176,13 +15176,17 @@ static RValue builtin_shaders_are_supported(VMContext* ctx, MAYBE_UNUSED RValue*
 static RValue builtin_shader_get_uniform(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t ShaderID = (int32_t) RValue_toReal(args[0]);
     char* uniform = RValue_toString(args[1]);
-    return RValue_makeInt32(ctx->runner->renderer->vtable->shaderGetUniform(ctx->runner->renderer, ShaderID, uniform));
+	RValue ret = RValue_makeInt32(ctx->runner->renderer->vtable->shaderGetUniform(ctx->runner->renderer, ShaderID, uniform));
+	free(uniform);
+    return ret;
 }
 
 static RValue builtin_shader_get_sampler_index(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t ShaderID = (int32_t) RValue_toReal(args[0]);
     char* uniform = RValue_toString(args[1]);
-    return RValue_makeInt32(ctx->runner->renderer->vtable->shaderGetSamplerIndex(ctx->runner->renderer, ShaderID, uniform));
+	RValue ret = RValue_makeInt32(ctx->runner->renderer->vtable->shaderGetSamplerIndex(ctx->runner->renderer, ShaderID, uniform));
+    free(uniform);
+	return ret;
 }
 
 static RValue builtin_texture_set_stage(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
