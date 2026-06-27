@@ -714,8 +714,10 @@ static void maGroupLoad(AudioSystem* audio, int32_t groupIndex) {
 
         DataWinParserOptions options = {0};
         options.parseAudo = true;
-        DataWin *audioGroup = DataWin_parse(((MaAudioSystem*)audio)->fileSystem->vtable->resolvePath(((MaAudioSystem*)audio)->fileSystem, buf), options);
+		char* audioGroupPath = ((MaAudioSystem*)audio)->fileSystem->vtable->resolvePath(((MaAudioSystem*)audio)->fileSystem, buf);
+        DataWin *audioGroup = DataWin_parse(audioGroupPath, options);
         arrput(audio->audioGroups, audioGroup);
+		free(audioGroupPath);
         free(buf);
     } else {
         fprintf(stderr, "Audio: Wanted to load Audio Group %d, but Audio Group %d does not exist in the AGPR!\n", groupIndex, groupIndex);
