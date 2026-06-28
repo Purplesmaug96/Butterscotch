@@ -2,6 +2,9 @@
 #include <stdio.h>
 
 #include <SDL3/SDL.h>
+#ifdef _WIN32
+#include <SDL3/SDL_syswm.h>
+#endif
 
 #include "common.h"
 #include "input_recording.h"
@@ -34,6 +37,20 @@ static const int SDL_TO_GML_BUTTON[SDL_GAMEPAD_BUTTON_COUNT] = {
     [SDL_GAMEPAD_BUTTON_DPAD_LEFT]      = 14,
     [SDL_GAMEPAD_BUTTON_DPAD_RIGHT]     = 15,
 };
+
+void *platformGetNativeWindowHandle(void) {
+#ifdef _WIN32
+    if (window == NULL) return NULL;
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(window, &wmInfo)) {
+        return (void*)wmInfo.info.win.window;
+    }
+    return NULL;
+#else
+    return NULL;
+#endif
+}
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
     if (gfx == SOFTWARE) {

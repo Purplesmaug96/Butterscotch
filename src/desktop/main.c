@@ -40,6 +40,13 @@
 #include "sw_renderer.h"
 #endif
 #include "overlay_file_system.h"
+#ifdef ENABLE_D3D9
+#include "d3d9_renderer.h"
+#ifdef _WIN32
+#include <windows.h>
+#include <d3d9.h>
+#endif
+#endif
 #if defined(USE_OPENAL)
 #include "al_audio_system.h"
 #elif defined(USE_MINIAUDIO)
@@ -468,7 +475,9 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
     args->loadType = DATAWINLOADTYPE_LOAD_IN_MEMORY_AHEAD_OF_TIME;
     // TODO: detect available driver features
     // at runtime to improve defaults.
-#if defined(ENABLE_MODERN_GL)
+#if defined(ENABLE_D3D9)
+    args->renderer = "d3d9";
+#elif defined(ENABLE_MODERN_GL)
     args->renderer = "modern-gl";
 #elif defined(ENABLE_LEGACY_GL)
     args->renderer = "legacy-gl";
@@ -1233,7 +1242,9 @@ int main(int argc, char* argv[]) {
         OverlayFileSystem* overlayFs = OverlayFileSystem_create(dataWinDir, savePath);
         free(dataWinDir);
 
-        if (strcmp(args.renderer, "modern-gl") == 0)
+        if (strcmp(args.renderer, "d3d9") == 0)
+            gfx = D3D9;
+        else if (strcmp(args.renderer, "modern-gl") == 0)
             gfx = MODERN_GL;
         else if (strcmp(args.renderer, "legacy-gl") == 0)
             gfx = LEGACY_GL;
@@ -1244,6 +1255,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+#ifndef ENABLE_D3D9
+        if (gfx == D3D9) {
+            fprintf(stderr, "The D3D9 renderer is not available in this build!\n");
+            return 0;
+        }
+#endif
 #ifndef ENABLE_LEGACY_GL
         if (gfx == LEGACY_GL) {
             fprintf(stderr, "The legacy gl renderer is not available in this build!\n");
@@ -1283,8 +1300,6 @@ int main(int argc, char* argv[]) {
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL) || ((defined(USE_GLFW3) || defined(USE_GLFW2)) && defined(ENABLE_SW_RENDERER) )
 #if defined(USE_GLFW3) || defined(USE_GLFW2)
             if (gfx == LEGACY_GL || gfx == MODERN_GL || gfx == SOFTWARE) {
-#else
-            if (gfx == LEGACY_GL || gfx == MODERN_GL) {
 #endif
                 glad_ret = platformInitGlad((GLADloadproc)platformGetProcAddress);
                 if (glad_ret == 0) {
@@ -1304,11 +1319,11 @@ int main(int argc, char* argv[]) {
 #endif
 
             platformInitialized = true;
-        } else {
-            // game_change path: reuse the existing window/GL context, just retitle and resize for the new game.
-            platformSetWindowTitle(gen8->displayName);
-            platformSetWindowSize(windowW, windowH);
-        }
+        // } else {
+        //     // game_change path: reuse the existing window/GL context, just retitle and resize for the new game.
+        //     platformSetWindowTitle(gen8->displayName);
+        //     platformSetWindowSize(windowW, windowH);
+        // }
 
         // Initialize the renderer
         Renderer* renderer = nullptr;
@@ -1324,6 +1339,62 @@ int main(int argc, char* argv[]) {
         if (gfx == MODERN_GL) {
             renderer = GLRenderer_create();
             ((GLRenderer *)renderer)->isGLES = (glad_ret == 2);
+        }
+#endif
+#ifdef ENABLE_D3D9
+        if (gfx == D3D9) {
+#ifdef _WIN32
+            void* nativeWindow = platformGetNativeWindowHandle();
+            if (!nativeWindow) {
+                fprintf(stderr, "Failed to get native window handle for D3D9!\n");
+                platformExit();
+                DataWin_free(dataWin);
+                freeCommandLineArgs(&args);
+                return 1;
+            }
+            HWND hwnd = (HWND)nativeWindow;
+            IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION);
+            if (!d3d) {
+                fprintf(stderr, "Failed to create Direct3D9 object!\n");
+                platformExit();
+                DataWin_free(dataWin);
+                freeCommandLineArgs(&args);
+                return 1;
+            }
+            D3DPRESENT_PARAMETERS pp;
+            memset(&pp, 0, sizeof(pp));
+            pp.Windowed = TRUE;
+            pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+            pp.hDeviceWindow = hwnd;
+            pp.BackBufferCount = 1;
+            pp.BackBufferFormat = D3DFMT_UNKNOWN;
+            pp.EnableAutoDepthStencil = FALSE;
+            IDirect3DDevice9* device = NULL;
+            HRESULT hr = d3d->CreateDevice(
+                D3DADAPTER_DEFAULT,
+                D3DDEVTYPE_HAL,
+                hwnd,
+                D3DCREATE_HARDWARE_VERTEXPROCESSING,
+                &pp,
+                &device
+            );
+            if (FAILED(hr)) {
+                fprintf(stderr, "Failed to create D3D9 device (HRESULT: 0x%08lx)!\n", hr);
+                d3d->Release();
+                platformExit();
+                DataWin_free(dataWin);
+                freeCommandLineArgs(&args);
+                return 1;
+            }
+            renderer = D3D9Renderer_create(device);
+            printf("D3D9 renderer initialized successfully.\n");
+#else
+            fprintf(stderr, "D3D9 renderer is only supported on Windows!\n");
+            platformExit();
+            DataWin_free(dataWin);
+            freeCommandLineArgs(&args);
+            return 1;
+#endif
         }
 #endif
         if (!renderer) {
@@ -1361,6 +1432,10 @@ int main(int argc, char* argv[]) {
 #ifdef ENABLE_LEGACY_GL
                 if (gfx == LEGACY_GL)
                     GLLegacyRenderer_ensureTextureLoaded((GLLegacyRenderer*) renderer, (int32_t) i);
+#endif
+#ifdef ENABLE_D3D9
+                if (gfx == D3D9)
+                    D3D9_ensureTextureLoaded((D3D9Renderer*) renderer, (int32_t) i);
 #endif
             }
         }

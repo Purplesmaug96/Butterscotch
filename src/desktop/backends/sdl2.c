@@ -2,6 +2,9 @@
 #include <stdio.h>
 
 #include <SDL2/SDL.h>
+#ifdef _WIN32
+#include <SDL2/SDL_syswm.h>
+#endif
 
 #include "common.h"
 #include "input_recording.h"
@@ -14,6 +17,20 @@ static bool gFullscreen = false;
 static SDL_Surface* scr;
 static SDL_Window *window;
 static SDL_GameController* openControllers[MAX_GAMEPADS];
+
+void *platformGetNativeWindowHandle(void) {
+#ifdef _WIN32
+    if (window == NULL) return NULL;
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(window, &wmInfo)) {
+        return (void*)wmInfo.info.win.window;
+    }
+    return NULL;
+#else
+    return NULL;
+#endif
+}
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
     if (gfx == SOFTWARE) {
@@ -224,11 +241,12 @@ bool platformInit(int reqW, int reqH, const char *title, bool headless) {
         openControllers[i] = NULL;
     }
   
+    bool useOpengl = (gfx != SOFTWARE && gfx != D3D9);
     Uint32 flags;
     if (headless)
-        flags = (gfx == SOFTWARE ? 0 : SDL_WINDOW_OPENGL) | SDL_WINDOW_HIDDEN;
+        flags = (useOpengl ? SDL_WINDOW_OPENGL : 0) | SDL_WINDOW_HIDDEN;
     else
-        flags = (gfx == SOFTWARE ? 0 : SDL_WINDOW_OPENGL) | SDL_WINDOW_RESIZABLE;
+        flags = (useOpengl ? SDL_WINDOW_OPENGL : 0) | SDL_WINDOW_RESIZABLE;
 #if SDL_VERSION_ATLEAST(2, 0, 1)
     flags |= SDL_WINDOW_ALLOW_HIGHDPI;
 #endif
@@ -363,6 +381,7 @@ void platformSwapBuffers(void) {
     if (gfx == LEGACY_GL || gfx == MODERN_GL)
         SDL_GL_SwapWindow(window);
 #endif
+    // D3D9 handles Present internally in endFrameEnd
 }
 
 #if defined(ENABLE_MODERN_GL) || defined(ENABLE_LEGACY_GL)

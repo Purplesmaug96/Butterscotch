@@ -1,29 +1,114 @@
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <d3d9.h>
 #ifdef PLATFORM_XBOX360_XDK
+#include <xtl.h>
 #include <d3dx9.h>
 #include <xgraphics.h>
 #endif
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cmath>
-#include <cstdarg>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdarg.h>
+#include <limits.h>
+#include <algorithm>
+
+#ifndef PLATFORM_XBOX360_XDK
+extern "C" {
+	#include "data_win.h"
+}
+#endif
+
+#include "d3d9_renderer.h"
+
+#if !defined(PLATFORM_XBOX360_XDK)
+
+#define __cdecl __attribute__((cdecl))
+#define _vsnprintf vsnprintf
+#define _snprintf snprintf
+
+#define OutputDebugStringA(msg) printf("%s\n", msg)
+#define GetFreeMemMB() 1024.0f
+
+// Xbox 360 XDK Hardware Mappings
+#define D3DFMT_LIN_A8R8G8B8      D3DFMT_A8R8G8B8
+#define D3DRESOLVE_RENDERTARGET0 0
+#define D3DRS_VIEWPORTENABLE     (D3DRENDERSTATETYPE)255 // Dummy ID to bypass compiler
+
+// Map native 360 Quads to Triangle Lists (Note: vertex indexing layout may need adjustment later)
+#define D3DPT_QUADLIST           D3DPT_TRIANGLELIST
+
+// 4. Legacy Windows D3DX Library Stubs
+#define D3DX_FILTER_POINT 1
+struct ID3DXBuffer {
+    virtual HRESULT QueryInterface(const IID&, void**) = 0;
+    virtual ULONG AddRef() = 0;
+    virtual ULONG Release() = 0;
+    virtual void* GetBufferPointer() = 0;
+    virtual DWORD GetBufferSize() = 0;
+};
+inline HRESULT D3DXCompileShader(const char*, UINT, void*, void*, const char*, const char*, DWORD, ID3DXBuffer**, ID3DXBuffer**, void*) { return S_OK; }
+inline HRESULT D3DXLoadSurfaceFromSurface(void*, void*, void*, void*, void*, void*, DWORD, DWORD) { return S_OK; }
+
+static int32_t _gGameW;
+static int32_t _gGameH;
+
+static int32_t* gGameW = &_gGameW;
+static int32_t* gGameH = &_gGameH;
+
+#endif
 
 float _offx = 0.0f;
 
+#include "stb_ds.h"
+
 // Core headers — compiled as C++ alongside the .c files (via /TP flag)
+#ifndef PLATFORM_XBOX360_XDK
+extern "C" {
+#endif
 #include "utils.h"
 #include "text_utils.h"
-#include "d3d9_renderer.h"
 #include "runner.h"
 #include "image_decoder.h"
+#ifndef PLATFORM_XBOX360_XDK
+}
+#endif
 
+#ifndef PLATFORM_XBOX360_XDK
+unsigned long __cdecl DbgPrint(const char* format, ...) {
+	va_list args;
+    int result;
 
-extern "C" unsigned long __cdecl DbgPrint(const char* format, ...);
-extern "C" void Butterscotch_xdkDiagTrace(const char* fmt, ...);
+    va_start(args, format);
+    result = vprintf(format, args);
+    va_end(args);
+
+    return result;
+}
+
+void Butterscotch_xdkDiagTrace(const char* fmt, ...) {
+	va_list args;
+
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+}
+#endif
 
 #include "stb_image.h"
+
+#ifdef PLATFORM_XBOX360_XDK
+extern "C" {
+#endif
+unsigned long __cdecl DbgPrint(const char* format, ...);
+void Butterscotch_xdkDiagTrace(const char* fmt, ...);
+#ifdef PLATFORM_XBOX360_XDK
+}
+#endif
+
+using namespace std;
 
 // ===[ Vertex Format ]===
 // Uses FLOAT4 position (pre-transformed screen coords, z=0, w=1)
@@ -219,9 +304,11 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
     if (dr->appSurfaceResolved) return;
 
     IDirect3DDevice9* dev = Dev(dr);
+	#ifdef PLATFORM_XBOX360_XDK
     dev->Resolve(D3DRESOLVE_RENDERTARGET0, NULL,
                  (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
                  NULL, 0, 0, NULL, 1.0f, 0, NULL);
+	#endif
     dr->appSurfaceResolved = true;
 }
 
@@ -314,7 +401,6 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     }
 }
 
-
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return false;
     if (dr->textures[textureIndex]) {
@@ -332,7 +418,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (txtr->blobData && txtr->blobSize > 0) {
         ok = loadTextureBytes(dr, textureIndex, txtr->blobData, (int)txtr->blobSize, "data.win");
     } else if (txtr->present) {
-        ok = loadExternalTexturePage(dr, textureIndex);
+		ok = loadExternalTexturePage(dr, textureIndex);
     }
 
 	if (ok) {
@@ -342,6 +428,10 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 	if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
 
     return ok;
+}
+
+extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
+	return ensureTexturePageLoaded(dr, textureIndex);
 }
 
 static void ensureTexture(D3D9Renderer* dr, int32_t textureIndex) {
@@ -780,8 +870,8 @@ static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int3
     D3DVIEWPORT9 vp;
     vp.X = (DWORD)scLeft;
     vp.Y = (DWORD)scTop;
-    vp.Width = max(1, (DWORD)(scRight - scLeft));
-    vp.Height = max(1, (DWORD)(scBottom - scTop));
+    vp.Width = max(1U, (DWORD)(scRight - scLeft));
+    vp.Height = max(1U, (DWORD)(scBottom - scTop));
     vp.MinZ = 0.0f;
     vp.MaxZ = 1.0f;
     dev->SetViewport(&vp);
