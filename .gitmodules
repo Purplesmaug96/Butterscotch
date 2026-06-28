@@ -7,3 +7,6 @@
 [submodule "vendor/ToGL"]
 	path = vendor/ToGL
 	url = https://github.com/Purplesmaug96/ToGL.git
+[submodule "vendor/dxvk"]
+	path = vendor/dxvk
+	url = https://github.com/Purplesmaug96/dxvk.git
