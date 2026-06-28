@@ -33,7 +33,7 @@ void *platformGetNativeWindowHandle(void) {
 }
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
-    if (gfx == SOFTWARE) {
+    if (gfx == SOFTWARE || gfx == D3D9) {
         return SDL_CreateWindow(
             title,
             SDL_WINDOWPOS_UNDEFINED,
@@ -240,7 +240,7 @@ bool platformInit(int reqW, int reqH, const char *title, bool headless) {
     for (int i = 0; i < MAX_GAMEPADS; i++) {
         openControllers[i] = NULL;
     }
-  
+
     bool useOpengl = (gfx != SOFTWARE && gfx != D3D9);
     Uint32 flags;
     if (headless)

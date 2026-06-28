@@ -1,9 +1,25 @@
 #include <ctype.h>
 
+#include "stb_ds.h"
+#include "stb_image_write.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "data_win.h"
 #include "vm.h"
 
 #include "platformdefs.h"
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef ENABLE_D3D9
+#include "d3d9_renderer.h"
+#include <windows.h>
+#include <d3d9.h>
+#endif
+
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +38,9 @@
 #endif
 #endif
 #endif
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "runner_keyboard.h"
 #include "runner.h"
 #include "input_recording.h"
@@ -40,25 +58,20 @@
 #include "sw_renderer.h"
 #endif
 #include "overlay_file_system.h"
-#ifdef ENABLE_D3D9
-#include "d3d9_renderer.h"
-#ifdef _WIN32
-#include <windows.h>
-#include <d3d9.h>
-#endif
-#endif
 #if defined(USE_OPENAL)
 #include "al_audio_system.h"
 #elif defined(USE_MINIAUDIO)
 #include "ma_audio_system.h"
 #endif
 #include "noop_audio_system.h"
-#include "stb_ds.h"
-#include "stb_image_write.h"
 
 #include "utils.h"
 #include "profiler.h"
 #include "gettime.h"
+
+#ifdef __cplusplus
+}
+#endif
 
 /* For SDL_main */
 #if defined(USE_SDL1)
@@ -1302,7 +1315,7 @@ int main(int argc, char* argv[]) {
             if (gfx == LEGACY_GL || gfx == MODERN_GL || gfx == SOFTWARE) {
 #endif
                 glad_ret = platformInitGlad((GLADloadproc)platformGetProcAddress);
-                if (glad_ret == 0) {
+                if (glad_ret == 0 && gfx != D3D9) {
                     fprintf(stderr, "Failed to initialize GLAD\n");
                     platformExit();
                     DataWin_free(dataWin);
@@ -1343,7 +1356,7 @@ int main(int argc, char* argv[]) {
 #endif
 #ifdef ENABLE_D3D9
         if (gfx == D3D9) {
-#ifdef _WIN32
+// #ifdef _WIN32
             void* nativeWindow = platformGetNativeWindowHandle();
             if (!nativeWindow) {
                 fprintf(stderr, "Failed to get native window handle for D3D9!\n");
@@ -1388,13 +1401,13 @@ int main(int argc, char* argv[]) {
             }
             renderer = D3D9Renderer_create(device);
             printf("D3D9 renderer initialized successfully.\n");
-#else
-            fprintf(stderr, "D3D9 renderer is only supported on Windows!\n");
-            platformExit();
-            DataWin_free(dataWin);
-            freeCommandLineArgs(&args);
-            return 1;
-#endif
+// #else
+            // fprintf(stderr, "D3D9 renderer is only supported on Windows!\n");
+            // platformExit();
+            // DataWin_free(dataWin);
+            // freeCommandLineArgs(&args);
+            // return 1;
+// #endif
         }
 #endif
         if (!renderer) {

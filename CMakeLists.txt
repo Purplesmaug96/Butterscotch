@@ -356,6 +356,10 @@ if(PLATFORM STREQUAL "desktop")
     target_link_libraries(butterscotch ${BACKEND_LIBRARIES} ${AUDIO_LIBRARIES} ${PLATFORM_LIBRARIES})
     target_sources(butterscotch PRIVATE src/desktop/backends/${DESKTOP_BACKEND}.c)
 
+	if(ENABLE_D3D9)
+		set_source_files_properties(src/desktop/main.c PROPERTIES LANGUAGE CXX)
+	endif()
+
     # Enable AddressSanitizer by default in Debug builds
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(ENABLE_ASAN_DEFAULT ON)
