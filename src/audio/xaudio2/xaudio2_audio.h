@@ -2,11 +2,11 @@
 
 #include "audio_system.h"
 
-#define XDK_MAX_SOUND_INSTANCES 32
-#define XDK_SOUND_INSTANCE_ID_BASE 100000
-#define XDK_MAX_AUDIO_STREAMS 32
+#define XAUDIO2_MAX_SOUND_INSTANCES 32
+#define XAUDIO2_SOUND_INSTANCE_ID_BASE 100000
+#define XAUDIO2_MAX_AUDIO_STREAMS 32
 // This is the index space that the native runner uses
-#define XDK_AUDIO_STREAM_INDEX_BASE 300000
+#define XAUDIO2_AUDIO_STREAM_INDEX_BASE 300000
 
 typedef struct {
     bool active;
@@ -29,8 +29,8 @@ typedef struct {
     void* instanceData;     // opaque pointer to C++ instance array
     int nextInstanceCounter;
 
-	AudioStreamEntry streams[XDK_MAX_AUDIO_STREAMS];
-} XdkAudioSystem;
+	AudioStreamEntry streams[XAUDIO2_MAX_AUDIO_STREAMS];
+} XAudio2AudioSystem;
 
-XdkAudioSystem* XdkAudioSystem_create(void);
-void XdkAudioSystem_onRoomChanged(AudioSystem* audio, int32_t roomIndex, const char* roomName);
+XAudio2AudioSystem* XAudio2AudioSystem_create(void);
+void XAudio2AudioSystem_onRoomChanged(AudioSystem* audio, int32_t roomIndex, const char* roomName);

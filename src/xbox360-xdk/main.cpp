@@ -1328,7 +1328,7 @@ VOID __cdecl main() {
 
 	#ifdef USE_XAUDIO2_AUDIO
     diagLog("Butterscotch: (10) creating audio");
-    XdkAudioSystem* xdkAudio = XdkAudioSystem_create();
+    XAudio2AudioSystem* xdkAudio = XAudio2AudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*)xdkAudio;
 	#else
 	diagLog("Butterscotch: (10) creating audio (noop)");
@@ -1548,7 +1548,7 @@ VOID __cdecl main() {
                 roomChangedThisStep = true;
                 diagLog("ROOM_CHANGED id=%d name=%s", lastRoomId, runner->currentRoom->name ? runner->currentRoom->name : "(null)");
                 #ifdef USE_XAUDIO2_AUDIO
-				XdkAudioSystem_onRoomChanged(runner->audioSystem, lastRoomId, runner->currentRoom->name);
+				XAudio2AudioSystem_onRoomChanged(runner->audioSystem, lastRoomId, runner->currentRoom->name);
 				#endif
             }
 
