@@ -7639,8 +7639,26 @@ static RValue builtin_joystick_axes(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 }
 
 // Window stubs
-STUB_RETURN_ZERO(window_get_fullscreen)
-STUB_RETURN_UNDEFINED(window_set_fullscreen)
+static RValue builtin_window_get_fullscreen(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner != nullptr && runner->getWindowFullscreen != nullptr) {
+        return RValue_makeBool(runner->getWindowFullscreen());
+    }
+
+    return RValue_makeBool(true);
+}
+
+static RValue builtin_window_set_fullscreen(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    Runner* runner = ctx->runner;
+    if (runner != nullptr && runner->setWindowFullscreen != nullptr) {
+        runner->setWindowFullscreen(RValue_toBool(args[0]));
+    }
+
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_window_get_width(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner != nullptr && runner->getWindowSize != nullptr) {
@@ -7650,6 +7668,7 @@ static RValue builtin_window_get_width(VMContext* ctx, MAYBE_UNUSED RValue* args
             return RValue_makeReal((GMLReal) w);
         }
     }
+
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowWidth);
 }
 
@@ -7662,6 +7681,7 @@ static RValue builtin_window_get_height(VMContext* ctx, MAYBE_UNUSED RValue* arg
             return RValue_makeReal((GMLReal) h);
         }
     }
+
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowHeight);
 }
 
@@ -15877,6 +15897,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     // Window
     VM_registerBuiltin(ctx, "window_get_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
     VM_registerBuiltin(ctx, "window_set_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
+    VM_registerBuiltin(ctx, "window_get_borderless_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
+    VM_registerBuiltin(ctx, "window_enable_borderless_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
     VM_registerBuiltin(ctx, "window_set_caption", (BuiltinFunc)builtin_window_set_caption);
     VM_registerBuiltin(ctx, "window_get_caption", (BuiltinFunc)builtin_window_get_caption);
     VM_registerBuiltin(ctx, "window_get_width", (BuiltinFunc)builtin_window_get_width);
