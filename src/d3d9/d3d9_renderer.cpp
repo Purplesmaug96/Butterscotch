@@ -1,7 +1,9 @@
-#include <xtl.h>
+#include <windows.h>
 #include <d3d9.h>
+#ifdef PLATFORM_XBOX360_XDK
 #include <d3dx9.h>
 #include <xgraphics.h>
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
