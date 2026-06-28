@@ -276,7 +276,7 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
         Dev(dr)->SetTexture(0, NULL);
     }
     ((IDirect3DTexture9*)dr->textures[index])->Release();
-    dr->textures[index] = NULL;
+	dr->textureBytesUsed -= dr->textureBlobSizes[index];
     dr->textureWidths[index] = 0;
     dr->textureHeights[index] = 0;
     if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[index] = 0;
@@ -284,8 +284,9 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
 }
 
 static void ensureTextureCacheRoom(D3D9Renderer* dr) {
-    const uint32_t maxLoadedPages = 32;
-    while (dr->loadedTexturePages > maxLoadedPages) {
+    const uint32_t maxLoadedPages = 24;
+	const uint32_t maxTextureBytesUsed = (256 * 1024 * 1024); // 256 MB
+    while (dr->loadedTexturePages > maxLoadedPages || dr->textureBytesUsed > maxTextureBytesUsed) {
         // Evict the least recently used page (by frameCounter ordering)
         uint32_t victim = UINT_MAX;
         uint32_t bestAge = 0;
@@ -332,11 +333,11 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
         ok = loadExternalTexturePage(dr, textureIndex);
     }
 
-        if (ok) {
-        	// Only count this as a newly-loaded page when it transitioned from NULL -> valid.
-        	dr->loadedTexturePages++;
-        }
-        if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+	if (ok) {
+		// Only count this as a newly-loaded page when it transitioned from NULL -> valid.
+		dr->loadedTexturePages++;
+	}
+	if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
 
     return ok;
 }
@@ -437,6 +438,8 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
     dr->textures[index] = tex;
     dr->textureWidths[index] = w;
     dr->textureHeights[index] = h;
+	dr->textureBlobSizes[index] = byteSize;
+	dr->textureBytesUsed += byteSize;
     Butterscotch_xdkDiagTrace("D3D9: loaded texture page %u %dx%d from %s", index, w, h, label ? label : "(memory)");
     return true;
 }
@@ -599,6 +602,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->textures = (void**)safeCalloc(dr->textureCount, sizeof(void*));
     dr->textureWidths = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
     dr->textureHeights = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
+	dr->textureBlobSizes = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
     dr->textureLastUsedFrame = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
     dr->loadedTexturePages = 0;
     dr->frameCounter = 1;
@@ -627,6 +631,7 @@ static void d3d9Destroy(Renderer* renderer) {
     free(dr->textures);
     free(dr->textureWidths);
     free(dr->textureHeights);
+	free(dr->textureBlobSizes);
     free(dr->textureLastUsedFrame);
     free(dr->vertexData);
     if (dr->whiteTexture) ((IDirect3DTexture9*)dr->whiteTexture)->Release();

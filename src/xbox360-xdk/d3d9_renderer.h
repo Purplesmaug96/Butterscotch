@@ -29,9 +29,11 @@ typedef struct {
     void** textures;     // IDirect3DTexture9*[]
     int32_t* textureWidths;
     int32_t* textureHeights;
+	uint32_t* textureBlobSizes;
     uint32_t* textureLastUsedFrame;
     uint32_t frameCounter;
     uint32_t loadedTexturePages;
+	uint32_t textureBytesUsed;
     uint32_t textureCount;
 
     // 1x1 white texture for primitives
