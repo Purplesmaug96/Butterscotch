@@ -6,7 +6,7 @@
 #include "utils.h"
 
 SpatialGrid* SpatialGrid_create(uint32_t roomWidth, uint32_t roomHeight) {
-    SpatialGrid* grid = (SpatialGrid*)safeCalloc(1, sizeof(SpatialGrid));
+    SpatialGrid* grid = (SpatialGrid *)safeCalloc(1, sizeof(SpatialGrid));
 
     // +1 to avoid truncation
     uint32_t gridWidth = (roomWidth / SPATIAL_GRID_CELL_SIZE) + 1;
@@ -18,7 +18,7 @@ SpatialGrid* SpatialGrid_create(uint32_t roomWidth, uint32_t roomHeight) {
     grid->gridWidth = (int16_t)gridWidth;
     grid->gridHeight = (int16_t)gridHeight;
 
-    grid->grid = (Instance***)safeCalloc(gridWidth * gridHeight, sizeof(Instance**));
+    grid->grid = (Instance ***)safeCalloc(gridWidth * gridHeight, sizeof(Instance**));
 
     return grid;
 }

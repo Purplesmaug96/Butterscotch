@@ -1,4 +1,5 @@
-#pragma once
+#ifndef _BS_RVALUE_H_
+#define _BS_RVALUE_H_
 #include <stdint.h>
 #include "common.h"
 #include <stdio.h>
@@ -344,7 +345,7 @@ static inline char* RValue_toStringFancy(RValue val) {
 
             // length + quotes (2) + null terminator
             int newLength = strlen(valueAsString) + 3;
-            char* valueWithQuotes = (char*)safeCalloc(newLength, sizeof(char));
+            char* valueWithQuotes = (char *)safeCalloc(newLength, sizeof(char));
             snprintf(valueWithQuotes, newLength, "\"%s\"", valueAsString);
 
             free(valueAsString);
@@ -377,7 +378,7 @@ static inline char* RValue_toStringTyped(RValue val) {
         case RVALUE_STRING: {
             const char* str = val.string != nullptr ? val.string : "";
             size_t needed = strlen(str) + 3;
-            char* result = (char*)safeCalloc(needed, sizeof(char));
+            char* result = (char *)safeCalloc(needed, sizeof(char));
             snprintf(result, needed, "\"%s\"", str);
             return result;
         }
@@ -516,3 +517,5 @@ static inline void RValue_writeIntoSlotStealingOwnershipOrCopying(RValue* slot, 
     RValue_free(slot);
     *slot = target;
 }
+
+#endif /* _BS_RVALUE_H_ */

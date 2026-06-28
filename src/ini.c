@@ -30,7 +30,7 @@ static int findKeyIndex(const IniSection* section, const char* key) {
 static IniSection* addSection(IniFile* ini, const char* name) {
     if (ini->count >= ini->capacity) {
         ini->capacity = (ini->capacity == 0) ? 4 : ini->capacity * 2;
-        ini->sections = (IniSection*)safeRealloc(ini->sections, (size_t) ini->capacity * sizeof(IniSection));
+        ini->sections = (IniSection *)safeRealloc(ini->sections, (size_t) ini->capacity * sizeof(IniSection));
     }
     IniSection* section = &ini->sections[ini->count++];
     section->name = safeStrdup(name);
@@ -44,8 +44,8 @@ static IniSection* addSection(IniFile* ini, const char* name) {
 static void addKeyValue(IniSection* section, const char* key, const char* value) {
     if (section->count >= section->capacity) {
         section->capacity = (section->capacity == 0) ? 4 : section->capacity * 2;
-        section->keys = (char**)safeRealloc(section->keys, (size_t) section->capacity * sizeof(char*));
-        section->values = (char**)safeRealloc(section->values, (size_t) section->capacity * sizeof(char*));
+        section->keys = (char **)safeRealloc(section->keys, (size_t) section->capacity * sizeof(char*));
+        section->values = (char **)safeRealloc(section->values, (size_t) section->capacity * sizeof(char*));
     }
     section->keys[section->count] = safeStrdup(key);
     section->values[section->count] = safeStrdup(value);
@@ -72,7 +72,7 @@ static char* normalizeValue(char* value) {
 // ===[ Lifecycle ]===
 
 IniFile* Ini_parse(const char* text) {
-    IniFile* ini = (IniFile*)safeCalloc(1, sizeof(IniFile));
+    IniFile* ini = (IniFile *)safeCalloc(1, sizeof(IniFile));
 
     if (text == nullptr || *text == '\0') {
         return ini;
@@ -268,7 +268,7 @@ char* Ini_serialize(const IniFile* ini, size_t initialCapacity) {
     size_t capacity = initialCapacity;
     if (capacity == 0) capacity = 256;
     size_t length = 0;
-    char* buffer = (char*)safeMalloc(capacity);
+    char* buffer = (char *)safeMalloc(capacity);
     buffer[0] = '\0';
 
     for (int i = 0; i < ini->count; ++i) {
@@ -292,7 +292,7 @@ char* Ini_serialize(const IniFile* ini, size_t initialCapacity) {
         while (length + needed + 1 > capacity) {
             capacity *= 2;
         }
-        buffer = (char*)safeRealloc(buffer, capacity);
+        buffer = (char *)safeRealloc(buffer, capacity);
 
         // Write section header
         if (length > 0) {
