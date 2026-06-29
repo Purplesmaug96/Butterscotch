@@ -20,6 +20,7 @@ void platformSetWindowSize(int32_t width, int32_t height);
 void platformSetWindowTitle(const char* title);
 void platformSleepUntil(uint64_t time);
 void *platformGetNativeWindowHandle(void);
+void *platformGetNativeWindowHandleForD3D9(void);
 
 enum GraphicsAPI {
     SOFTWARE,

@@ -1359,7 +1359,7 @@ int main(int argc, char* argv[]) {
 #ifdef ENABLE_D3D9
         if (gfx == D3D9) {
 // #ifdef _WIN32
-            void* nativeWindow = platformGetNativeWindowHandle();
+            void* nativeWindow = platformGetNativeWindowHandleForD3D9();
             if (!nativeWindow) {
                 fprintf(stderr, "Failed to get native window handle for D3D9!\n");
                 platformExit();

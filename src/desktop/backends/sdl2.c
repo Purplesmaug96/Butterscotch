@@ -45,6 +45,16 @@ void *platformGetNativeWindowHandle(void) {
     }
 }
 
+void *platformGetNativeWindowHandleForD3D9(void) {
+    // DXVK's D3D9 backend, when using DXVK_WSI_DRIVER=SDL2, expects the
+    // "HWND" passed to CreateDevice / D3DPRESENT_PARAMETERS to be the
+    // SDL_Window* pointer itself.  The SDL2 WSI driver casts the HWND
+    // back to SDL_Window* via reinterpret_cast (fromHwnd in
+    // native_sdl2.h), so we must return the SDL_Window* directly rather
+    // than any platform-specific native handle (wl_surface, X11 Window, etc.).
+    return (void*)window;
+}
+
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
     if (gfx == SOFTWARE || gfx == D3D9) {
         return SDL_CreateWindow(
