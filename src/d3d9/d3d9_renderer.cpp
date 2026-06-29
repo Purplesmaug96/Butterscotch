@@ -173,7 +173,8 @@ static const char* g_psSource =
     "};\n"
     "struct PS_IN { float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
     "float4 main(PS_IN i) : COLOR0 {\n"
-    "  return tex2D(s0, i.Tex) * i.Col;\n"
+    "  // Diagnostic: ignore per-vertex color to isolate DXVK vertex/decl issues.\n"
+    "  return tex2D(s0, i.Tex);\n"
     "}\n";
 
 // ===[ Helpers ]===
@@ -350,7 +351,10 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
         // 2. Get the surface level 0 of your destination texture
         if (SUCCEEDED(((IDirect3DTexture9*)dr->appSurfaceTexture)->GetSurfaceLevel(0, &pDestSurface))) {
             // 3. Blit/Copy the pixels from the render target into the texture
-            dev->StretchRect(pSourceSurface, NULL, pDestSurface, NULL, D3DTEXF_NONE);
+            HRESULT hrSR = dev->StretchRect(pSourceSurface, NULL, pDestSurface, NULL, D3DTEXF_NONE);
+            if (FAILED(hrSR)) {
+                Butterscotch_xdkDiagTrace("D3D9: StretchRect(app_surface) failed hr=0x%08X\n", (unsigned)hrSR);
+            }
 
             pDestSurface->Release();
         }
@@ -414,22 +418,25 @@ static void flushBatch(D3D9Renderer* dr) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
     }
 
-    // Loop through each quad and draw it as a 2-triangle strip
+    // Loop through each quad and draw it as a 2-triangle list.
+    // 4 vertices per quad -> 6 vertices consumed if using TRIANGLELIST, so
+    // we submit as TRIANGLESTRIP with 4 vertices -> 2 triangles.
     BYTE* vertexPtr = (BYTE*)dr->vertexData;
     size_t vertexStride = sizeof(SpriteVertex);
 
-	dev->SetVertexDeclaration(g_pVertexDecl);
+    // Re-bind declaration + both shaders right before issuing draws.
+    // (Do not guard on null pointers here: we want to fail loudly if init didn't succeed.)
+    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 
-	// Force the device to recognize the active vertex and pixel shader states
-	// in case DXVK deferred them
-	dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-	dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 
-	for (uint32_t i = 0; i < dr->quadCount; i++) {
-		// Try Triangle Fan if Strip orientation is discarding due to winding orders
-		dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vertexPtr, vertexStride);
-		vertexPtr += vertexStride * 4;
-	}
+
+    for (uint32_t i = 0; i < dr->quadCount; i++) {
+        // 4 verts per quad -> 2 triangles using TRIANGLESTRIP.
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertexPtr, vertexStride);
+        vertexPtr += vertexStride * 4;
+    }
 
     dr->quadCount = 0;
 }
@@ -833,7 +840,12 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
                             (IDirect3DVertexShader9**)&dr->pVertexShader);
 	pCode->Release();
     #else
-    dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
+    HRESULT hrVS = dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
+    if (FAILED(hrVS) || !dr->pVertexShader) {
+        Butterscotch_xdkDiagTrace("D3D9: CreateVertexShader(VS) failed hr=0x%08X\n", (unsigned)hrVS);
+        free(vsBytecode);
+        return;
+    }
     free(vsBytecode);
     #endif
 
@@ -856,12 +868,21 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 		return;
     }
 	#ifdef PLATFORM_XBOX360_XDK
-    dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
+    HRESULT hrPS2 = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
                            (IDirect3DPixelShader9**)&dr->pPixelShader);
+    if (FAILED(hrPS2) || !dr->pPixelShader) {
+        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader(PS) failed hr=0x%08X\n", (unsigned)hrPS2);
+        return;
+    }
     pCode->Release();
 	#else
-	dev->CreatePixelShader((const DWORD*)psBytecode,
+	HRESULT hrPS = dev->CreatePixelShader((const DWORD*)psBytecode,
                            (IDirect3DPixelShader9**)&dr->pPixelShader);
+    if (FAILED(hrPS) || !dr->pPixelShader) {
+        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader(PS) failed hr=0x%08X\n", (unsigned)hrPS);
+        free(psBytecode);
+        return;
+    }
     free(psBytecode);
 	#endif
 
@@ -2541,9 +2562,9 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     dev->DrawPrimitiveUP(D3DPT_QUADLIST, 1, v, sizeof(SpriteVertex));
 	#else
 	// Map your custom C++ layout explicitly so DXVK reads the float4 colors/positions
-    dev->SetVertexDeclaration(g_pVertexDecl);
-	// Draw the 4 vertices as a 2-triangle fan for PC compatibility
-    dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, v, sizeof(SpriteVertex));
+    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+	// 4 vertices -> 2 triangles using triangle strip (matches SpriteVertex layout)
+    dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(SpriteVertex));
 	#endif
 }
 
