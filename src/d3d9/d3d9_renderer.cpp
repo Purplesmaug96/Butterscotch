@@ -32,8 +32,10 @@ extern "C" {
 #define OutputDebugStringA(msg) printf("%s\n", msg)
 #define GetFreeMemMB() 1024.0f
 
+#define D3DPOOL_DEFAULT D3DPOOL_MANAGED
+
 // Xbox 360 XDK Hardware Mappings
-#define D3DFMT_LIN_A8R8G8B8      D3DFMT_A8R8G8B8
+#define D3DFMT_LIN_A8R8G8B8 D3DFMT_A8R8G8B8
 #define D3DRESOLVE_RENDERTARGET0 0
 #define D3DRS_VIEWPORTENABLE     (D3DRENDERSTATETYPE)255 // Dummy ID to bypass compiler
 
@@ -94,6 +96,10 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...) {
     va_start(args, fmt);
     vprintf(fmt, args);
     va_end(args);
+
+    if (fmt[strlen(fmt) - 1] != '\n') {
+        printf("\n");
+    }
 }
 #endif
 
@@ -640,24 +646,30 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
 #define FXC_EXE "/hdd/Program Files (x86)/Microsoft Xbox 360 SDK/bin/win32/fxc.exe"
 
 HRESULT CompileShaderWithFxc(
-    const char* source, 
+    const char* source,
     const char* profile, // "vs_2_0" or "ps_2_0"
-    void** outBytecode, 
-    size_t* outSize) 
+    void** outBytecode,
+    size_t* outSize)
 {
     // 1. Write the HLSL source string out to a temporary file
-    FILE* fSrc = fopen("/tmp/shader.hlsl", "w");
+    FILE* fSrc = fopen("tmp_shader.hlsl", "w");
     fprintf(fSrc, "%s", source);
     fclose(fSrc);
+
+	// Format the profile flag (e.g., "/Tvs_2_0")
+    char profileFlag[32];
+    snprintf(profileFlag, sizeof(profileFlag), "/T%s", profile);
 
     // 2. Fork and exec: "wine fxc.exe /T vs_2_0 /Fo /tmp/shader.dxbc /tmp/shader.hlsl"
     pid_t pid = fork();
     if (pid == 0) {
         // In child process
-        execlp("wine", "wine", FXC_EXE, 
-               "/T", profile, 
-               "/Fo", "/tmp/shader.dxbc", 
-               "/tmp/shader.hlsl", NULL);
+        execlp("wine", "wine", FXC_EXE,
+               profileFlag,              // "/Tvs_2_0"
+               "/Fotmp_shader.dxbc",    // Output file (No space!)
+               "/Xu0_deprecated",        // Force standard DX tokens instead of Xbox 360 physical microcode
+               "tmp_shader.hlsl",       // Input file
+               NULL);
         exit(1); // Exit if exec fails
     }
 
@@ -667,7 +679,7 @@ HRESULT CompileShaderWithFxc(
     if (status != 0) return E_FAIL;
 
     // 4. Read back the compiled binary DXBC payload
-    FILE* fBin = fopen("/tmp/shader.dxbc", "rb");
+    FILE* fBin = fopen("tmp_shader.dxbc", "rb");
     if (!fBin) return E_FAIL;
 
     fseek(fBin, 0, SEEK_END);
@@ -708,29 +720,49 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     if (FAILED(hr)) {
         OutputDebugStringA("VS compile failed: ");
         if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
+		#ifdef PLATFORM_XBOX360_XDK
         if (pErr) pErr->Release();
+		#else
+		free(vsBytecode);
+		#endif
         return;
     }
     #ifdef PLATFORM_XBOX360_XDK
     dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
                             (IDirect3DVertexShader9**)&dr->pVertexShader);
+	pCode->Release();
     #else
     dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
     free(vsBytecode);
     #endif
-    pCode->Release();
 
+	#ifdef PLATFORM_XBOX360_XDK
     hr = D3DXCompileShader(g_psSource, (UINT)strlen(g_psSource),
                            NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
+	#else
+	void* psBytecode = NULL;
+    size_t psSize = 0;
+	hr = CompileShaderWithFxc(g_psSource, "ps_2_0", &psBytecode, &psSize);
+	#endif
     if (FAILED(hr)) {
         OutputDebugStringA("PS compile failed: ");
         if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
+		#ifdef PLATFORM_XBOX360_XDK
         if (pErr) pErr->Release();
-        return;
+		#else
+		free(psBytecode);
+		#endif
+		return;
     }
+	#ifdef PLATFORM_XBOX360_XDK
     dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
                            (IDirect3DPixelShader9**)&dr->pPixelShader);
     pCode->Release();
+	#else
+	dev->CreatePixelShader((const DWORD*)psBytecode,
+                           (IDirect3DPixelShader9**)&dr->pPixelShader);
+    free(psBytecode);
+	#endif
 
     // Create vertex declaration
     static const D3DVERTEXELEMENT9 decl[] = {
@@ -743,12 +775,19 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
     // Create 1x1 white texture for primitives
     IDirect3DTexture9* whiteTex = NULL;
-    dev->CreateTexture(1, 1, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &whiteTex, NULL);
-    if (whiteTex) {
+    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &whiteTex, NULL);
+    if (SUCCEEDED(hrTex) && whiteTex) {
         D3DLOCKED_RECT lr;
-        whiteTex->LockRect(0, &lr, NULL, 0);
-        *(DWORD*)lr.pBits = 0xFFFFFFFF;
-        whiteTex->UnlockRect(0);
+        // Check the HRESULT of LockRect and verify pBits is valid before writing
+        if (SUCCEEDED(whiteTex->LockRect(0, &lr, NULL, 0)) && lr.pBits != NULL) {
+            *(DWORD*)lr.pBits = 0xFFFFFFFF;
+            whiteTex->UnlockRect(0);
+        } else {
+            fprintf(stderr, "D3D9 Error: Failed to lock 1x1 white texture memory surface.\n");
+        }
+    } else {
+        fprintf(stderr, "D3D9 Error: Failed to create white texture! HRESULT: 0x%08x\n",
+                static_cast<unsigned int>(hrTex));
     }
     dr->whiteTexture = whiteTex;
 
