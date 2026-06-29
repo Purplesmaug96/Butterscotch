@@ -1,7 +1,7 @@
 info:  Game: butterscotch
 info:  DXVK: ea6ec38f
 info:  Build: x86_64 GNU 16.1.1
-info:  Vulkan: Found vkGetInstanceProcAddr in libvulkan.so @ 0x7ffff6fa7e20
+info:  Vulkan: Found vkGetInstanceProcAddr in libvulkan.so @ 0x7f01950f0e20
 info:  Extension providers:
 info:    Platform WSI
 info:  Enabled instance extensions:
@@ -24,14 +24,14 @@ info:    Transfer : (1, 0)
 info:    Sparse   : (0, 0)
 info:  Memory:
 info:    Heap 0: 1.35 GiB
-info:    Budget: 957 MiB
+info:    Budget: 920 MiB
 info:      Type  2: HOST_VISIBLE | HOST_COHERENT
 info:      Type  5: HOST_VISIBLE | HOST_COHERENT | HOST_CACHED
 info:      Type  6: HOST_VISIBLE | HOST_COHERENT | HOST_CACHED
 info:      Type  8: HOST_VISIBLE | HOST_COHERENT | DEVICE_COHERENT | DEVICE_UNCACHED
 info:      Type 10: HOST_VISIBLE | HOST_COHERENT | HOST_CACHED | DEVICE_COHERENT | DEVICE_UNCACHED
 info:    Heap 1: 2.70 GiB (DEVICE_LOCAL)
-info:    Budget: 1.86 GiB
+info:    Budget: 1.79 GiB
 info:      Type  0: DEVICE_LOCAL
 info:      Type  1: DEVICE_LOCAL
 info:      Type  3: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT
@@ -317,3 +317,9 @@ info:      - Auto Depth Stencil: false
 info:                  ^ Format: D3D9Format::Unknown
 info:      - Windowed:           true
 info:      - Swap effect:        1
+info:  Presenter: Actual swapchain properties:
+info:    Format:       VK_FORMAT_B8G8R8A8_UNORM
+info:    Color space:  VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+info:    Present mode: VK_PRESENT_MODE_FIFO_KHR (dynamic: no)
+info:    Buffer size:  640x480
+info:    Image count:  4

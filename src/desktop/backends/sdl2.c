@@ -196,6 +196,7 @@ void platformSetWindowSize(int32_t width, int32_t height) {
 }
 
 static void platformSetWindowFullscreen(bool fullscreen) {
+    return;
     if (!window) return;
 
     static int savedWindowW = 0;

@@ -631,6 +631,58 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
     dr->surfaceHeight[slot] = 0;
 }
 
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifndef PLATFORM_XBOX360_XDK
+#define FXC_EXE "/hdd/Program Files (x86)/Microsoft Xbox 360 SDK/bin/win32/fxc.exe"
+
+HRESULT CompileShaderWithFxc(
+    const char* source, 
+    const char* profile, // "vs_2_0" or "ps_2_0"
+    void** outBytecode, 
+    size_t* outSize) 
+{
+    // 1. Write the HLSL source string out to a temporary file
+    FILE* fSrc = fopen("/tmp/shader.hlsl", "w");
+    fprintf(fSrc, "%s", source);
+    fclose(fSrc);
+
+    // 2. Fork and exec: "wine fxc.exe /T vs_2_0 /Fo /tmp/shader.dxbc /tmp/shader.hlsl"
+    pid_t pid = fork();
+    if (pid == 0) {
+        // In child process
+        execlp("wine", "wine", FXC_EXE, 
+               "/T", profile, 
+               "/Fo", "/tmp/shader.dxbc", 
+               "/tmp/shader.hlsl", NULL);
+        exit(1); // Exit if exec fails
+    }
+
+    // 3. Wait for compiler to finish
+    int status;
+    waitpid(pid, &status, 0);
+    if (status != 0) return E_FAIL;
+
+    // 4. Read back the compiled binary DXBC payload
+    FILE* fBin = fopen("/tmp/shader.dxbc", "rb");
+    if (!fBin) return E_FAIL;
+
+    fseek(fBin, 0, SEEK_END);
+    *outSize = ftell(fBin);
+    fseek(fBin, 0, SEEK_SET);
+
+    *outBytecode = malloc(*outSize);
+    fread(*outBytecode, 1, *outSize, fBin);
+    fclose(fBin);
+
+    return S_OK;
+}
+
+#endif
+
 // ===[ Vtable Implementations ]===
 
 static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
@@ -645,16 +697,27 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     ID3DXBuffer* pCode = NULL;
     ID3DXBuffer* pErr = NULL;
 
+    #ifdef PLATFORM_XBOX360_XDK
     HRESULT hr = D3DXCompileShader(g_vsSource, (UINT)strlen(g_vsSource),
                                    NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
+    #else
+    void* vsBytecode = NULL;
+    size_t vsBytecodeSize = 0;
+    HRESULT hr = CompileShaderWithFxc(g_vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
+    #endif
     if (FAILED(hr)) {
         OutputDebugStringA("VS compile failed: ");
         if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
         if (pErr) pErr->Release();
         return;
     }
+    #ifdef PLATFORM_XBOX360_XDK
     dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
                             (IDirect3DVertexShader9**)&dr->pVertexShader);
+    #else
+    dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
+    free(vsBytecode);
+    #endif
     pCode->Release();
 
     hr = D3DXCompileShader(g_psSource, (UINT)strlen(g_psSource),
