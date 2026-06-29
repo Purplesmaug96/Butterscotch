@@ -39,17 +39,24 @@ static const int SDL_TO_GML_BUTTON[SDL_GAMEPAD_BUTTON_COUNT] = {
 };
 
 void *platformGetNativeWindowHandle(void) {
-#ifdef _WIN32
     if (window == NULL) return NULL;
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
-    if (SDL_GetWindowWMInfo(window, &wmInfo)) {
-        return (void*)wmInfo.info.win.window;
+    if (!SDL_GetWindowWMInfo(window, &wmInfo)) {
+        fprintf(stderr, "Failed to get window handle (SDL_GetWindowWMInfo returned false)\n");
+        return NULL;
     }
-    return NULL;
-#else
-    return NULL;
-#endif
+    switch (wmInfo.subsystem) {
+        case SDL_SYSWM_WINDOWS:
+            return (void*)wmInfo.info.win.window;
+        case SDL_SYSWM_X11:
+            return (void*)(uintptr_t)wmInfo.info.x11.window;
+        case SDL_SYSWM_WAYLAND:
+            return (void*)wmInfo.info.wl.surface;
+        default:
+            fprintf(stderr, "Failed to get window handle (unsupported subsystem: %d)\n", wmInfo.subsystem);
+            return NULL;
+    }
 }
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {

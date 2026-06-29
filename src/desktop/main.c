@@ -15,9 +15,11 @@ extern "C" {
 #endif
 
 #ifdef ENABLE_D3D9
-#include "d3d9_renderer.h"
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <d3d9.h>
+#include "d3d9_renderer.h"
 #endif
 
 #include <getopt.h>

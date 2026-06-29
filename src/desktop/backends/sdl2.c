@@ -19,22 +19,30 @@ static SDL_Window *window;
 static SDL_GameController* openControllers[MAX_GAMEPADS];
 
 void *platformGetNativeWindowHandle(void) {
-	SDL_SysWMinfo wmInfo;
     if (window == NULL) return NULL;
+    SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
-#ifdef _WIN32
-    if (SDL_GetWindowWMInfo(window, &wmInfo)) {
-        return (void*)wmInfo.info.win.window;
+    if (!SDL_GetWindowWMInfo(window, &wmInfo)) {
+        fprintf(stderr, "Failed to get window handle (SDL_GetWindowWMInfo returned false)\n");
+        return NULL;
     }
-#elif true
-	if (wmInfo.subsystem == SDL_SYSWM_WAYLAND) {
-		return (void*)wmInfo.info.wl.surface;
-	}
-#else
-#pragma message("Butterscotch: Warning: No implementation of platformGetNativeWindowHandle")
-#endif
-	printf("Failed to get window handle (subsystem is %d)\n", wmInfo.subsystem);
-    return NULL;
+    switch (wmInfo.subsystem) {
+        #ifdef SDL_VIDEO_DRIVER_WINDOWS
+        case SDL_SYSWM_WINDOWS:
+            return (void*)wmInfo.info.win.window;
+        #endif
+        #ifdef SDL_VIDEO_DRIVER_X11
+        case SDL_SYSWM_X11:
+            return (void*)(uintptr_t)wmInfo.info.x11.window;
+        #endif
+        #ifdef SDL_VIDEO_DRIVER_WAYLAND
+        case SDL_SYSWM_WAYLAND:
+            return (void*)wmInfo.info.wl.surface;
+        #endif
+        default:
+            fprintf(stderr, "Failed to get window handle (unsupported subsystem: %d)\n", wmInfo.subsystem);
+            return NULL;
+    }
 }
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
