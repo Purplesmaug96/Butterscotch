@@ -1,10 +1,10 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#define SDL_VIDEO_DRIVER_WAYLAND
 #include <SDL2/SDL.h>
-#ifdef _WIN32
+#undef SDL_VIDEO_DRIVER_X11
 #include <SDL2/SDL_syswm.h>
-#endif
 
 #include "common.h"
 #include "input_recording.h"
@@ -19,17 +19,22 @@ static SDL_Window *window;
 static SDL_GameController* openControllers[MAX_GAMEPADS];
 
 void *platformGetNativeWindowHandle(void) {
-#ifdef _WIN32
+	SDL_SysWMinfo wmInfo;
     if (window == NULL) return NULL;
-    SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
+#ifdef _WIN32
     if (SDL_GetWindowWMInfo(window, &wmInfo)) {
         return (void*)wmInfo.info.win.window;
     }
-    return NULL;
+#elif true
+	if (wmInfo.subsystem == SDL_SYSWM_WAYLAND) {
+		return (void*)wmInfo.info.wl.surface;
+	}
 #else
-    return NULL;
+#pragma message("Butterscotch: Warning: No implementation of platformGetNativeWindowHandle")
 #endif
+	printf("Failed to get window handle (subsystem is %d)\n", wmInfo.subsystem);
+    return NULL;
 }
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
