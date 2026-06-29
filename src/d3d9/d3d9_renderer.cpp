@@ -33,15 +33,12 @@ extern "C" {
 #define OutputDebugStringA(msg) printf("%s\n", msg)
 #define GetFreeMemMB() 1024.0f
 
-#define D3DPOOL_DEFAULT D3DPOOL_MANAGED
+// #define D3DPOOL_DEFAULT D3DPOOL_MANAGED
 
 // Xbox 360 XDK Hardware Mappings
 #define D3DFMT_LIN_A8R8G8B8 D3DFMT_A8R8G8B8
 #define D3DRESOLVE_RENDERTARGET0 0
 #define D3DRS_VIEWPORTENABLE     (D3DRENDERSTATETYPE)255 // Dummy ID to bypass compiler
-
-// Map native 360 Quads to Triangle Lists (Note: vertex indexing layout may need adjustment later)
-#define D3DPT_QUADLIST           D3DPT_TRIANGLELIST
 
 // 4. Legacy Windows D3DX Library Stubs
 #define D3DX_FILTER_POINT 1
@@ -145,18 +142,28 @@ static const char* g_vsSource =
 #else
 // Only works for 640x480
 static const char* g_vsSource =
-	"// Test Passthrough: Forces everything to scale perfectly to the center of the screen\n"
-	"VS_OUT main(VS_IN i) {\n"
-	"VS_OUT o;\n"
-	"o.Pos.x = (i.Pos.x / 320.0f) - 1.0f;\n"
-	"o.Pos.y = 1.0f - (i.Pos.y / 240.0f);\n"
-	"o.Pos.z = 0.0f;\n"
-	"o.Pos.w = 1.0f;\n"
-
-	"o.Tex = i.Tex;\n"
-	"o.Col = i.Col;\n"
-	"return o;\n"
-	"}\n";
+    "struct VS_IN {\n"
+    "    float4 Pos : POSITION;\n"
+    "    float2 Tex : TEXCOORD0;\n"
+    "    float4 Col : TEXCOORD1;\n"
+    "};\n" // Make sure this semicolon is explicit!
+    "\n"
+    "struct VS_OUT {\n"
+    "    float4 Pos : POSITION;\n"
+    "    float2 Tex : TEXCOORD0;\n"
+    "    float4 Col : TEXCOORD1;\n"
+    "};\n" // Make sure this semicolon is explicit!
+    "\n"
+    "VS_OUT main(VS_IN i) {\n"
+    "    VS_OUT o;\n"
+    "    o.Pos.x = (i.Pos.x / 320.0f) - 1.0f;\n"
+    "    o.Pos.y = 1.0f - (i.Pos.y / 240.0f);\n"
+    "    o.Pos.z = 0.0f;\n"
+    "    o.Pos.w = 1.0f;\n"
+    "    o.Tex = i.Tex;\n"
+    "    o.Col = i.Col;\n"
+    "    return o;\n"
+    "}\n";
 #endif
 
 static const char* g_psSource =
@@ -333,6 +340,22 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
     dev->Resolve(D3DRESOLVE_RENDERTARGET0, NULL,
                  (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
                  NULL, 0, 0, NULL, 1.0f, 0, NULL);
+	#else
+	// === PC / DXVK Implementation ===
+    IDirect3DSurface9* pSourceSurface = NULL;
+    IDirect3DSurface9* pDestSurface = NULL;
+
+    // 1. Get the current active render target surface (the offscreen buffer)
+    if (SUCCEEDED(dev->GetRenderTarget(0, &pSourceSurface))) {
+        // 2. Get the surface level 0 of your destination texture
+        if (SUCCEEDED(((IDirect3DTexture9*)dr->appSurfaceTexture)->GetSurfaceLevel(0, &pDestSurface))) {
+            // 3. Blit/Copy the pixels from the render target into the texture
+            dev->StretchRect(pSourceSurface, NULL, pDestSurface, NULL, D3DTEXF_NONE);
+
+            pDestSurface->Release();
+        }
+        pSourceSurface->Release();
+    }
 	#endif
     dr->appSurfaceResolved = true;
 }
@@ -557,7 +580,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 
     IDirect3DDevice9* dev = Dev(dr);
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+    HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
         stbi_image_free(pixels);
@@ -772,7 +795,9 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     IDirect3DDevice9* dev = Dev(dr);
     renderer->dataWin = dataWin;
 
+	#ifndef PLATFORM_XBOX360_XDK
 	InitVertexDeclaration(dev);
+	#endif
 
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
@@ -851,7 +876,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
     // Create 1x1 white texture for primitives
     IDirect3DTexture9* whiteTex = NULL;
-    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &whiteTex, NULL);
+    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, NULL);
     if (SUCCEEDED(hrTex) && whiteTex) {
         D3DLOCKED_RECT lr;
         // Check the HRESULT of LockRect and verify pBits is valid before writing
@@ -991,7 +1016,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
 static void d3d9EndFrame(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
+	// Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
     flushBatch(dr);
     Dev(dr)->EndScene();
     Dev(dr)->Present(NULL, NULL, NULL, NULL);
@@ -2512,7 +2537,14 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     transformPoint(dr, cx[1], cy[1], &sx, &sy); setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
     transformPoint(dr, cx[2], cy[2], &sx, &sy); setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
     transformPoint(dr, cx[3], cy[3], &sx, &sy); setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
+	#ifdef PLATFORM_XBOX360_XDK
     dev->DrawPrimitiveUP(D3DPT_QUADLIST, 1, v, sizeof(SpriteVertex));
+	#else
+	// Map your custom C++ layout explicitly so DXVK reads the float4 colors/positions
+    dev->SetVertexDeclaration(g_pVertexDecl);
+	// Draw the 4 vertices as a 2-triangle fan for PC compatibility
+    dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, v, sizeof(SpriteVertex));
+	#endif
 }
 
 extern int32_t* gGameW;
