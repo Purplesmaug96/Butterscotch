@@ -19,6 +19,7 @@
 extern "C" {
 	#include "data_win.h"
 }
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
 #include "d3d9_renderer.h"
@@ -126,6 +127,8 @@ struct SpriteVertex {
 };
 
 // ===[ HLSL Shader Source ]===
+
+#ifdef PLATFORM_XBOX360_XDK
 // Vertex shader: simple pass-through for pre-transformed screen-space vertices.
 // Position is already in screen pixels with z=0, w=1.
 // With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
@@ -139,6 +142,22 @@ static const char* g_vsSource =
     "  o.Col = i.Col;\n"
     "  return o;\n"
     "}\n";
+#else
+// Only works for 640x480
+static const char* g_vsSource =
+	"// Test Passthrough: Forces everything to scale perfectly to the center of the screen\n"
+	"VS_OUT main(VS_IN i) {\n"
+	"VS_OUT o;\n"
+	"o.Pos.x = (i.Pos.x / 320.0f) - 1.0f;\n"
+	"o.Pos.y = 1.0f - (i.Pos.y / 240.0f);\n"
+	"o.Pos.z = 0.0f;\n"
+	"o.Pos.w = 1.0f;\n"
+
+	"o.Tex = i.Tex;\n"
+	"o.Col = i.Col;\n"
+	"return o;\n"
+	"}\n";
+#endif
 
 static const char* g_psSource =
     "sampler2D s0 : register(s0) = sampler_state {\n"
@@ -338,6 +357,7 @@ static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float
 
 // ===[ Batch Flush ]===
 
+#ifdef PLATFORM_XBOX360_XDK
 static void flushBatch(D3D9Renderer* dr) {
     if (dr->quadCount == 0) return;
 
@@ -357,6 +377,40 @@ static void flushBatch(D3D9Renderer* dr) {
 
     dr->quadCount = 0;
 }
+#else
+IDirect3DVertexDeclaration9* g_pVertexDecl = NULL;
+static void flushBatch(D3D9Renderer* dr) {
+    if (dr->quadCount == 0) return;
+
+    IDirect3DDevice9* dev = Dev(dr);
+
+    // Bind texture
+    if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
+        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
+    } else {
+        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
+    }
+
+    // Loop through each quad and draw it as a 2-triangle strip
+    BYTE* vertexPtr = (BYTE*)dr->vertexData;
+    size_t vertexStride = sizeof(SpriteVertex);
+
+	dev->SetVertexDeclaration(g_pVertexDecl);
+
+	// Force the device to recognize the active vertex and pixel shader states
+	// in case DXVK deferred them
+	dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+	dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+
+	for (uint32_t i = 0; i < dr->quadCount; i++) {
+		// Try Triangle Fan if Strip orientation is discarding due to winding orders
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vertexPtr, vertexStride);
+		vertexPtr += vertexStride * 4;
+	}
+
+    dr->quadCount = 0;
+}
+#endif
 
 static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* bytes, int byteSize, const char* label);
 static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index);
@@ -637,13 +691,14 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
     dr->surfaceHeight[slot] = 0;
 }
 
+#ifndef PLATFORM_XBOX360_XDK
+
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef PLATFORM_XBOX360_XDK
-#define FXC_EXE "/hdd/Program Files (x86)/Microsoft Xbox 360 SDK/bin/win32/fxc.exe"
+#define FXC_EXE "/hdd/Program Files (x86)/Microsoft DirectX SDK (June 2010)/Utilities/bin/x64/fxc.exe"
 
 HRESULT CompileShaderWithFxc(
     const char* source,
@@ -667,7 +722,8 @@ HRESULT CompileShaderWithFxc(
         execlp("wine", "wine", FXC_EXE,
                profileFlag,              // "/Tvs_2_0"
                "/Fotmp_shader.dxbc",    // Output file (No space!)
-               "/Xu0_deprecated",        // Force standard DX tokens instead of Xbox 360 physical microcode
+			   "/Zpr",
+               // "/Xu0_deprecated",        // Force standard DX tokens instead of Xbox 360 physical microcode
                "tmp_shader.hlsl",       // Input file
                NULL);
         exit(1); // Exit if exec fails
@@ -693,6 +749,20 @@ HRESULT CompileShaderWithFxc(
     return S_OK;
 }
 
+// IDirect3DVertexDeclaration9* g_pVertexDecl = NULL;
+
+// Call this once during D3D9 renderer initialization:
+void InitVertexDeclaration(IDirect3DDevice9* dev) {
+    D3DVERTEXELEMENT9 decl[] = {
+        // Stream, Offset, Type, Method, Usage, UsageIndex
+        { 0, 0,  D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 }, // x, y, z, w
+        { 0, 16, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 }, // u, v
+        { 0, 24, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1 }, // r, g, b, a (Mapped to TEXCOORD1)
+        D3DDECL_END()
+    };
+    dev->CreateVertexDeclaration(decl, &g_pVertexDecl);
+}
+
 #endif
 
 // ===[ Vtable Implementations ]===
@@ -701,6 +771,12 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
     renderer->dataWin = dataWin;
+
+	InitVertexDeclaration(dev);
+
+	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
+	Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE); // Temporarily bypass alpha to rule out transparent textures
 
     // Allocate CPU vertex staging buffer
     dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
@@ -915,6 +991,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
 static void d3d9EndFrame(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
     flushBatch(dr);
     Dev(dr)->EndScene();
     Dev(dr)->Present(NULL, NULL, NULL, NULL);
