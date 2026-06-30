@@ -1957,7 +1957,7 @@ static void flattenCollisionEvents(Runner* runner) {
                 FlattenedCollisionEvent fce = {0};
                 fce.targetObjectIndex = srcEvt->eventSubtype;
                 fce.codeId = srcCodeId;
-                fce.ownerObjectIndex = i;
+                fce.ownerObjectIndex = (int32_t)i;
                 dst->events[e] = fce;
             }
             dst->eventCount = src->eventCount;
@@ -2150,39 +2150,39 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     shdefault(runner->assetsByName, -1);
     repeat(dataWin->objt.count, i) {
         if (!dataWin->objt.objects[i].present) continue;
-        shput(runner->assetsByName, dataWin->objt.objects[i].name, i);
+        shput(runner->assetsByName, dataWin->objt.objects[i].name, (int32_t)i);
     }
     repeat(dataWin->sprt.count, i) {
         if (!dataWin->sprt.sprites[i].present) continue;
-        shput(runner->assetsByName, dataWin->sprt.sprites[i].name, i);
+        shput(runner->assetsByName, dataWin->sprt.sprites[i].name, (int32_t)i);
     }
     repeat(dataWin->sond.count, i) {
         if (!dataWin->sond.sounds[i].present) continue;
-        shput(runner->assetsByName, dataWin->sond.sounds[i].name, i);
+        shput(runner->assetsByName, dataWin->sond.sounds[i].name, (int32_t)i);
     }
     repeat(dataWin->bgnd.count, i) {
         if (!dataWin->bgnd.backgrounds[i].present) continue;
-        shput(runner->assetsByName, dataWin->bgnd.backgrounds[i].name, i);
+        shput(runner->assetsByName, dataWin->bgnd.backgrounds[i].name, (int32_t)i);
     }
     repeat(dataWin->path.count, i) {
         if (!dataWin->path.paths[i].present) continue;
-        shput(runner->assetsByName, dataWin->path.paths[i].name, i);
+        shput(runner->assetsByName, dataWin->path.paths[i].name, (int32_t)i);
     }
     repeat(dataWin->scpt.count, i) {
         if (!dataWin->scpt.scripts[i].present) continue;
-        shput(runner->assetsByName, dataWin->scpt.scripts[i].name, i);
+        shput(runner->assetsByName, dataWin->scpt.scripts[i].name, (int32_t)i);
     }
     repeat(dataWin->font.count, i) {
         if (!dataWin->font.fonts[i].present) continue;
-        shput(runner->assetsByName, dataWin->font.fonts[i].name, i);
+        shput(runner->assetsByName, dataWin->font.fonts[i].name, (int32_t)i);
     }
     repeat(dataWin->tmln.count, i) {
         if (!dataWin->tmln.timelines[i].present) continue;
-        shput(runner->assetsByName, dataWin->tmln.timelines[i].name, i);
+        shput(runner->assetsByName, dataWin->tmln.timelines[i].name, (int32_t)i);
     }
     repeat(dataWin->room.count, i) {
         if (!dataWin->room.rooms[i].present) continue;
-        shput(runner->assetsByName, dataWin->room.rooms[i].name, i);
+        shput(runner->assetsByName, dataWin->room.rooms[i].name, (int32_t)i);
     }
 
     repeat(shlen(vm->builtinMap), i) {
@@ -2361,7 +2361,7 @@ void Runner_removeInstanceLayerElement(Runner* runner, int32_t instanceId) {
         repeat(elementCount, j) {
             RuntimeLayerElement* el = &runtimeLayer->elements[j];
             if (el->type == RuntimeLayerElementType_Instance && el->instanceId == instanceId) {
-                arrdel(runtimeLayer->elements, j);
+                arrdel(runtimeLayer->elements, (size_t)j);
                 return;
             }
         }
@@ -3617,7 +3617,7 @@ void Runner_step(Runner* runner) {
 
     // Process alarms. Outer loop is over alarm slots (matching the native runner's HandleAlarm), and for each slot we walk only the objects in the event table's bySlot range and only those objects' exact instance buckets. Idle instances are further skipped via activeAlarmMask.
     repeat(GML_ALARM_COUNT, alarmIdx) {
-        int32_t alarmSlot = EventSlotMap_lookup(&runner->eventSlotMap, EVENT_ALARM, alarmIdx);
+        int32_t alarmSlot = EventSlotMap_lookup(&runner->eventSlotMap, (int32_t)EVENT_ALARM, (int32_t)alarmIdx);
         if (0 > alarmSlot) continue;
         ResolvedEventTable* table = &runner->eventTable;
         uint32_t entryCount;
@@ -3663,7 +3663,7 @@ void Runner_step(Runner* runner) {
                     }
 #endif
 
-                    Runner_executeResolvedEvent(runner, inst, EVENT_ALARM, alarmIdx, codeId, ownerObjectIndex);
+                    Runner_executeResolvedEvent(runner, inst, (int)EVENT_ALARM, (int)alarmIdx, codeId, ownerObjectIndex);
                 }
             }
 
@@ -3745,7 +3745,7 @@ void Runner_step(Runner* runner) {
     // Dispatch outside room events
     dispatchOutsideRoomEvents(runner);
     repeat(MAX_VIEWS, viewIndex) {
-        dispatchOutsideViewEvents(runner, viewIndex);
+        dispatchOutsideViewEvents(runner, (int32_t)viewIndex);
     }
 
     for (int i = 0; MAX_GAMEPADS > i; i++) {
@@ -3862,7 +3862,7 @@ void Runner_step(Runner* runner) {
 
 static int32_t findFreeStackSlot(Runner* runner) {
     repeat(MAX_SURFACES, i) {
-        if (runner->surfaceStack[i] == -1) return i;
+        if (runner->surfaceStack[i] == -1) return (int32_t)i;
     }
     return -1;
 }
@@ -4032,7 +4032,7 @@ void Runner_dumpState(Runner* runner) {
             if (val.type == RVALUE_ARRAY && val.array != nullptr) {
                 if (!hasSelfArrays) { printf("  Self Arrays:\n"); hasSelfArrays = true; }
                 repeat(GMLArray_length1D(val.array), ai) {
-                    RValue* cell = GMLArray_slot(val.array, ai);
+                    RValue* cell = GMLArray_slot(val.array, (int32_t)ai);
                     if (cell == nullptr || cell->type == RVALUE_UNDEFINED) continue;
                     char* innerStr = RValue_toStringFancy(*cell);
                     printf("    %s[%d] = %s\n", varName, (int) ai, innerStr);
@@ -4059,7 +4059,7 @@ void Runner_dumpState(Runner* runner) {
 
             if (target.type == RVALUE_ARRAY) {
                 repeat(GMLArray_length1D(target.array), ai) {
-                    RValue* cell = GMLArray_slot(target.array, ai);
+                    RValue* cell = GMLArray_slot(target.array, (int32_t)ai);
                     if (cell == nullptr || cell->type == RVALUE_UNDEFINED) continue;
                     char* innerStr = RValue_toStringFancy(*cell);
                     printf("  %s[%d] = %s\n", name, (int) ai, innerStr);
@@ -4105,7 +4105,7 @@ static void writeRValueJson(JsonWriter* w, RValue val) {
             JsonWriter_beginArray(w);
             if (val.array != nullptr) {
                 repeat(GMLArray_length1D(val.array), ai) {
-                    RValue* cell = GMLArray_slot(val.array, ai);
+                    RValue* cell = GMLArray_slot(val.array, (int32_t)ai);
                     writeRValueJson(w, cell != nullptr ? *cell : RValue_makeUndefined());
                 }
             }

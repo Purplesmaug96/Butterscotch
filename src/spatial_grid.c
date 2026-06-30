@@ -41,7 +41,7 @@ static void removeInstanceFromGridCells(SpatialGrid* grid, Instance* instance) {
         int32_t cellIndex = SpatialGrid_cellIndex(grid, gridX, gridY);
         repeat(arrlen(grid->grid[cellIndex]), j) {
             if (grid->grid[cellIndex][j] == instance) {
-                arrdel(grid->grid[cellIndex], j);
+                arrdel(grid->grid[cellIndex], (size_t)j);
                 break;
             }
         }

@@ -156,7 +156,7 @@ static int32_t dsListCreate(Runner* runner) {
         if (runner->dsListPool[i].freed) {
             runner->dsListPool[i].freed = false;
             runner->dsListPool[i].items = nullptr;
-            return i;
+            return (int32_t)i;
         }
     }
     DsList newList = {0};
@@ -179,7 +179,7 @@ static int32_t dsQueueCreate(Runner* runner) {
         if (runner->dsQueuePool[i].freed) {
             runner->dsQueuePool[i].freed = false;
             runner->dsQueuePool[i].items = nullptr;
-            return i;
+            return (int32_t)i;
         }
     }
     DsQueue q = {0};
@@ -202,7 +202,7 @@ static int32_t dsStackCreate(Runner* runner) {
         if (runner->dsStackPool[i].freed) {
             runner->dsStackPool[i].freed = false;
             runner->dsStackPool[i].items = nullptr;
-            return i;
+            return (int32_t)i;
         }
     }
     DsStack s = {0};
@@ -2828,7 +2828,7 @@ static bool rvalueIsMatrix(RValue rv) {
     if (rv.type != RVALUE_ARRAY) return false;
     if (GMLArray_length1D(rv.array) != 16) return false;
     repeat (16, i) {
-        RValueType type = (RValueType)(GMLArray_slot(rv.array, i)->type);
+        RValueType type = (RValueType)(GMLArray_slot(rv.array, (int32_t)i)->type);
         if (type != RVALUE_REAL && type != RVALUE_INT32 && type != RVALUE_INT64)
             return false;
     }
@@ -2837,14 +2837,14 @@ static bool rvalueIsMatrix(RValue rv) {
 static bool matrixFromGml(Matrix4f *mat, GMLArray *arr) {
     if (GMLArray_length1D(arr) != 16) return false;
     repeat (16, i) {
-        mat->m[i] = (float)RValue_toReal(*GMLArray_slot(arr, i));
+        mat->m[i] = (float)RValue_toReal(*GMLArray_slot(arr, (int32_t)i));
     }
     return true;
 }
 static GMLArray *matrixToGml(int32_t wadVersion, const Matrix4f *mat) {
     GMLArray *out = GMLArray_create(wadVersion, 4 * 4);
     repeat (16, i) {
-        *GMLArray_slot(out, i) = RValue_makeReal(mat->m[i]);
+        *GMLArray_slot(out, (int32_t)i) = RValue_makeReal(mat->m[i]);
     }
     return out;
 }
@@ -2868,7 +2868,7 @@ static RValue builtin_matrix_inverse(MAYBE_UNUSED VMContext *ctx, RValue *args, 
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &inverse));
     } else {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(inverse.m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(inverse.m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     }
@@ -2891,7 +2891,7 @@ static RValue builtin_matrix_multiply(MAYBE_UNUSED VMContext *ctx, RValue *args,
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &r));
     } else {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(r.m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(r.m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     }
@@ -2922,7 +2922,7 @@ static RValue builtin_matrix_build_projection_ortho(MAYBE_UNUSED VMContext *ctx,
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
     } else {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(mat.m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(mat.m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     }
@@ -2955,7 +2955,7 @@ static RValue builtin_matrix_build_projection_perspective_fov(MAYBE_UNUSED VMCon
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
     } else {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(mat.m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(mat.m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     }
@@ -3036,7 +3036,7 @@ static RValue builtin_matrix_build_lookat(MAYBE_UNUSED VMContext *ctx, RValue *a
 
     if (toPrevMatrix) {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(matrix.m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(matrix.m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     } else {
@@ -3168,7 +3168,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
             VM_structSetAndFreeVal(ctx, vs, "vspeed", RValue_makeInt32(v->speedY), -1);
             VM_structSetAndFreeVal(ctx, vs, "object", RValue_makeInt32(v->objectId), -1);
             VM_structSetAndFreeVal(ctx, vs, "cameraID", RValue_makeInt32(-1), -1);
-            *GMLArray_slot(views, i) = RValue_makeStructAndIncRef(vs);
+            *GMLArray_slot(views, (int32_t)i) = RValue_makeStructAndIncRef(vs);
         }
         VM_structSetAndFreeVal(ctx, ret, "views", RValue_makeArray(views), -1);
     }
@@ -3192,7 +3192,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
             VM_structSetAndFreeVal(ctx, is, "colour", RValue_makeInt32((int32_t) go->color), -1);
             VM_structSetAndFreeVal(ctx, is, "creation_code", RValue_makeInt32(go->creationCode), -1);
             VM_structSetAndFreeVal(ctx, is, "pre_creation_code", RValue_makeInt32(go->preCreateCode), -1);
-            *GMLArray_slot(insts, i) = RValue_makeStructAndIncRef(is);
+            *GMLArray_slot(insts, (int32_t)i) = RValue_makeStructAndIncRef(is);
         }
         VM_structSetAndFreeVal(ctx, ret, "instances", RValue_makeArray(insts), -1);
     }
@@ -3282,7 +3282,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                 if (elements != nullptr) VM_structSetAndFreeVal(ctx, ls, "elements", RValue_makeArray(elements), -1);
             }
 
-            *GMLArray_slot(layers, i) = RValue_makeStructAndIncRef(ls);
+            *GMLArray_slot(layers, (int32_t)i) = RValue_makeStructAndIncRef(ls);
         }
         VM_structSetAndFreeVal(ctx, ret, "layers", RValue_makeArray(layers), -1);
     }
@@ -3675,7 +3675,7 @@ static int32_t allocUserCamera(Runner* runner) {
             memset(camera, 0, sizeof(*camera));
             camera->allocated = true;
             camera->objectId = -1;
-            return MAX_DEFAULT_ROOM_CAMERAS + slot;
+            return (int32_t)(MAX_DEFAULT_ROOM_CAMERAS + slot);
         }
     }
     return -1;
@@ -4795,7 +4795,7 @@ static void dsStreamWriteValue(uint8_t** buf, RValue val) {
             dsStreamAppendU32(buf, DS_STREAM_VALUE_ARRAY);
             dsStreamAppendU32(buf, (uint32_t) len);
             repeat(len, i) {
-                RValue* slot = GMLArray_slot(val.array, i);
+                RValue* slot = GMLArray_slot(val.array, (int32_t)i);
                 dsStreamWriteValue(buf, slot != nullptr ? *slot : RValue_makeUndefined());
             }
             return;
@@ -4886,7 +4886,7 @@ static RValue builtin_ds_grid_create(VMContext* ctx, MAYBE_UNUSED RValue* args, 
             runner->dsGridPool[i].width = width;
             runner->dsGridPool[i].height = height;
             runner->dsGridPool[i].items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
-            return RValue_makeReal(i);
+            return RValue_makeReal((GMLReal)i);
         }
     }
 
@@ -5390,7 +5390,7 @@ static int32_t dsPriorityCreate(Runner* runner) {
     repeat(poolSize, i) {
         if (runner->dsPriorityPool[i].freed) {
             runner->dsPriorityPool[i].freed = false;
-            return i;
+            return (int32_t)i;
         }
     }
     DsPriority p = {0};
@@ -5804,7 +5804,7 @@ static RValue builtin_array_push(MAYBE_UNUSED VMContext* ctx, RValue* args, int3
     if (toPush > 0) {
         GMLArray_growTo(arr, startLen + toPush);
         repeat(toPush, i) {
-            RValue* slot = GMLArray_slot(arr, startLen + i);
+            RValue* slot = GMLArray_slot(arr, (int32_t)(startLen + i));
             RValue val = args[1 + i];
             RValue_free(slot);
             *slot = RValue_makeIndependent(val);
@@ -12386,7 +12386,7 @@ static RValue builtin_tile_delete(VMContext* ctx, RValue* args, MAYBE_UNUSED int
     uint32_t id = (uint32_t) RValue_toInt32(args[0]);
     repeat(room->tileCount, i) {
         if (room->tiles[i].instanceID != id) continue;
-        uint32_t tailLen = room->tileCount - i - 1;
+        uint32_t tailLen = (uint32_t)(room->tileCount - i - 1);
         if (tailLen > 0) memmove(&room->tiles[i], &room->tiles[i + 1], tailLen * sizeof(RoomTile));
         room->tileCount--;
         runner->drawableListStructureDirty = true;
@@ -12733,7 +12733,7 @@ static RValue builtin_layer_destroy(VMContext* ctx, RValue* args, MAYBE_UNUSED i
             return RValue_makeUndefined();
 
         Runner_freeRuntimeLayer(&runner->runtimeLayers[i]);
-        arrdel(runner->runtimeLayers, i);
+        arrdel(runner->runtimeLayers, (size_t)i);
         runner->drawableListStructureDirty = true;
         break;
     }
@@ -13074,7 +13074,7 @@ static RValue builtin_layer_element_move(VMContext* ctx, RValue* args, MAYBE_UNU
     size_t count = arrlenu(oldRl->elements);
     repeat(count, i) {
         if (&oldRl->elements[i] == el) {
-            arrdel(oldRl->elements, i);
+            arrdel(oldRl->elements, (size_t)i);
             break;
         }
     }
@@ -13259,7 +13259,7 @@ static RValue builtin_layer_sprite_destroy(VMContext* ctx, RValue* args, MAYBE_U
     size_t count = arrlenu(owningLayer->elements);
     repeat(count, i) {
         if (&owningLayer->elements[i] == el) {
-            arrdel(owningLayer->elements, i);
+            arrdel(owningLayer->elements, (size_t)i);
             break;
         }
     }
@@ -13285,7 +13285,7 @@ static RValue builtin_layer_background_destroy(VMContext* ctx, RValue* args, MAY
     size_t count = arrlenu(owningLayer->elements);
     repeat(count, i) {
         if (&owningLayer->elements[i] == el) {
-            arrdel(owningLayer->elements, i);
+            arrdel(owningLayer->elements, (size_t)i);
             break;
         }
     }
@@ -13571,7 +13571,7 @@ static RValue builtin_layer_get_all(VMContext* ctx, MAYBE_UNUSED RValue* args, M
     size_t count = arrlenu(runner->runtimeLayers);
     RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, (int32_t) count));
     repeat(count, layerIndex) {
-        GMLArray_setOnArrayRef(&arr, layerIndex, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
+        GMLArray_setOnArrayRef(&arr, (int32_t)layerIndex, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
     }
     return arr;
 }
@@ -13611,7 +13611,7 @@ static RValue builtin_layer_vspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 static RValue builtin_NewGMLArray(VMContext* ctx, RValue* args, int32_t argCount) {
     RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, argCount));
     repeat(argCount, i) {
-        GMLArray_setOnArrayRef(&arr, i, args[i]);
+        GMLArray_setOnArrayRef(&arr, (int32_t)i, args[i]);
     }
     return arr;
 }
@@ -14665,7 +14665,7 @@ static void jsonEncodeReal(JsonWriter* writer, GMLReal value, bool useFloatMarke
     // Find the shortest precision that round-trips so we emit "0.1" instead of "0.10000000000000001"
     char buf[64];
     repeat(18, i) {
-        int precision = i + 1;
+        int precision = (int)(i + 1);
         snprintf(buf, sizeof(buf), "%.*g", precision, d);
         if (strtod(buf, nullptr) == d) break;
     }
@@ -14699,7 +14699,7 @@ static void jsonEncodeValue(JsonWriter* writer, RValue val, bool useFloatMarkers
             if (val.array != nullptr) {
                 int32_t length = GMLArray_length1D(val.array);
                 repeat(length, i) {
-                    RValue* slot = GMLArray_slot(val.array, i);
+                    RValue* slot = GMLArray_slot(val.array, (int32_t)i);
                     jsonEncodeValue(writer, slot != nullptr ? *slot : RValue_makeUndefined(), useFloatMarkers);
                 }
             }
@@ -14762,8 +14762,8 @@ static RValue builtin_json_decode(VMContext* ctx, RValue* args, int32_t argCount
         shput(*mapPtr, "default", RValue_makeIndependent(args[0]));
     } else {
         repeat(JsonReader_objectLength(json), i) {
-            const char *key = safeStrdup(JsonReader_getJsonKeyByIndex(json, i));
-            RValue val = RValue_makeOwnedString(safeStrdup(JsonReader_getString(JsonReader_getJsonValueByIndex(json, i))));
+            const char *key = safeStrdup(JsonReader_getJsonKeyByIndex(json, (int32_t)i));
+            RValue val = RValue_makeOwnedString(safeStrdup(JsonReader_getString(JsonReader_getJsonValueByIndex(json, (int32_t)i))));
             shput(*mapPtr, key, val);
         }
 

@@ -162,7 +162,7 @@ void GamePath_computeInternal(GamePath* path) {
     if (path->internalPointCount > 0) {
         path->internalPoints[0].l = 0.0;
         repeat(path->internalPointCount - 1, j) {
-            uint32_t i = j + 1;
+            uint32_t i = (uint32_t)(j + 1);
             float dx = path->internalPoints[i].x - path->internalPoints[i - 1].x;
             float dy = path->internalPoints[i].y - path->internalPoints[i - 1].y;
             path->length += sqrtf(dx * dx + dy * dy);
@@ -2084,7 +2084,7 @@ static void parseTPAG(BinaryReader* reader, DataWin* dw) {
     repeat(count, i) {
         if (ptrs[i] == 0) { t->items[i].texturePageId = -1; continue; }
         BinaryReader_seek(reader, ptrs[i]);
-        parseTexturePageItem(reader, dw, i);
+        parseTexturePageItem(reader, dw, (int32_t)i);
     }
 
     resolveAllTPAGReferences(reader, dw, ptrs, count);

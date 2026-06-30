@@ -381,7 +381,7 @@ static inline bool Collision_instancesOverlapPrecise(Runner* runner, Instance* a
         GMLReal lxB[2] = {obbB.lx0, obbB.lx1}, lyB[2] = {obbB.ly0, obbB.ly1};
         repeat(2, i) {
             repeat(2, j) {
-                int k = j * 2 + i;
+                int k = (int)(j * 2 + i);
                 ax[k] = obbA.x + obbA.cs * lxA[i] + obbA.sn * lyA[j];
                 ay[k] = obbA.y - obbA.sn * lxA[i] + obbA.cs * lyA[j];
                 bx[k] = obbB.x + obbB.cs * lxB[i] + obbB.sn * lyB[j];

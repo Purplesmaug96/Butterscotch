@@ -16,7 +16,7 @@ RunnerKeyboardState* RunnerKeyboard_create(void) {
     kb->string[0] = 0;
     kb->stringLen = 0;
     repeat(GML_KEY_COUNT, i) {
-        kb->keyMap[i] = i;
+        kb->keyMap[i] = (int32_t)i;
     }
     return kb;
 }
@@ -147,6 +147,6 @@ int32_t RunnerKeyboard_getMap(RunnerKeyboardState* kb, int32_t fromKey) {
 
 void RunnerKeyboard_unsetMap(RunnerKeyboardState* kb) {
     repeat(GML_KEY_COUNT, i) {
-        kb->keyMap[i] = i;
+        kb->keyMap[i] = (int32_t)i;
     }
 }

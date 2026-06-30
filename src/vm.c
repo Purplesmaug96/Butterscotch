@@ -207,7 +207,7 @@ static void patchReferenceOperands(VMContext* ctx) {
                 BinaryUtils_writeUint32(&buf[operandAddr - base], ((uint32_t) ASSET_TYPE_SCRIPT << 24) | (funcIdx & 0x00FFFFFF));
             } else {
                 delta = operand & 0x07FFFFFF;
-                BinaryUtils_writeUint32(&buf[operandAddr - base], funcIdx);
+                BinaryUtils_writeUint32(&buf[operandAddr - base], (uint32_t)funcIdx);
             }
 
             if (f->occurrences > occ + 1) {

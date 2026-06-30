@@ -47,7 +47,7 @@ InputRecording* InputRecording_createPlayer(const char* playbackFilePath, const 
     int objectLen = JsonReader_objectLength(root);
     int32_t maxFrame = -1;
     repeat(objectLen, i) {
-        const char* key = JsonReader_getJsonKeyByIndex(root, i);
+        const char* key = JsonReader_getJsonKeyByIndex(root, (int)i);
         int32_t frameNum = (int32_t) strtol(key, nullptr, 10);
         if (frameNum > maxFrame) maxFrame = frameNum;
     }
@@ -66,8 +66,8 @@ InputRecording* InputRecording_createPlayer(const char* playbackFilePath, const 
     rec->playbackFrames = (InputFrame *)safeCalloc(rec->playbackFrameCount, sizeof(InputFrame));
 
     repeat(objectLen, i) {
-        const char* key = JsonReader_getJsonKeyByIndex(root, i);
-        JsonValue* val = JsonReader_getJsonValueByIndex(root, i);
+        const char* key = JsonReader_getJsonKeyByIndex(root, (int)i);
+        JsonValue* val = JsonReader_getJsonValueByIndex(root, (int)i);
         int32_t frameNum = (int32_t) strtol(key, nullptr, 10);
 
         JsonValue* keysPressed = JsonReader_getJsonValueByKey(val, "keysPressed");
@@ -80,11 +80,11 @@ InputRecording* InputRecording_createPlayer(const char* playbackFilePath, const 
         int32_t* keysReleasedArray = nullptr;
 
         repeat(keysPressedLength, j) {
-            arrput(keysPressedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysPressed, j)));
+            arrput(keysPressedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysPressed, (int)j)));
         }
 
         repeat(keysReleasedLength, j) {
-            arrput(keysReleasedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysReleased, j)));
+            arrput(keysReleasedArray, (int32_t)JsonReader_getInt(JsonReader_getArrayElement(keysReleased, (int)j)));
         }
 
         InputFrame inputFrame = {0};
