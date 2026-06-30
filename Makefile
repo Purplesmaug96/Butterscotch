@@ -184,6 +184,7 @@ LIBS += -static
 LIBS += -lwinmm
 else
 LIBS += winmm.lib
+DEFINES += $(DEFINE)_CRT_SECURE_NO_WARNINGS
 endif
 DEFINES += $(DEFINE)WIN32_LEAN_AND_MEAN
 else

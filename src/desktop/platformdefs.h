@@ -28,7 +28,6 @@ enum GraphicsAPI {
 };
 
 extern enum GraphicsAPI gfx;
-extern bool wantGLES;
 
 extern InputRecording *globalInputRecording;
 

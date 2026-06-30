@@ -13,7 +13,6 @@
 #include "runner_mouse.h"
 
 static Runner *g_runner;
-static bool gFullscreen = false;
 static SDL_Surface* scr;
 static SDL_Window *window;
 static SDL_GameController* openControllers[MAX_GAMEPADS];
@@ -128,10 +127,6 @@ bool platformGetWindowSize(int32_t* outW, int32_t* outH) {
     return true;
 }
 
-static bool platformGetWindowFullscreen(void) {
-    return gFullscreen;
-}
-
 bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH) {
     if (!outW || !outH) return false;
     int w = 0;
@@ -162,51 +157,6 @@ void platformSetWindowSize(int32_t width, int32_t height) {
 
     if (gfx == SOFTWARE)
         scr = SDL_GetWindowSurface(window);
-}
-
-static void platformSetWindowFullscreen(bool fullscreen) {
-    return;
-    if (!window) return;
-
-    static int savedWindowW = 0;
-    static int savedWindowH = 0;
-
-    if (!gFullscreen) {
-        platformGetWindowSize(&savedWindowW, &savedWindowH);
-    }
-
-    Uint32 flags = fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
-
-    if (SDL_SetWindowFullscreen(window, flags) == 0) {
-        gFullscreen = fullscreen;
-
-        int winW, winH;
-        SDL_GetWindowSize(window, &winW, &winH);
-
-        if (savedWindowW > 0 && savedWindowH > 0) {
-            int scaleX = winW / savedWindowW;
-            int scaleY = winH / savedWindowH;
-            int scale = (scaleX < scaleY) ? scaleX : scaleY;
-            if (scale < 1) scale = 1;
-
-            int viewWidth = savedWindowW * scale;
-            int viewHeight = savedWindowH * scale;
-
-            int viewX = (winW - viewWidth) / 2;
-            int viewY = (winH - viewHeight) / 2;
-
-            typedef void (SDLCALL *PFNGLVIEWPORTPROC)(int x, int y, int width, int height);
-            static PFNGLVIEWPORTPROC local_glViewport = NULL;
-
-            if (!local_glViewport) {
-                local_glViewport = (PFNGLVIEWPORTPROC)SDL_GL_GetProcAddress("glViewport");
-            }
-
-            if (local_glViewport) {
-                local_glViewport(viewX, viewY, viewWidth, viewHeight);
-            }
-        }
-    }
 }
 
 void platformGetMousePos(double *xPos, double *yPos) {
@@ -333,8 +283,6 @@ void platformInitFunctions(Runner *runner) {
     g_runner = runner;
     runner->windowHasFocus = platformGetWindowFocus;
     runner->setCursor = platformSetCursor;
-    runner->getWindowFullscreen = platformGetWindowFullscreen;
-    runner->setWindowFullscreen = platformSetWindowFullscreen;
     runner->currentCursor = GML_CR_DEFAULT;
 }
 

@@ -2118,7 +2118,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     }
 }
 
-static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor) {
+static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
     flushBatch(dr);

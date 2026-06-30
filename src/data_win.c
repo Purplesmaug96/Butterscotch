@@ -2996,7 +2996,7 @@ assignName:
     if (!dw->sprt.sprites[newIndex].name) {
         char buf[32];
         snprintf(buf, sizeof(buf), "__newsprite%u", newIndex);
-        dw->sprt.sprites[newIndex].name = strdup(buf);
+        dw->sprt.sprites[newIndex].name = safeStrdup(buf);
     }
     return newIndex;
 }

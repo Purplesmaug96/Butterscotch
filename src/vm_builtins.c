@@ -1958,6 +1958,15 @@ static int compareReals(const void* a, const void* b) {
     return 0;
 }
 
+static RValue builtin_mean(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    GMLReal result = 0.0;
+    repeat(argCount, i) {
+        result += RValue_toReal(args[i]);
+    }
+    return RValue_makeReal(result / argCount);
+}
+
 static RValue builtin_median(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
     // GMS docs cap median at 16 args; 32-element stack buffer gives 2x margin, with malloc fallback for safety.
@@ -2220,6 +2229,19 @@ static RValue builtin_string_count(MAYBE_UNUSED VMContext* ctx, RValue* args, in
     free(substr);
     free(str);
     return RValue_makeInt32(count);
+}
+
+// Source - https://stackoverflow.com/a/15515276
+static RValue builtin_string_starts_with(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeInt32(0);
+    char* substr = RValue_toString(args[0]);
+    char* str = RValue_toString(args[1]);
+
+    bool ret = (strncmp(str, substr, strlen(substr)) == 0);
+
+    free(substr);
+    free(str);
+    return RValue_makeBool(ret);
 }
 
 static RValue builtin_ord(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -4092,7 +4114,7 @@ static RValue builtin_os_get_region(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RV
     return RValue_makeOwnedString(safeStrdup("US"));
 }
 
-STUB_RETURN_FALSE(os_is_paused);
+STUB_RETURN_FALSE(os_is_paused)
 
 // ===[ XBOX ONE FUNCTIONS ]===
 
@@ -4105,13 +4127,13 @@ static RValue builtin_xboxone_show_account_picker(MAYBE_UNUSED VMContext* ctx, R
     return RValue_makeReal((GMLReal) asyncId);
 }
 
-STUB_RETURN_TRUE(xboxone_user_is_signed_in);
-STUB_RETURN_FALSE(xboxone_is_suspending);
-STUB_RETURN_FALSE(xboxone_is_constrained);
-STUB_RETURN_ZERO(xboxone_suspend);
-STUB_RETURN_ZERO(xboxone_set_savedata_user);
-STUB_RETURN_ZERO(xboxone_stats_add_user);
-STUB_RETURN_ZERO(xboxone_achievements_set_progress);
+STUB_RETURN_TRUE(xboxone_user_is_signed_in)
+STUB_RETURN_FALSE(xboxone_is_suspending)
+STUB_RETURN_FALSE(xboxone_is_constrained)
+STUB_RETURN_ZERO(xboxone_suspend)
+STUB_RETURN_ZERO(xboxone_set_savedata_user)
+STUB_RETURN_ZERO(xboxone_stats_add_user)
+STUB_RETURN_ZERO(xboxone_achievements_set_progress)
 
 static RValue builtin_environment_get_variable(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     char* name = RValue_toString(args[0]);
@@ -7639,26 +7661,8 @@ static RValue builtin_joystick_axes(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 }
 
 // Window stubs
-static RValue builtin_window_get_fullscreen(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    Runner* runner = ctx->runner;
-    if (runner != nullptr && runner->getWindowFullscreen != nullptr) {
-        return RValue_makeBool(runner->getWindowFullscreen());
-    }
-
-    return RValue_makeBool(true);
-}
-
-static RValue builtin_window_set_fullscreen(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    if (argCount > 1) return RValue_makeUndefined();
-
-    Runner* runner = ctx->runner;
-    if (runner != nullptr && runner->setWindowFullscreen != nullptr) {
-        runner->setWindowFullscreen(RValue_toBool(args[0]));
-    }
-
-    return RValue_makeUndefined();
-}
-
+STUB_RETURN_ZERO(window_get_fullscreen)
+STUB_RETURN_UNDEFINED(window_set_fullscreen)
 static RValue builtin_window_get_width(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner != nullptr && runner->getWindowSize != nullptr) {
@@ -7668,7 +7672,6 @@ static RValue builtin_window_get_width(VMContext* ctx, MAYBE_UNUSED RValue* args
             return RValue_makeReal((GMLReal) w);
         }
     }
-
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowWidth);
 }
 
@@ -7681,7 +7684,6 @@ static RValue builtin_window_get_height(VMContext* ctx, MAYBE_UNUSED RValue* arg
             return RValue_makeReal((GMLReal) h);
         }
     }
-
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowHeight);
 }
 
@@ -7711,7 +7713,7 @@ static RValue builtin_window_set_caption(VMContext* ctx, MAYBE_UNUSED RValue* ar
     bool changed = runner->windowTitle == nullptr || strcmp(runner->windowTitle, val) != 0;
     if (changed) {
         free(runner->windowTitle);
-        runner->windowTitle = strdup(val);
+        runner->windowTitle = safeStrdup(val);
         if (runner->setWindowTitle) {
             runner->setWindowTitle(val);
             printf("Runner: Window title set to: %s\n", val);
@@ -7724,7 +7726,7 @@ static RValue builtin_window_set_caption(VMContext* ctx, MAYBE_UNUSED RValue* ar
 
 static RValue builtin_window_get_caption(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    return RValue_makeOwnedString(strdup(runner->windowTitle ? runner->windowTitle : ""));
+    return RValue_makeOwnedString(safeStrdup(runner->windowTitle ? runner->windowTitle : ""));
 }
 
 static RValue builtin_window_has_focus(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -9786,10 +9788,10 @@ static RValue builtin_draw_text_color(VMContext* ctx, RValue* args, MAYBE_UNUSED
     float x = (float) RValue_toReal(args[0]);
     float y = (float) RValue_toReal(args[1]);
     char* str = RValue_toString(args[2]);
-    int32_t c1 = (int32_t) RValue_toInt32(args[3]);
-    int32_t c2 = (int32_t) RValue_toInt32(args[4]);
-    int32_t c3 = (int32_t) RValue_toInt32(args[5]);
-    int32_t c4 = (int32_t) RValue_toInt32(args[6]);
+    int32_t c1 = RValue_toInt32(args[3]);
+    int32_t c2 = RValue_toInt32(args[4]);
+    int32_t c3 = RValue_toInt32(args[5]);
+    int32_t c4 = RValue_toInt32(args[6]);
     float alpha = (float) RValue_toReal(args[7]);
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
@@ -9809,10 +9811,10 @@ static RValue builtin_draw_text_color_transformed(VMContext* ctx, RValue* args, 
     float xscale = (float) RValue_toReal(args[3]);
     float yscale = (float) RValue_toReal(args[4]);
     float angle = (float) RValue_toReal(args[5]);
-    int32_t c1 = (int32_t) RValue_toInt32(args[6]);
-    int32_t c2 = (int32_t) RValue_toInt32(args[7]);
-    int32_t c3 = (int32_t) RValue_toInt32(args[8]);
-    int32_t c4 = (int32_t) RValue_toInt32(args[9]);
+    int32_t c1 = RValue_toInt32(args[6]);
+    int32_t c2 = RValue_toInt32(args[7]);
+    int32_t c3 = RValue_toInt32(args[8]);
+    int32_t c4 = RValue_toInt32(args[9]);
     float alpha = (float) RValue_toReal(args[10]);
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
@@ -9844,10 +9846,10 @@ static RValue builtin_draw_text_color_ext(VMContext* ctx, RValue* args, MAYBE_UN
     char* str = RValue_toString(args[2]);
     int32_t separation = RValue_toInt32(args[3]);
     int32_t width = RValue_toInt32(args[4]);
-    int32_t c1 = (int32_t) RValue_toInt32(args[5]);
-    int32_t c2 = (int32_t) RValue_toInt32(args[6]);
-    int32_t c3 = (int32_t) RValue_toInt32(args[7]);
-    int32_t c4 = (int32_t) RValue_toInt32(args[8]);
+    int32_t c1 = RValue_toInt32(args[5]);
+    int32_t c2 = RValue_toInt32(args[6]);
+    int32_t c3 = RValue_toInt32(args[7]);
+    int32_t c4 = RValue_toInt32(args[8]);
     float alpha = (float) RValue_toReal(args[9]);
 
     drawTextColorExtCommon(runner, str, x, y, 1.0f, 1.0f, 0.0f, separation, width, c1, c2, c3, c4, alpha);
@@ -9867,10 +9869,10 @@ static RValue builtin_draw_text_color_ext_transformed(VMContext* ctx, RValue* ar
     float xscale = (float) RValue_toReal(args[5]);
     float yscale = (float) RValue_toReal(args[6]);
     float angle = (float) RValue_toReal(args[7]);
-    int32_t c1 = (int32_t) RValue_toInt32(args[8]);
-    int32_t c2 = (int32_t) RValue_toInt32(args[9]);
-    int32_t c3 = (int32_t) RValue_toInt32(args[10]);
-    int32_t c4 = (int32_t) RValue_toInt32(args[11]);
+    int32_t c1 = RValue_toInt32(args[8]);
+    int32_t c2 = RValue_toInt32(args[9]);
+    int32_t c3 = RValue_toInt32(args[10]);
+    int32_t c4 = RValue_toInt32(args[11]);
     float alpha = (float) RValue_toReal(args[12]);
 
     drawTextColorExtCommon(runner, str, x, y, xscale, yscale, angle, separation, width, c1, c2, c3, c4, alpha);
@@ -12823,6 +12825,17 @@ static RValue builtin_layer_background_visible(VMContext* ctx, RValue* args, MAY
     return RValue_makeUndefined();
 }
 
+static RValue builtin_layer_background_speed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    bool speed = RValue_toBool(args[1]);
+    RuntimeLayer* owner = nullptr;
+    Runner_findLayerElementById(runner, id, &owner);
+    owner->hSpeed = speed;
+    owner->vSpeed = speed;
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_layer_background_htiled(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
@@ -13048,6 +13061,27 @@ static RValue builtin_layer_get_element_type(VMContext* ctx, RValue* args, MAYBE
     return RValue_makeReal((GMLReal) el->type);
 }
 
+static RValue builtin_layer_element_move(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t elementId = RValue_toInt32(args[0]);
+    int32_t layerId = resolveLayerIdArg(runner, args[1]);
+    RuntimeLayer* rl = Runner_findRuntimeLayerById(runner, layerId);
+    RuntimeLayer* oldRl = nullptr;
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, elementId, &oldRl);
+
+    arrput(rl->elements, *el);
+
+    size_t count = arrlenu(oldRl->elements);
+    repeat(count, i) {
+        if (&oldRl->elements[i] == el) {
+            arrdel(oldRl->elements, i);
+            break;
+        }
+    }
+
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_layer_tile_visible(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
@@ -13178,6 +13212,24 @@ static RValue builtin_layer_sprite_get_speed(VMContext* ctx, RValue* args, MAYBE
     if (!isValidLayerSpriteElement(el))
         return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) el->spriteElement->animationSpeed);
+}
+
+static RValue builtin_layer_sprite_speed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->animationSpeed = (float)RValue_toReal(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_blend(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->blend = RValue_toBool(args[1]);
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_sprite_get_index(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -13317,6 +13369,52 @@ static RValue builtin_tilemap_get_y(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     if (findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer) == nullptr || runtimeLayer == nullptr)
         return RValue_makeReal(-1.0);
     return RValue_makeReal((GMLReal) runtimeLayer->yOffset);
+}
+
+static RValue builtin_tilemap_get_width(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+
+	RuntimeLayer* runtimeLayer;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    if (!data) return RValue_makeUndefined();
+
+    return RValue_makeReal(data->tilesX);
+}
+
+static RValue builtin_tilemap_get_height(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+
+	RuntimeLayer* runtimeLayer;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    if (!data) return RValue_makeUndefined();
+
+    return RValue_makeReal(data->tilesY);
+}
+
+static RValue builtin_tilemap_get_tile_width(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+
+	RuntimeLayer* runtimeLayer;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+	if (!data) return RValue_makeUndefined();
+
+	Background* tileset = &runner->dataWin->bgnd.backgrounds[data->backgroundIndex];
+	return RValue_makeReal(tileset->gms2TileWidth);
+}
+
+static RValue builtin_tilemap_get_tile_height(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+
+	RuntimeLayer* runtimeLayer;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+	if (!data) return RValue_makeUndefined();
+
+	Background* tileset = &runner->dataWin->bgnd.backgrounds[data->backgroundIndex];
+	return RValue_makeReal(tileset->gms2TileHeight);
 }
 
 static void coerceTileCellsToTilemapBounds(RoomLayerTilesData* data, int32_t* cellX, int32_t* cellY) {
@@ -14837,7 +14935,7 @@ static RValue builtin_object_is_ancestor(VMContext* ctx, RValue* args, int32_t a
     int32_t parentId = ctx->dataWin->objt.objects[id].parentId;
     if (parentId == -1) return RValue_makeBool(false);
 
-    while (parentId != -1) {
+    while (parentId >= -1) {
         if (parentId == ancestorId) return RValue_makeBool(true);
         parentId = ctx->dataWin->objt.objects[parentId].parentId;
     }
@@ -15092,7 +15190,16 @@ static RValue builtin_gpu_set_blendmode(VMContext* ctx, RValue* args, int32_t ar
 static RValue builtin_gpu_set_blendmode_ext(VMContext* ctx, RValue* args, int32_t argCount) {
     int sfactor = (int)RValue_toReal(args[0]);
     int dfactor = (int)RValue_toReal(args[1]);
-    ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor);
+    ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor, sfactor, dfactor);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_gpu_set_blendmode_ext_sepalpha(VMContext* ctx, RValue* args, int32_t argCount) {
+    int sfactor = (int)RValue_toReal(args[0]);
+    int dfactor = (int)RValue_toReal(args[1]);
+    int sfactor_alpha = (int)RValue_toReal(args[2]);
+    int dfactor_alpha = (int)RValue_toReal(args[3]);
+    ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor, sfactor_alpha, dfactor_alpha);
     return RValue_makeUndefined();
 }
 
@@ -15374,6 +15481,13 @@ static RValue builtin_sprite_get_speed(VMContext* ctx, RValue* args, MAYBE_UNUSE
     return RValue_makeReal((GMLReal) ctx->dataWin->sprt.sprites[spriteIndex].gms2PlaybackSpeed);
 }
 
+static RValue builtin_sprite_get_speed_type(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t spriteIndex = (int32_t) RValue_toReal(args[0]);
+    if (0 > spriteIndex || (uint32_t) spriteIndex >= ctx->dataWin->sprt.count)
+        return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) ctx->dataWin->sprt.sprites[spriteIndex].gms2PlaybackSpeedType);
+}
+
 static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t fontIndex = (int32_t) RValue_toReal(args[0]);
 
@@ -15428,6 +15542,40 @@ static RValue builtin_texture_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args,
     return RValue_makeArray(out);
 }
 
+
+// sprite_get_info(sprite): returns a struct with the sprite information.
+static RValue builtin_sprite_get_info(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    if (0 > spriteIndex || (uint32_t) spriteIndex >= ctx->dataWin->sprt.count) return RValue_makeUndefined();
+    Sprite* sprite = &ctx->dataWin->sprt.sprites[spriteIndex];
+
+    Instance* ret = Runner_createStruct(ctx->runner);
+    VM_structSetAndFreeVal(ctx, ret, "width", RValue_makeReal(sprite->width), 0);
+    VM_structSetAndFreeVal(ctx, ret, "height", RValue_makeReal(sprite->height), 1);
+    VM_structSetAndFreeVal(ctx, ret, "xoffset", RValue_makeReal(sprite->originX), 2);
+    VM_structSetAndFreeVal(ctx, ret, "yoffset", RValue_makeReal(sprite->originY), 3);
+    VM_structSetAndFreeVal(ctx, ret, "transparent", RValue_makeBool(sprite->transparent), 4);
+    VM_structSetAndFreeVal(ctx, ret, "smooth", RValue_makeBool(sprite->smooth), 5);
+    VM_structSetAndFreeVal(ctx, ret, "type", RValue_makeBool(sprite->sSpriteType != 0), 6);
+    VM_structSetAndFreeVal(ctx, ret, "bbox_left", RValue_makeReal(sprite->marginLeft), -1);
+    VM_structSetAndFreeVal(ctx, ret, "bbox_top", RValue_makeReal(sprite->marginTop), -1);
+    VM_structSetAndFreeVal(ctx, ret, "bbox_right", RValue_makeReal(sprite->marginRight), -1);
+    VM_structSetAndFreeVal(ctx, ret, "bbox_bottom", RValue_makeReal(sprite->marginBottom), -1);
+    VM_structSetAndFreeVal(ctx, ret, "name", RValue_makeString(sprite->name), -1);
+    VM_structSetAndFreeVal(ctx, ret, "num_subimages", RValue_makeReal(sprite->textureCount), -1);
+    VM_structSetAndFreeVal(ctx, ret, "use_mask", RValue_makeBool(sprite->maskCount == 0), -1);
+    VM_structSetAndFreeVal(ctx, ret, "num_masks", RValue_makeReal(sprite->maskCount), -1);
+    VM_structSetAndFreeVal(ctx, ret, "rotated_bounds", RValue_makeBool(false), -1);
+    VM_structSetAndFreeVal(ctx, ret, "nineslice", RValue_makeUndefined(), -1);
+    VM_structSetAndFreeVal(ctx, ret, "messages", RValue_makeUndefined(), -1);
+    VM_structSetAndFreeVal(ctx, ret, "frame_info", RValue_makeUndefined(), -1);
+    VM_structSetAndFreeVal(ctx, ret, "frame_speed", RValue_makeReal(sprite->gms2PlaybackSpeed), -1);
+    VM_structSetAndFreeVal(ctx, ret, "frame_type", RValue_makeReal(sprite->gms2PlaybackSpeedType), -1);
+
+    return RValue_makeStructAndIncRef(ret);
+}
+
 // ===[ REGISTRATION ]===
 
 void VMBuiltins_registerAll(VMContext* ctx) {
@@ -15460,6 +15608,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "string_repeat", (BuiltinFunc)builtin_string_repeat);
     VM_registerBuiltin(ctx, "string_format", (BuiltinFunc)builtin_string_format);
     VM_registerBuiltin(ctx, "string_count", (BuiltinFunc)builtin_string_count);
+    VM_registerBuiltin(ctx, "string_starts_with", (BuiltinFunc)builtin_string_starts_with);
     VM_registerBuiltin(ctx, "ord", (BuiltinFunc)builtin_ord);
     VM_registerBuiltin(ctx, "chr", (BuiltinFunc)builtin_chr);
 
@@ -15491,6 +15640,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "sign", (BuiltinFunc)builtin_sign);
     VM_registerBuiltin(ctx, "max", (BuiltinFunc)builtin_max);
     VM_registerBuiltin(ctx, "min", (BuiltinFunc)builtin_min);
+    VM_registerBuiltin(ctx, "mean", (BuiltinFunc)builtin_mean);
     VM_registerBuiltin(ctx, "median", (BuiltinFunc)builtin_median);
     VM_registerBuiltin(ctx, "power", (BuiltinFunc)builtin_power);
     VM_registerBuiltin(ctx, "sqrt", (BuiltinFunc)builtin_sqrt);
@@ -15897,8 +16047,6 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     // Window
     VM_registerBuiltin(ctx, "window_get_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
     VM_registerBuiltin(ctx, "window_set_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
-    VM_registerBuiltin(ctx, "window_get_borderless_fullscreen", (BuiltinFunc)builtin_window_get_fullscreen);
-    VM_registerBuiltin(ctx, "window_enable_borderless_fullscreen", (BuiltinFunc)builtin_window_set_fullscreen);
     VM_registerBuiltin(ctx, "window_set_caption", (BuiltinFunc)builtin_window_set_caption);
     VM_registerBuiltin(ctx, "window_get_caption", (BuiltinFunc)builtin_window_get_caption);
     VM_registerBuiltin(ctx, "window_get_width", (BuiltinFunc)builtin_window_get_width);
@@ -16234,6 +16382,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_sprite_get_angle", (BuiltinFunc)builtin_layer_sprite_get_angle);
     VM_registerBuiltin(ctx, "layer_sprite_get_alpha", (BuiltinFunc)builtin_layer_sprite_get_alpha);
     VM_registerBuiltin(ctx, "layer_sprite_get_blend", (BuiltinFunc)builtin_layer_sprite_get_blend);
+    VM_registerBuiltin(ctx, "layer_sprite_speed", (BuiltinFunc)builtin_layer_sprite_speed);
+    VM_registerBuiltin(ctx, "layer_sprite_blend", (BuiltinFunc)builtin_layer_sprite_blend);
     VM_registerBuiltin(ctx, "layer_sprite_destroy", (BuiltinFunc)builtin_layer_sprite_destroy);
     VM_registerBuiltin(ctx, "layer_tile_visible", (BuiltinFunc)builtin_layer_tile_visible);
 #if IS_WAD17_OR_HIGHER_ENABLED
@@ -16244,6 +16394,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "tilemap_y", (BuiltinFunc)builtin_tilemap_y);
     VM_registerBuiltin(ctx, "tilemap_get_x", (BuiltinFunc)builtin_tilemap_get_x);
     VM_registerBuiltin(ctx, "tilemap_get_y", (BuiltinFunc)builtin_tilemap_get_y);
+	VM_registerBuiltin(ctx, "tilemap_get_width", (BuiltinFunc)builtin_tilemap_get_width);
+    VM_registerBuiltin(ctx, "tilemap_get_height", (BuiltinFunc)builtin_tilemap_get_height);
+	VM_registerBuiltin(ctx, "tilemap_get_tile_width", (BuiltinFunc)builtin_tilemap_get_tile_width);
+    VM_registerBuiltin(ctx, "tilemap_get_tile_height", (BuiltinFunc)builtin_tilemap_get_tile_height);
     VM_registerBuiltin(ctx, "tilemap_get", (BuiltinFunc)builtin_tilemap_get);
     VM_registerBuiltin(ctx, "tilemap_get_at_pixel", (BuiltinFunc)builtin_tilemap_get_at_pixel);
     VM_registerBuiltin(ctx, "tilemap_get_tileset", (BuiltinFunc)builtin_tilemap_get_tileset);
@@ -16259,6 +16413,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_background_create", (BuiltinFunc)builtin_layer_background_create);
     VM_registerBuiltin(ctx, "layer_background_exists", (BuiltinFunc)builtin_layer_background_exists);
     VM_registerBuiltin(ctx, "layer_background_visible", (BuiltinFunc)builtin_layer_background_visible);
+    VM_registerBuiltin(ctx, "layer_background_speed", (BuiltinFunc)builtin_layer_background_speed);
     VM_registerBuiltin(ctx, "layer_background_htiled", (BuiltinFunc)builtin_layer_background_htiled);
     VM_registerBuiltin(ctx, "layer_background_vtiled", (BuiltinFunc)builtin_layer_background_vtiled);
     VM_registerBuiltin(ctx, "layer_background_xscale", (BuiltinFunc)builtin_layer_background_xscale);
@@ -16281,6 +16436,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_tile_get_yscale", (BuiltinFunc)builtin_layer_tile_get_yscale);
     VM_registerBuiltin(ctx, "layer_tile_get_region", (BuiltinFunc)builtin_layer_tile_get_region);
     VM_registerBuiltin(ctx, "layer_background_destroy", (BuiltinFunc)builtin_layer_background_destroy);
+    VM_registerBuiltin(ctx, "layer_element_move", (BuiltinFunc)builtin_layer_element_move);
 
     // GMS2 internal
     VM_registerBuiltin(ctx, "@@NewGMLArray@@", (BuiltinFunc)builtin_NewGMLArray);
@@ -16428,6 +16584,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "asset_get_index", (BuiltinFunc)builtin_asset_get_index);
     VM_registerBuiltin(ctx,"gpu_set_blendmode", (BuiltinFunc)builtin_gpu_set_blendmode);
     VM_registerBuiltin(ctx,"gpu_set_blendmode_ext", (BuiltinFunc)builtin_gpu_set_blendmode_ext);
+    VM_registerBuiltin(ctx,"gpu_set_blendmode_ext_sepalpha", (BuiltinFunc)builtin_gpu_set_blendmode_ext_sepalpha);
     VM_registerBuiltin(ctx,"gpu_set_blendenable", (BuiltinFunc)builtin_gpu_set_blendenable);
     VM_registerBuiltin(ctx,"gpu_get_blendenable", (BuiltinFunc)builtin_gpu_get_blendenable);
     VM_registerBuiltin(ctx,"gpu_set_alphatestenable", (BuiltinFunc)builtin_gpu_set_alphatestenable);
@@ -16462,9 +16619,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "sprite_get_uvs", (BuiltinFunc)builtin_sprite_get_uvs);
     VM_registerBuiltin(ctx, "sprite_get_texture", (BuiltinFunc)builtin_sprite_get_texture);
     VM_registerBuiltin(ctx, "sprite_get_speed", (BuiltinFunc)builtin_sprite_get_speed);
+    VM_registerBuiltin(ctx, "sprite_get_speed_type", (BuiltinFunc)builtin_sprite_get_speed_type);
     VM_registerBuiltin(ctx, "font_get_uvs", (BuiltinFunc)builtin_font_get_uvs);
     VM_registerBuiltin(ctx, "texture_get_texel_width", (BuiltinFunc)builtin_texture_get_texel_width);
     VM_registerBuiltin(ctx, "texture_get_texel_height", (BuiltinFunc)builtin_texture_get_texel_height);
     VM_registerBuiltin(ctx, "texture_get_uvs", (BuiltinFunc)builtin_texture_get_uvs);
     VM_registerBuiltin(ctx, "texture_set_stage", (BuiltinFunc)builtin_texture_set_stage);
+    VM_registerBuiltin(ctx, "sprite_get_info", (BuiltinFunc)builtin_sprite_get_info);
 }

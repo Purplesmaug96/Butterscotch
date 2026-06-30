@@ -16,6 +16,10 @@
 #include <malloc.h>
 #endif
 
+#ifdef _MSC_VER
+#define strdup _strdup
+#endif
+
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 202311L)
     #define TYPEOF(x) typeof(x)
 #elif defined(_MSC_VER) && defined(__cplusplus) && __cplusplus >= 201103L
