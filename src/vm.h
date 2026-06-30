@@ -391,7 +391,6 @@ static inline bool VM_shouldTraceVariable(StringBooleanEntry* traceMap, const ch
         }
         free(altFormatted);
     }
-	free(formatted);
     return false;
 }
 

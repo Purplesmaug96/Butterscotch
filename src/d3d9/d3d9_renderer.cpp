@@ -173,8 +173,7 @@ static const char* g_psSource =
     "};\n"
     "struct PS_IN { float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
     "float4 main(PS_IN i) : COLOR0 {\n"
-    "  // Diagnostic: ignore per-vertex color to isolate DXVK vertex/decl issues.\n"
-    "  return tex2D(s0, i.Tex);\n"
+    "  return tex2D(s0, i.Tex) * i.Col;\n"
     "}\n";
 
 // ===[ Helpers ]===
@@ -336,36 +335,15 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
     if (!dr->appSurfaceTexture || dr->appSurfaceW <= 0 || dr->appSurfaceH <= 0) return;
     if (dr->appSurfaceResolved) return;
 
-    IDirect3DDevice9* dev = Dev(dr);
-	#ifdef PLATFORM_XBOX360_XDK
-    dev->Resolve(D3DRESOLVE_RENDERTARGET0, NULL,
-                 (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
-                 NULL, 0, 0, NULL, 1.0f, 0, NULL);
-	#else
-	// === PC / DXVK Implementation ===
-    IDirect3DSurface9* pSourceSurface = NULL;
-    IDirect3DSurface9* pDestSurface = NULL;
-
-    // 1. Get the current active render target surface (the offscreen buffer)
-    if (SUCCEEDED(dev->GetRenderTarget(0, &pSourceSurface))) {
-        // 2. Get the surface level 0 of your destination texture
-        if (SUCCEEDED(((IDirect3DTexture9*)dr->appSurfaceTexture)->GetSurfaceLevel(0, &pDestSurface))) {
-            // 3. Blit/Copy the pixels from the render target into the texture
-            HRESULT hrSR = dev->StretchRect(pSourceSurface, NULL, pDestSurface, NULL, D3DTEXF_NONE);
-            if (FAILED(hrSR)) {
-                Butterscotch_xdkDiagTrace("D3D9: StretchRect(app_surface) failed hr=0x%08X\n", (unsigned)hrSR);
-            }
-
-            pDestSurface->Release();
-        }
-        pSourceSurface->Release();
-    }
-	#endif
+    // With D3DUSAGE_RENDERTARGET textures, the render target IS the texture's surface level.
+    // No implicit resolve needed — the texture already contains the rendered content.
     dr->appSurfaceResolved = true;
 }
 
 static void applyPointSampling(IDirect3DDevice9* dev) {
-    for (DWORD sampler = 0; sampler < 8; sampler++) {
+
+
+	    for (DWORD sampler = 0; sampler < 8; sampler++) {
         dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
@@ -2390,19 +2368,24 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
     releaseApplicationSurface(dr);
 
     IDirect3DTexture9* sampleTex = NULL;
-    IDirect3DSurface9* surface = NULL;
 
-    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
+    // Create a render-target-capable texture. GetSurfaceLevel(0) on this
+    // texture returns a surface that can be used as a render target directly,
+    // eliminating the need for a separate CreateRenderTarget + StretchRect
+    // resolve step (which fails on DXVK).
+    HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
+                                    D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
                                     D3DPOOL_DEFAULT, &sampleTex, NULL);
     if (FAILED(hr) || !sampleTex) {
-        Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app sample) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
         return APPLICATION_SURFACE_ID;
     }
 
-    hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
-                                 D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+    // Get the surface level from the render-target texture itself
+    IDirect3DSurface9* surface = NULL;
+    hr = sampleTex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
-        Butterscotch_xdkDiagTrace("D3D9: CreateRenderTarget(app rt) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+        Butterscotch_xdkDiagTrace("D3D9: GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
         sampleTex->Release();
         return APPLICATION_SURFACE_ID;
     }
@@ -2590,17 +2573,17 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
             int32_t allocW = (width + 7) & ~7;
             int32_t allocH = (height + 7) & ~7;
             IDirect3DTexture9* sampleTex = NULL;
-            HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
+            HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
+                                            D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
                                             D3DPOOL_DEFAULT, &sampleTex, NULL);
             if (FAILED(hr) || !sampleTex) {
                 Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
                 return;
             }
             IDirect3DSurface9* surface = NULL;
-            hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
-                                         D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+            hr = sampleTex->GetSurfaceLevel(0, &surface);
             if (FAILED(hr) || !surface) {
-                Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateRenderTarget(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+                Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
                 sampleTex->Release();
                 return;
             }
