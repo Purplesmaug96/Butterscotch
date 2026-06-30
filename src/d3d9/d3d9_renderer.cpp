@@ -411,8 +411,7 @@ static void flushBatch(D3D9Renderer* dr) {
 
 
     for (uint32_t i = 0; i < dr->quadCount; i++) {
-        // 4 verts per quad -> 2 triangles using TRIANGLESTRIP.
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertexPtr, vertexStride);
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vertexPtr, vertexStride);
         vertexPtr += vertexStride * 4;
     }
 
