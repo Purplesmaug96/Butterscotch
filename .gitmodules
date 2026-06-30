@@ -10,3 +10,6 @@
 [submodule "vendor/dxvk"]
 	path = vendor/dxvk
 	url = https://github.com/Purplesmaug96/dxvk.git
+[submodule "vendor/Atg"]
+	path = vendor/Atg
+	url = https://github.com/Purplesmaug96/Atg.git
