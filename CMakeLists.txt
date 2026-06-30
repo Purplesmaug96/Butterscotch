@@ -242,7 +242,7 @@ if(ENABLE_VM_EXCEPTIONS_LOGS)
 endif()
 
 if(PLATFORM STREQUAL "desktop")
-    if(NOT ENABLE_LEGACY_GL AND NOT ENABLE_MODERN_GL)
+    if(NOT ENABLE_LEGACY_GL AND NOT ENABLE_MODERN_GL AND NOT ENABLE_D3D9)
         message(FATAL_ERROR "You must enable at least one renderer!")
     endif()
     file(GLOB GL_SOURCES src/image/*.c src/gl_common/*.c)
