@@ -335,15 +335,18 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
     if (!dr->appSurfaceTexture || dr->appSurfaceW <= 0 || dr->appSurfaceH <= 0) return;
     if (dr->appSurfaceResolved) return;
 
-    // With D3DUSAGE_RENDERTARGET textures, the render target IS the texture's surface level.
-    // No implicit resolve needed — the texture already contains the rendered content.
+	#ifdef PLATFORM_XBOX360_XDK
+	IDirect3DDevice9* dev = Dev(dr);
+    dev->Resolve(D3DRESOLVE_RENDERTARGET0, NULL,
+                 (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
+                 NULL, 0, 0, NULL, 1.0f, 0, NULL);
+	#endif
+
     dr->appSurfaceResolved = true;
 }
 
 static void applyPointSampling(IDirect3DDevice9* dev) {
-
-
-	    for (DWORD sampler = 0; sampler < 8; sampler++) {
+	for (DWORD sampler = 0; sampler < 8; sampler++) {
         dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
