@@ -33,8 +33,6 @@ extern "C" {
 #define OutputDebugStringA(msg) printf("%s\n", msg)
 #define GetFreeMemMB() 1024.0f
 
-// #define D3DPOOL_DEFAULT D3DPOOL_MANAGED
-
 // Xbox 360 XDK Hardware Mappings
 #define D3DFMT_LIN_A8R8G8B8 D3DFMT_A8R8G8B8
 #define D3DRESOLVE_RENDERTARGET0 0
@@ -57,6 +55,13 @@ static int32_t _gGameH;
 
 static int32_t* gGameW = &_gGameW;
 static int32_t* gGameH = &_gGameH;
+
+#else
+
+#ifdef D3DPOOL_MANAGED
+#undef D3DPOOL_MANAGED
+#endif
+#define D3DPOOL_MANAGED D3DPOOL_DEFAULT
 
 #endif
 
@@ -788,7 +793,6 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
-	Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE); // Temporarily bypass alpha to rule out transparent textures
 
     // Allocate CPU vertex staging buffer
     dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
@@ -800,62 +804,44 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     #ifdef PLATFORM_XBOX360_XDK
     HRESULT hr = D3DXCompileShader(g_vsSource, (UINT)strlen(g_vsSource),
                                    NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
-    #else
-    void* vsBytecode = NULL;
-    size_t vsBytecodeSize = 0;
-    HRESULT hr = CompileShaderWithFxc(g_vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
-    #endif
-    if (FAILED(hr)) {
-        OutputDebugStringA("VS compile failed: ");
-        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
-		#ifdef PLATFORM_XBOX360_XDK
-        if (pErr) pErr->Release();
-		#else
-		free(vsBytecode);
-		#endif
-        return;
-    }
-    #ifdef PLATFORM_XBOX360_XDK
     dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
                             (IDirect3DVertexShader9**)&dr->pVertexShader);
 	pCode->Release();
-    #else
-    HRESULT hrVS = dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
+
+    hr = D3DXCompileShader(g_psSource, (UINT)strlen(g_psSource),
+                           NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
+    hr = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
+                           (IDirect3DPixelShader9**)&dr->pPixelShader);
+    pCode->Release();
+	#else
+	void* vsBytecode = NULL;
+    size_t vsBytecodeSize = 0;
+    HRESULT hr = CompileShaderWithFxc(g_vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
+    if (FAILED(hr)) {
+        OutputDebugStringA("VS compile failed: ");
+        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
+		free(vsBytecode);
+        return;
+    }
+
+	HRESULT hrVS = dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
     if (FAILED(hrVS) || !dr->pVertexShader) {
         Butterscotch_xdkDiagTrace("D3D9: CreateVertexShader(VS) failed hr=0x%08X\n", (unsigned)hrVS);
         free(vsBytecode);
         return;
     }
     free(vsBytecode);
-    #endif
 
-	#ifdef PLATFORM_XBOX360_XDK
-    hr = D3DXCompileShader(g_psSource, (UINT)strlen(g_psSource),
-                           NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
-	#else
 	void* psBytecode = NULL;
     size_t psSize = 0;
 	hr = CompileShaderWithFxc(g_psSource, "ps_2_0", &psBytecode, &psSize);
-	#endif
     if (FAILED(hr)) {
         OutputDebugStringA("PS compile failed: ");
         if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
-		#ifdef PLATFORM_XBOX360_XDK
-        if (pErr) pErr->Release();
-		#else
 		free(psBytecode);
-		#endif
 		return;
     }
-	#ifdef PLATFORM_XBOX360_XDK
-    HRESULT hrPS2 = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
-                           (IDirect3DPixelShader9**)&dr->pPixelShader);
-    if (FAILED(hrPS2) || !dr->pPixelShader) {
-        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader(PS) failed hr=0x%08X\n", (unsigned)hrPS2);
-        return;
-    }
-    pCode->Release();
-	#else
+
 	HRESULT hrPS = dev->CreatePixelShader((const DWORD*)psBytecode,
                            (IDirect3DPixelShader9**)&dr->pPixelShader);
     if (FAILED(hrPS) || !dr->pPixelShader) {
@@ -2371,6 +2357,10 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 
     IDirect3DTexture9* sampleTex = NULL;
 
+	#ifdef PLATFORM_XBOX360_XDK
+	HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
+		D3DPOOL_DEFAULT, &sampleTex, NULL);
+	#else
     // Create a render-target-capable texture. GetSurfaceLevel(0) on this
     // texture returns a surface that can be used as a render target directly,
     // eliminating the need for a separate CreateRenderTarget + StretchRect
@@ -2378,19 +2368,25 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
     HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
                                     D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
                                     D3DPOOL_DEFAULT, &sampleTex, NULL);
+	#endif
     if (FAILED(hr) || !sampleTex) {
         Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
         return APPLICATION_SURFACE_ID;
     }
 
-    // Get the surface level from the render-target texture itself
     IDirect3DSurface9* surface = NULL;
+	#ifdef PLATFORM_XBOX360_XDK
+	hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
+	D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+	#else
+    // Get the surface level from the render-target texture itself
     hr = sampleTex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
-        Butterscotch_xdkDiagTrace("D3D9: GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
         sampleTex->Release();
         return APPLICATION_SURFACE_ID;
     }
+	#endif
 
     dr->appSurfaceTexture = sampleTex;
     dr->appRenderTexture = NULL;
@@ -2575,21 +2571,37 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
             int32_t allocW = (width + 7) & ~7;
             int32_t allocH = (height + 7) & ~7;
             IDirect3DTexture9* sampleTex = NULL;
-            HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
-                                            D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-                                            D3DPOOL_DEFAULT, &sampleTex, NULL);
-            if (FAILED(hr) || !sampleTex) {
-                Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
-                return;
-            }
-            IDirect3DSurface9* surface = NULL;
-            hr = sampleTex->GetSurfaceLevel(0, &surface);
-            if (FAILED(hr) || !surface) {
-                Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
-                sampleTex->Release();
-                return;
-            }
-            dr->appSurfaceTexture = sampleTex;
+            #ifdef PLATFORM_XBOX360_XDK
+			HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
+				D3DPOOL_DEFAULT, &sampleTex, NULL);
+			#else
+			// Create a render-target-capable texture. GetSurfaceLevel(0) on this
+			// texture returns a surface that can be used as a render target directly,
+			// eliminating the need for a separate CreateRenderTarget + StretchRect
+			// resolve step (which fails on DXVK).
+			HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
+											D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
+											D3DPOOL_DEFAULT, &sampleTex, NULL);
+			#endif
+			if (FAILED(hr) || !sampleTex) {
+				Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+				return;
+			}
+
+			IDirect3DSurface9* surface = NULL;
+			#ifdef PLATFORM_XBOX360_XDK
+			hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
+			D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+			#else
+			// Get the surface level from the render-target texture itself
+			hr = sampleTex->GetSurfaceLevel(0, &surface);
+			if (FAILED(hr) || !surface) {
+				Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
+				sampleTex->Release();
+				return;
+			}
+			#endif
+			dr->appSurfaceTexture = sampleTex;
             dr->appRenderTexture = NULL;
             dr->appSurfaceLevel = surface;
             dr->appSurfaceW = width;
