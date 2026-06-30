@@ -24,15 +24,6 @@
 static GLFWwindow *window;
 static Runner *g_runner;
 
-void *platformGetNativeWindowHandle(void) {
-#ifdef _WIN32
-    if (window == NULL) return NULL;
-    return (void*)glfwGetWin32Window(window);
-#else
-    return NULL;
-#endif
-}
-
 // Butterscotch expects framebuffer pixels, but GLFW3 expects logical pixels.
 // We round the logical size UP (ceil) so the resulting framebuffer is never SMALLER than requested.
 static void framebufferToLogical(float xs, float ys, int fbW, int fbH, int* outW, int* outH) {

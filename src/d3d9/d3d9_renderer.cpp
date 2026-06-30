@@ -1203,7 +1203,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
     if (texW <= 0 || texH <= 0) return;
 
     int roomIndex = renderer->runner ? renderer->runner->currentRoomIndex : -1;
-    if (renderer->drawPhase == RENDER_PHASE_WORLD && (roomIndex >= 288 || roomIndex < 8)) {
+    if (dr->drawPhase == RENDER_PHASE_WORLD && (roomIndex >= 288 || roomIndex < 8)) {
         static int worldSpriteLog = 0;
         int limit = roomIndex >= 288 ? 96 : 120;
         if ((roomIndex >= 288 || tpag->sourceWidth >= 64 || tpag->sourceHeight >= 64 || x <= 8.0f || y <= 8.0f) && worldSpriteLog < limit) {
@@ -1309,13 +1309,13 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
     if (texW <= 0 || texH <= 0) return;
 
     int roomIndex = renderer->runner ? renderer->runner->currentRoomIndex : -1;
-    if (renderer->drawPhase == RENDER_PHASE_POST || renderer->drawPhase == RENDER_PHASE_WORLD || roomIndex >= 288) {
+    if (dr->drawPhase == RENDER_PHASE_POST || dr->drawPhase == RENDER_PHASE_WORLD || roomIndex >= 288) {
         static int partLog = 0;
         int limit = roomIndex >= 288 ? 128 : 180;
         if ((roomIndex >= 288 || srcW >= 16 || srcH >= 16 || x <= 4.0f || y <= 4.0f) && partLog < limit) {
             d3d9DiagLimited(&partLog, limit,
                             "D3D9PART: phase=%d tpag=%d texPage=%d tex=%dx%d tpagSrc=%d,%d %dx%d target=%d,%d bound=%dx%d srcOff=%d,%d src=%dx%d dst=%.2f,%.2f scale=%.2f,%.2f room=%d",
-                            renderer->drawPhase,
+                            dr->drawPhase,
                             tpagIndex, texPageId, (int)texW, (int)texH,
                             tpag->sourceX, tpag->sourceY, tpag->sourceWidth, tpag->sourceHeight,
                             tpag->targetX, tpag->targetY, tpag->boundingWidth, tpag->boundingHeight,
@@ -2793,6 +2793,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t srcX, int32_t srcY,
                               int32_t srcW, int32_t srcH, float dstX, float dstY,
                               float dstW, float dstH, uint32_t color, float alpha) {
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
     // Used by Renderer_nineSliceTileH/V/Tile2D fast path.
     // It must:
     // - tile srcW across dstW and srcH across dstH
@@ -2806,7 +2807,7 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
     // Fast-path semantics are angle=0 and mode != NS_MIRROR.
     // Still support fractional dstW/dstH by clamping last tile sizes.
 
-    if (renderer->drawPhase == RENDER_PHASE_POST) {
+    if (dr->drawPhase == RENDER_PHASE_POST) {
         static int postTileLog = 0;
         d3d9DiagLimited(&postTileLog, 96,
                         "D3D9POST: tiledPart tpag=%d src=%d,%d %dx%d dst=%.2f,%.2f %.2fx%.2f room=%d",
@@ -3291,7 +3292,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     dr->base.drawFont = -1;
     dr->base.circlePrecision = 24;
     dr->base.currentShader = -1;
-    dr->base.drawPhase = RENDER_PHASE_NONE;
+    // dr->drawPhase = RENDER_PHASE_NONE;
     dr->pd3dDevice = pd3dDevice;
     dr->currentTextureIndex = -1;
 

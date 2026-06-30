@@ -297,11 +297,6 @@ static void overlayBinaryRewrite(MAYBE_UNUSED FileSystem* fs, void* handle) {
     if (h->fp != nullptr) fclose(h->fp);
     // "wb+" truncates the existing file (or creates it if it vanished since open) and gives back read+write
     h->fp = fopen(h->fullPath, "wb+");
-    if (h->fp == nullptr) {
-        // Fallback: re-open in read-only mode so subsequent reads return 0 gracefully
-        // rather than crashing on NULL dereference.
-        h->fp = fopen(h->fullPath, "rb");
-    }
 }
 
 static bool overlayDirectoryExists(FileSystem* fs, const char* relativePath) {

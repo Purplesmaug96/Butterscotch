@@ -484,7 +484,6 @@ struct Runner {
     bool appSurfaceEnabled;
     bool appSurfaceAutoDraw;
     bool usingAppSurface;
-	bool appSurfaceKeepWindowSize;
     int32_t applicationWidth;
     int32_t applicationHeight;
     int32_t oldApplicationWidth;

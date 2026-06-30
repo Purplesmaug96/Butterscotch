@@ -696,7 +696,7 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 
     _snprintf(line, sizeof(line) - 1, "GUI %dx%d:  surf: auto=%d keep=%d id=%d", runner->guiWidth, runner->guiHeight,
-              runner->appSurfaceAutoDraw ? 1 : 0, runner->appSurfaceKeepWindowSize ? 1 : 0, runner->applicationSurfaceId);
+              runner->appSurfaceAutoDraw ? 1 : 0, /*runner->appSurfaceKeepWindowSize*/false ? 1 : 0, runner->applicationSurfaceId);
     line[sizeof(line) - 1] = '\0';
     diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 }
@@ -939,7 +939,7 @@ extern float _offx;
 static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, int32_t gameH) {
     int32_t frameW = gameW;
     int32_t frameH = gameH;
-    if (runner && !runner->appSurfaceKeepWindowSize && !runner->appSurfaceAutoDraw && runner->currentRoom &&
+    if (runner && !/*runner->appSurfaceKeepWindowSize*/false && !runner->appSurfaceAutoDraw && runner->currentRoom &&
         runner->currentRoom->width > 0 && runner->currentRoom->height > 0 &&
         runner->currentRoom->width < (uint32_t)frameW && runner->currentRoom->height < (uint32_t)frameH &&
         (runner->applicationWidth <= 0 || runner->applicationWidth == gameW)) {
@@ -1553,7 +1553,7 @@ VOID __cdecl main() {
             }
 
             if (!deferDraw) {
-                if (roomChangedThisStep && runner->appSurfaceKeepWindowSize) {
+                if (roomChangedThisStep && /*runner->appSurfaceKeepWindowSize*/false) {
                     heldRoomTransitionFrame = true;
                     gDiagRoomTransitionHolds++;
                 } else {
@@ -1566,7 +1566,7 @@ VOID __cdecl main() {
         }
 
         // Deferred draw: render once after all catch-up steps
-        if (deferDraw && gameFramesRan > 0 && !(heldRoomTransitionFrame && runner->appSurfaceKeepWindowSize)) {
+        if (deferDraw && gameFramesRan > 0 && !(heldRoomTransitionFrame && /*runner->appSurfaceKeepWindowSize*/false)) {
             drawRunnerFrame(runner, renderer, gameW, gameH);
         }
 

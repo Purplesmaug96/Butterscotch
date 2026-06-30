@@ -18,42 +18,11 @@ static SDL_Surface* scr;
 static SDL_Window *window;
 static SDL_GameController* openControllers[MAX_GAMEPADS];
 
-void *platformGetNativeWindowHandle(void) {
-    if (window == NULL) return NULL;
-    SDL_SysWMinfo wmInfo;
-    SDL_VERSION(&wmInfo.version);
-    if (!SDL_GetWindowWMInfo(window, &wmInfo)) {
-        fprintf(stderr, "Failed to get window handle (SDL_GetWindowWMInfo returned false)\n");
-        return NULL;
-    }
-    switch (wmInfo.subsystem) {
-        #ifdef SDL_VIDEO_DRIVER_WINDOWS
-        case SDL_SYSWM_WINDOWS:
-            return (void*)wmInfo.info.win.window;
-        #endif
-        #ifdef SDL_VIDEO_DRIVER_X11
-        case SDL_SYSWM_X11:
-            return (void*)(uintptr_t)wmInfo.info.x11.window;
-        #endif
-        #ifdef SDL_VIDEO_DRIVER_WAYLAND
-        case SDL_SYSWM_WAYLAND:
-            return (void*)wmInfo.info.wl.surface;
-        #endif
-        default:
-            fprintf(stderr, "Failed to get window handle (unsupported subsystem: %d)\n", wmInfo.subsystem);
-            return NULL;
-    }
-}
-
-void *platformGetNativeWindowHandleForD3D9(void) {
-    // DXVK's D3D9 backend, when using DXVK_WSI_DRIVER=SDL2, expects the
-    // "HWND" passed to CreateDevice / D3DPRESENT_PARAMETERS to be the
-    // SDL_Window* pointer itself.  The SDL2 WSI driver casts the HWND
-    // back to SDL_Window* via reinterpret_cast (fromHwnd in
-    // native_sdl2.h), so we must return the SDL_Window* directly rather
-    // than any platform-specific native handle (wl_surface, X11 Window, etc.).
+#ifdef ENABLE_D3D9
+void *sdl2GetWindow(void) {
     return (void*)window;
 }
+#endif
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
     if (gfx == SOFTWARE || gfx == D3D9) {

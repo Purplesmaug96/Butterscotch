@@ -20,6 +20,7 @@ extern "C" {
 #endif
 #include <d3d9.h>
 #include "d3d9_renderer.h"
+extern "C" void *sdl2GetWindow(void);
 #endif
 
 #include <getopt.h>
@@ -1359,7 +1360,7 @@ int main(int argc, char* argv[]) {
 #ifdef ENABLE_D3D9
         if (gfx == D3D9) {
 // #ifdef _WIN32
-            void* nativeWindow = platformGetNativeWindowHandleForD3D9();
+            void* nativeWindow = sdl2GetWindow();
             if (!nativeWindow) {
                 fprintf(stderr, "Failed to get native window handle for D3D9!\n");
                 platformExit();

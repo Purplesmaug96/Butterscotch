@@ -2,6 +2,12 @@
 
 #include "renderer.h"
 
+#define RENDER_PHASE_NONE 0
+#define RENDER_PHASE_PRE 1
+#define RENDER_PHASE_WORLD 2
+#define RENDER_PHASE_POST 3
+#define RENDER_PHASE_GUI 4
+
 // Maximum quads per batch before flushing
 #define D3D9_MAX_QUADS 2048
 #define D3D9_VERTS_PER_QUAD 4
@@ -84,6 +90,8 @@ typedef struct {
     int32_t* surfaceWidth;
     int32_t* surfaceHeight;
     uint32_t surfaceCount;
+
+	static const uint8_t drawPhase = RENDER_PHASE_NONE;
 } D3D9Renderer;
 
 Renderer* D3D9Renderer_create(void* pd3dDevice);
