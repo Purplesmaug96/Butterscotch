@@ -156,7 +156,8 @@ endif()
 
 if(PLATFORM STREQUAL "android")
     add_library(butterscotch SHARED ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
-elseof(PLATFORM NOT STREQUAL "xbox360_xdk")
+elseif(PLATFORM STREQUAL "xbox360_xdk")
+else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()
 

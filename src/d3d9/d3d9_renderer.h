@@ -91,7 +91,10 @@ typedef struct {
     int32_t* surfaceHeight;
     uint32_t surfaceCount;
 
-	static const uint8_t drawPhase = RENDER_PHASE_NONE;
+	#ifdef PLATFORM_XBOX360_XDK
+	static
+	#endif
+	const uint8_t drawPhase = RENDER_PHASE_NONE;
 } D3D9Renderer;
 
 Renderer* D3D9Renderer_create(void* pd3dDevice);
