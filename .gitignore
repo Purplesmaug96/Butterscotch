@@ -4,6 +4,9 @@ deltarune*
 survey_program*
 _android-project
 vendor/nxdk
+butterscotch_d3d9.log
+tmp_shader.dxbc
+tmp_shader.hlsl
 .gitignore
 .cache
 CMakeUserPresets.json

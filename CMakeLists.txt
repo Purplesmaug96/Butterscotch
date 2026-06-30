@@ -267,6 +267,9 @@ if(PLATFORM STREQUAL "desktop")
         add_compile_definitions(NO_STRTOK_R)
     endif()
 
+	# stb_vorbis (for miniaudio's OGG decoding)
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
+
     # Butterscotch VM/interpreter profiler
     option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" ON)
     if(ENABLE_VM_GML_PROFILER)
