@@ -31,6 +31,7 @@ typedef struct {
     void* pVertexShader; // IDirect3DVertexShader9*
     void* pPixelShader;  // IDirect3DPixelShader9*
     bool compiled;
+    bool compileAttempted; // true once we've tried (and possibly failed) to compile
     uint32_t uniformCount;
     D3D9ShaderUniform uniforms[D3D9_MAX_SHADER_UNIFORMS]; // fixed-size array to avoid heap allocs
 } D3D9GMLShader;

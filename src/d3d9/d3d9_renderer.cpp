@@ -1129,36 +1129,10 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->currentTextureIndex = -1;
     dr->quadCount = 0;
 
-    // Initialize GML shader support
+    // Initialize GML shader support — compile lazily on first use
     dr->gmlShaders = (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader));
-    dr->gmlShaderCount = 0;
-    fprintf(stderr, "D3D9: %u Shaders Found\n", dataWin->shdr.count);
-
-    repeat(dataWin->shdr.count, i) {
-        Shader* shdr = &dataWin->shdr.shaders[i];
-        D3D9GMLShader* gmlShader = &dr->gmlShaders[i];
-
-        if (!shdr->present) {
-            dr->gmlShaderCount++;
-            fprintf(stderr, "D3D9: Skipping shader %d because it isn't present!\n", (int)i);
-            continue;
-        }
-
-        fprintf(stderr, "D3D9: Compiling %s\n", shdr->name);
-
-        // Use HLSL9 sources from data.win (these are the Direct3D 9 shaders)
-        const char* vertexShaderSource = shdr->hlsl9_Vertex;
-        const char* fragmentShaderSource = shdr->hlsl9_Fragment;
-
-        if (!vertexShaderSource || !fragmentShaderSource) {
-            fprintf(stderr, "D3D9: Shader %s has no HLSL9 source, skipping\n", shdr->name);
-            dr->gmlShaderCount++;
-            continue;
-        }
-
-        compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
-        dr->gmlShaderCount++;
-    }
+    dr->gmlShaderCount = dataWin->shdr.count;
+    fprintf(stderr, "D3D9: %u Shaders Found (will compile on demand)\n", dataWin->shdr.count);
 
     // Initialize dynamic surface arrays (empty)
     dr->surfaces = NULL;
@@ -2734,13 +2708,13 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
         // path the GML code handles stretching the app surface to the game frame,
         // and setGameTargetTransform correctly maps the game frame to the screen.
         setGameTargetTransform(dr);
-        d3d9DiagLimited(&switchLogged, 64,
-                        "D3D9: manual application_surface present room=%d src=%d,%d %dx%d dst=%.2f,%.2f scale=%.2f,%.2f game=%dx%d screen=%dx%d renderScale=%.3f offX=%.1f offY=%.1f",
-                        renderer->runner ? renderer->runner->currentRoomIndex : -1,
-                        srcLeft, srcTop, srcWidth, srcHeight,
-                        x, y, xscale, yscale,
-                        dr->gameW, dr->gameH, dr->screenW, dr->screenH,
-                        dr->renderScale, dr->renderOffsetX, dr->renderOffsetY);
+        // d3d9DiagLimited(&switchLogged, 64,
+        //                 "D3D9: manual application_surface present room=%d src=%d,%d %dx%d dst=%.2f,%.2f scale=%.2f,%.2f game=%dx%d screen=%dx%d renderScale=%.3f offX=%.1f offY=%.1f",
+        //                 renderer->runner ? renderer->runner->currentRoomIndex : -1,
+        //                 srcLeft, srcTop, srcWidth, srcHeight,
+        //                 x, y, xscale, yscale,
+        //                 dr->gameW, dr->gameH, dr->screenW, dr->screenH,
+        //                 dr->renderScale, dr->renderOffsetX, dr->renderOffsetY);
         Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
         applyPointSampling(Dev(dr));
     }
@@ -3136,12 +3110,47 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
 }
 
 
+// Compile a GML shader on demand (lazy compilation)
+static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return;
+    D3D9GMLShader* gmlShader = &dr->gmlShaders[shaderIndex];
+    if (gmlShader->compileAttempted) return;
+
+    gmlShader->compileAttempted = true;
+
+    DataWin* dw = dr->base.dataWin;
+    if (!dw || (uint32_t)shaderIndex >= dw->shdr.count) return;
+
+    Shader* shdr = &dw->shdr.shaders[shaderIndex];
+    if (!shdr->present) {
+        fprintf(stderr, "D3D9: Skipping shader %d because it isn't present!\n", shaderIndex);
+        return;
+    }
+
+    fprintf(stderr, "D3D9: Compiling %s (lazy)\n", shdr->name);
+
+    const char* vertexShaderSource = shdr->hlsl9_Vertex;
+    const char* fragmentShaderSource = shdr->hlsl9_Fragment;
+
+    if (!vertexShaderSource || !fragmentShaderSource) {
+        fprintf(stderr, "D3D9: Shader %s has no HLSL9 source, skipping\n", shdr->name);
+        return;
+    }
+
+    IDirect3DDevice9* dev = Dev(dr);
+    compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
+}
+
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
         renderer->currentShader = -1;
         return;
     }
+
+    // Compile on first use
+    ensureShaderCompiled(dr, shaderIndex);
+
     D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
     if (!shader->compiled) {
         renderer->currentShader = -1;
@@ -3181,6 +3190,10 @@ static void d3d9GpuResetShader(Renderer* renderer) {
 static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return -1;
+
+    // Ensure shader is compiled before accessing uniforms
+    ensureShaderCompiled(dr, shaderIndex);
+
     D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
     if (!shader->compiled) return -1;
 
@@ -3194,6 +3207,10 @@ static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, cha
 static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return -1;
+
+    // Ensure shader is compiled before accessing uniforms
+    ensureShaderCompiled(dr, shaderIndex);
+
     D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
     if (!shader->compiled) return -1;
 
