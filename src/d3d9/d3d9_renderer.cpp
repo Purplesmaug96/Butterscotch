@@ -129,47 +129,37 @@ struct SpriteVertex {
 };
 
 // ===[ HLSL Shader Source ]===
+//
+// Default vertex shader: transforms screen-space pixel coordinates to clip space
+// using a uniform half-resolution (uHalfRes = gameW/2, gameH/2) so it works
+// at any resolution without hardcoded dimensions.
+// On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE is used instead, so the shader is a
+// simple pass-through.
 
-#ifdef PLATFORM_XBOX360_XDK
-// Vertex shader: simple pass-through for pre-transformed screen-space vertices.
-// Position is already in screen pixels with z=0, w=1.
-// With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
 static const char* g_vsSource =
-    "struct VS_IN  { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
-    "struct VS_OUT { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
-    "VS_OUT main(VS_IN i) {\n"
-    "  VS_OUT o;\n"
-    "  o.Pos = i.Pos;\n"
-    "  o.Tex = i.Tex;\n"
-    "  o.Col = i.Col;\n"
-    "  return o;\n"
-    "}\n";
-#else
-// Only works for 640x480
-static const char* g_vsSource =
+    "uniform float2 uHalfRes;\n"
     "struct VS_IN {\n"
     "    float4 Pos : POSITION;\n"
     "    float2 Tex : TEXCOORD0;\n"
     "    float4 Col : TEXCOORD1;\n"
-    "};\n" // Make sure this semicolon is explicit!
+    "};\n"
     "\n"
     "struct VS_OUT {\n"
     "    float4 Pos : POSITION;\n"
     "    float2 Tex : TEXCOORD0;\n"
     "    float4 Col : TEXCOORD1;\n"
-    "};\n" // Make sure this semicolon is explicit!
+    "};\n"
     "\n"
     "VS_OUT main(VS_IN i) {\n"
     "    VS_OUT o;\n"
-    "    o.Pos.x = (i.Pos.x / 320.0f) - 1.0f;\n"
-    "    o.Pos.y = 1.0f - (i.Pos.y / 240.0f);\n"
+    "    o.Pos.x = (i.Pos.x / uHalfRes.x) - 1.0f;\n"
+    "    o.Pos.y = 1.0f - (i.Pos.y / uHalfRes.y);\n"
     "    o.Pos.z = 0.0f;\n"
     "    o.Pos.w = 1.0f;\n"
     "    o.Tex = i.Tex;\n"
     "    o.Col = i.Col;\n"
     "    return o;\n"
     "}\n";
-#endif
 
 static const char* g_psSource =
     "sampler2D s0 : register(s0) = sampler_state {\n"
@@ -1224,6 +1214,10 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
     dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
+    // Set the uHalfRes uniform for the default vertex shader
+    // This transforms screen-space pixel coords to clip space without hardcoded dimensions
+    float halfRes[2] = { (float)gameW * 0.5f, (float)gameH * 0.5f };
+    dev->SetVertexShaderConstantF(0, halfRes, 1);
 
     // Alpha blending
     d3d9SetNormalBlend(dev);
