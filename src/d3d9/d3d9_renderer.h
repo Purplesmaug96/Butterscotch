@@ -16,6 +16,25 @@
 // Vertex: position(4f), texcoord(2f), color(4f)
 #define D3D9_VERTEX_STRIDE 40
 
+// Maximum number of shader uniforms we track
+#define D3D9_MAX_SHADER_UNIFORMS 64
+
+typedef struct {
+    char* name; // owned
+    int32_t registerIndex; // constant register index
+    int32_t registerCount; // number of registers (4 floats each)
+    uint32_t samplerSlot; // for sampler uniforms
+    bool isSampler;
+} D3D9ShaderUniform;
+
+typedef struct {
+    void* pVertexShader; // IDirect3DVertexShader9*
+    void* pPixelShader;  // IDirect3DPixelShader9*
+    bool compiled;
+    uint32_t uniformCount;
+    D3D9ShaderUniform uniforms[D3D9_MAX_SHADER_UNIFORMS]; // fixed-size array to avoid heap allocs
+} D3D9GMLShader;
+
 typedef struct {
     Renderer base; // Must be first field
 
@@ -25,6 +44,11 @@ typedef struct {
     void* pVertexShader;
     void* pPixelShader;
     void* pVertexDecl;
+
+    // GML shader support
+    D3D9GMLShader* defaultShaderProgram;
+    D3D9GMLShader* gmlShaders;
+    uint32_t gmlShaderCount;
 
     // Sprite batch state
     int32_t quadCount;

@@ -397,7 +397,27 @@ static void flushBatch(D3D9Renderer* dr) {
 
     IDirect3DDevice9* dev = Dev(dr);
 
-    // Bind texture
+    // Bind declaration
+    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+
+    // Determine which shaders to use based on current GML shader state
+    Renderer* renderer = (Renderer*)dr;
+    if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
+        D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
+        if (shader->compiled) {
+            dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
+            dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+        } else {
+            dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+            dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+        }
+    } else {
+        dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+        dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+    }
+
+    // Bind texture - when a GML shader is active, bind to sampler slot 0
+    // (in the future, shader samplers could map to different slots)
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
     } else {
@@ -409,14 +429,6 @@ static void flushBatch(D3D9Renderer* dr) {
     // we submit as TRIANGLESTRIP with 4 vertices -> 2 triangles.
     BYTE* vertexPtr = (BYTE*)dr->vertexData;
     size_t vertexStride = sizeof(SpriteVertex);
-
-    // Re-bind declaration + both shaders right before issuing draws.
-    // (Do not guard on null pointers here: we want to fail loudly if init didn't succeed.)
-    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
-    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
-
-
 
     for (uint32_t i = 0; i < dr->quadCount; i++) {
         dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vertexPtr, vertexStride);
@@ -839,6 +851,212 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
 }
 
 
+// ===[ Shader Compilation Helpers ]===
+
+// Forward declaration of compileShader
+HRESULT compileShader(const char* source, const char* profile, void** outBytecode, size_t* outSize);
+
+// Parses HLSL source to extract uniform declarations and assign register slots.
+// Returns the number of uniforms found (capped at D3D9_MAX_SHADER_UNIFORMS).
+// uniformDeclarations must be D3D9ShaderUniform[D3D9_MAX_SHADER_UNIFORMS].
+static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9ShaderUniform* uniforms) {
+    if (!source) return 0;
+
+    const char* p = source;
+    uint32_t count = 0;
+    // Track register assignments starting from c0 for vertex, c0 for pixel
+    int nextVertexRegister = 0;
+    int nextPixelRegister = 0;
+    bool isVertex = (strstr(profile, "vs_") != nullptr);
+
+    while (*p && count < D3D9_MAX_SHADER_UNIFORMS) {
+        // Skip whitespace and newlines
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (!*p) break;
+
+        // Look for "uniform" keyword
+        if (strncmp(p, "uniform", 7) == 0) {
+            const char* declStart = p;
+            p += 7;
+            while (*p == ' ' || *p == '\t') p++;
+
+            // Check type: float, float4, float4x4, int, int4, sampler2D, etc.
+            char type[64] = {0};
+            int ti = 0;
+            while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && ti < 63) {
+                type[ti++] = *p++;
+            }
+            type[ti] = '\0';
+
+            if (strlen(type) == 0) continue;
+
+            // Skip whitespace after type
+            while (*p == ' ' || *p == '\t') p++;
+
+            // Read name (until ;, =, :, space, or newline)
+            char name[128] = {0};
+            int ni = 0;
+            while (*p && *p != ';' && *p != '=' && *p != ':' && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && ni < 127) {
+                name[ni++] = *p++;
+            }
+            name[ni] = '\0';
+
+            if (strlen(name) == 0 || name[0] == '{') continue;
+
+            // Determine type and register count
+            bool isSampler = (strcmp(type, "sampler2D") == 0) || (strcmp(type, "sampler") == 0) || (strcmp(type, "SamplerState") == 0);
+            int regCount = 1;
+
+            // Array support: check for [N]
+            int arraySize = 1;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '[') {
+                p++;
+                char numStr[16] = {0};
+                int numI = 0;
+                while (*p && *p >= '0' && *p <= '9' && numI < 15) {
+                    numStr[numI++] = *p++;
+                }
+                if (*p == ']') p++;
+                arraySize = atoi(numStr);
+                if (arraySize < 1) arraySize = 1;
+            }
+
+            if (strcmp(type, "float4x4") == 0 || strcmp(type, "matrix") == 0) {
+                regCount = 4 * arraySize; // 4 registers for a 4x4 matrix
+            } else if (strcmp(type, "float4") == 0 || strcmp(type, "float") == 0) {
+                regCount = (strcmp(type, "float4") == 0) ? (1 * arraySize) : (1 * arraySize);
+            } else if (strcmp(type, "int4") == 0 || strcmp(type, "int") == 0) {
+                regCount = (strcmp(type, "int4") == 0) ? (1 * arraySize) : (1 * arraySize);
+            } else if (isSampler) {
+                regCount = 1;
+            } else {
+                // Unknown type, default to 1
+                regCount = 1;
+            }
+
+            // Assign register
+            uniforms[count].name = strdup(name);
+            uniforms[count].isSampler = isSampler;
+
+            if (isVertex) {
+                uniforms[count].registerIndex = nextVertexRegister;
+                uniforms[count].registerCount = regCount;
+                if (!isSampler) nextVertexRegister += regCount;
+            } else {
+                uniforms[count].registerIndex = nextPixelRegister;
+                uniforms[count].registerCount = regCount;
+                if (!isSampler) nextPixelRegister += regCount;
+            }
+            uniforms[count].samplerSlot = 0;
+
+            count++;
+        }
+
+        // Skip to next line or semicolon
+        while (*p && *p != '\n' && *p != '\r') p++;
+        if (*p == '\r') p++;
+        if (*p == '\n') p++;
+    }
+
+    return count;
+}
+
+static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShaderSource, const char* fragmentShaderSource, IDirect3DDevice9* dev, const char* name) {
+    if (!vertexShaderSource || !fragmentShaderSource) {
+        fprintf(stderr, "D3D9: Shader %s has no HLSL source\n", name ? name : "unknown");
+        return false;
+    }
+
+    // Compile vertex shader
+    void* vsBytecode = NULL;
+    size_t vsBytecodeSize = 0;
+    HRESULT hr = compileShader(vertexShaderSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
+    if (FAILED(hr) || !vsBytecode) {
+        fprintf(stderr, "D3D9: Failed to compile vertex shader %s\n", name ? name : "unknown");
+        return false;
+    }
+
+    IDirect3DVertexShader9* vs = NULL;
+    hr = dev->CreateVertexShader((const DWORD*)vsBytecode, &vs);
+    free(vsBytecode);
+    if (FAILED(hr) || !vs) {
+        fprintf(stderr, "D3D9: CreateVertexShader failed for %s hr=0x%08X\n", name ? name : "unknown", (unsigned)hr);
+        return false;
+    }
+
+    // Compile pixel shader
+    void* psBytecode = NULL;
+    size_t psBytecodeSize = 0;
+    hr = compileShader(fragmentShaderSource, "ps_2_0", &psBytecode, &psBytecodeSize);
+    if (FAILED(hr) || !psBytecode) {
+        fprintf(stderr, "D3D9: Failed to compile pixel shader %s\n", name ? name : "unknown");
+        vs->Release();
+        return false;
+    }
+
+    IDirect3DPixelShader9* ps = NULL;
+    hr = dev->CreatePixelShader((const DWORD*)psBytecode, &ps);
+    free(psBytecode);
+    if (FAILED(hr) || !ps) {
+        fprintf(stderr, "D3D9: CreatePixelShader failed for %s hr=0x%08X\n", name ? name : "unknown", (unsigned)hr);
+        vs->Release();
+        return false;
+    }
+
+    gmlShader->pVertexShader = vs;
+    gmlShader->pPixelShader = ps;
+    gmlShader->compiled = true;
+
+    // Parse uniforms from HLSL source
+    gmlShader->uniformCount = parseHLSLUniforms(vertexShaderSource, "vs_2_0", gmlShader->uniforms);
+    uint32_t psUniforms = parseHLSLUniforms(fragmentShaderSource, "ps_2_0", gmlShader->uniforms + gmlShader->uniformCount);
+    gmlShader->uniformCount += psUniforms;
+
+    // Assign sampler slots sequentially
+    uint32_t nextSamplerSlot = 0;
+    for (uint32_t i = 0; i < gmlShader->uniformCount; i++) {
+        if (gmlShader->uniforms[i].isSampler) {
+            gmlShader->uniforms[i].samplerSlot = nextSamplerSlot++;
+            // For samplers, set up the device to use that slot
+            dev->SetVertexShaderConstantF(gmlShader->uniforms[i].registerIndex, NULL, 0);
+        }
+    }
+
+    fprintf(stderr, "D3D9: Shader %s compiled successfully (%u uniforms, %u sampler slots)\n",
+            name ? name : "unknown", gmlShader->uniformCount, nextSamplerSlot);
+    return true;
+}
+
+// Find a uniform by name in a shader
+static D3D9ShaderUniform* findShaderUniform(D3D9GMLShader* shader, const char* name) {
+    if (!shader || !name) return nullptr;
+    for (uint32_t i = 0; i < shader->uniformCount; i++) {
+        if (strcmp(shader->uniforms[i].name, name) == 0) {
+            return &shader->uniforms[i];
+        }
+    }
+    return nullptr;
+}
+
+static void freeD3D9GMLShader(D3D9GMLShader* shader) {
+    if (!shader) return;
+    if (shader->pVertexShader) {
+        ((IDirect3DVertexShader9*)shader->pVertexShader)->Release();
+        shader->pVertexShader = NULL;
+    }
+    if (shader->pPixelShader) {
+        ((IDirect3DPixelShader9*)shader->pPixelShader)->Release();
+        shader->pPixelShader = NULL;
+    }
+    for (uint32_t i = 0; i < shader->uniformCount; i++) {
+        free(shader->uniforms[i].name);
+        shader->uniforms[i].name = NULL;
+    }
+    shader->uniformCount = 0;
+    shader->compiled = false;
+}
+
 // ===[ Vtable Implementations ]===
 
 static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
@@ -911,6 +1129,37 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->currentTextureIndex = -1;
     dr->quadCount = 0;
 
+    // Initialize GML shader support
+    dr->gmlShaders = (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader));
+    dr->gmlShaderCount = 0;
+    fprintf(stderr, "D3D9: %u Shaders Found\n", dataWin->shdr.count);
+
+    repeat(dataWin->shdr.count, i) {
+        Shader* shdr = &dataWin->shdr.shaders[i];
+        D3D9GMLShader* gmlShader = &dr->gmlShaders[i];
+
+        if (!shdr->present) {
+            dr->gmlShaderCount++;
+            fprintf(stderr, "D3D9: Skipping shader %d because it isn't present!\n", (int)i);
+            continue;
+        }
+
+        fprintf(stderr, "D3D9: Compiling %s\n", shdr->name);
+
+        // Use HLSL9 sources from data.win (these are the Direct3D 9 shaders)
+        const char* vertexShaderSource = shdr->hlsl9_Vertex;
+        const char* fragmentShaderSource = shdr->hlsl9_Fragment;
+
+        if (!vertexShaderSource || !fragmentShaderSource) {
+            fprintf(stderr, "D3D9: Shader %s has no HLSL9 source, skipping\n", shdr->name);
+            dr->gmlShaderCount++;
+            continue;
+        }
+
+        compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
+        dr->gmlShaderCount++;
+    }
+
     // Initialize dynamic surface arrays (empty)
     dr->surfaces = NULL;
     dr->surfaceTexture = NULL;
@@ -935,6 +1184,12 @@ static void d3d9Destroy(Renderer* renderer) {
     if (dr->pVertexShader) ((IDirect3DVertexShader9*)dr->pVertexShader)->Release();
     if (dr->pPixelShader) ((IDirect3DPixelShader9*)dr->pPixelShader)->Release();
     if (dr->pVertexDecl) ((IDirect3DVertexDeclaration9*)dr->pVertexDecl)->Release();
+
+    // Release GML shaders
+    for (uint32_t i = 0; i < dr->gmlShaderCount; i++) {
+        freeD3D9GMLShader(&dr->gmlShaders[i]);
+    }
+    free(dr->gmlShaders);
 
     // Release all dynamic surface resources
     for (uint32_t i = 0; i < dr->surfaceCount; i++) {
@@ -2882,29 +3137,118 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
 
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: shader_set stub shader=%d", shaderIndex);
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
+        renderer->currentShader = -1;
+        return;
+    }
+    D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+    if (!shader->compiled) {
+        renderer->currentShader = -1;
+        return;
+    }
+
+    flushBatch(dr);
+    IDirect3DDevice9* dev = Dev(dr);
+    dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
+    dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+
+    // Set built-in uniforms
+    D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
+    if (gmMatrices != nullptr) {
+        // gm_Matrices is float4x4[5] - 5 matrices, each 4 registers
+        for (int m = 0; m < 5; m++) {
+            dev->SetVertexShaderConstantF(
+                gmMatrices->registerIndex + m * 4,
+                renderer->gmlMatrices[m].m,
+                4
+            );
+        }
+    }
+
     renderer->currentShader = shaderIndex;
 }
+
 static void d3d9GpuResetShader(Renderer* renderer) {
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: shader_reset");
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    flushBatch(dr);
+    IDirect3DDevice9* dev = Dev(dr);
+    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
     renderer->currentShader = -1;
 }
+
 static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {
-    (void)renderer;
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: shader_get_uniform stub shader=%d uniform=%s", shaderIndex, uniform ? uniform : "(null)");
-    return -1;
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return -1;
+    D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+    if (!shader->compiled) return -1;
+
+    D3D9ShaderUniform* u = findShaderUniform(shader, uniform);
+    if (u == nullptr) return -1;
+
+    // Return a handle that encodes the uniform index + 1 (0 = invalid)
+    return (int32_t)(uintptr_t)(u - shader->uniforms) + 1;
 }
+
 static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {
-    (void)renderer;
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: shader_get_sampler_index stub shader=%d uniform=%s", shaderIndex, uniform ? uniform : "(null)");
-    return -1;
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return -1;
+    D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+    if (!shader->compiled) return -1;
+
+    D3D9ShaderUniform* u = findShaderUniform(shader, uniform);
+    if (u == nullptr || !u->isSampler) return -1;
+
+    return (int32_t)u->samplerSlot;
 }
-static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) { (void)renderer; (void)handle; (void)count; (void)value1; (void)value2; (void)value3; (void)value4; }
-static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) { (void)renderer; (void)handle; (void)count; (void)value1; (void)value2; (void)value3; (void)value4; }
+
+static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (handle <= 0) return;
+
+    int32_t shaderIndex = renderer->currentShader;
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return;
+    D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+    if (!shader->compiled) return;
+
+    uint32_t uniformIdx = (uint32_t)(handle - 1);
+    if (uniformIdx >= shader->uniformCount) return;
+    D3D9ShaderUniform* u = &shader->uniforms[uniformIdx];
+    if (u->isSampler) return;
+
+    IDirect3DDevice9* dev = Dev(dr);
+    float values[4] = { value1, value2, value3, value4 };
+    // Set each register for the count
+    for (int32_t i = 0; i < count && i < 4; i++) {
+        dev->SetVertexShaderConstantF(u->registerIndex + i, values, 1);
+        dev->SetPixelShaderConstantF(u->registerIndex + i, values, 1);
+    }
+}
+
+static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (handle <= 0) return;
+
+    int32_t shaderIndex = renderer->currentShader;
+    if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return;
+    D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+    if (!shader->compiled) return;
+
+    uint32_t uniformIdx = (uint32_t)(handle - 1);
+    if (uniformIdx >= shader->uniformCount) return;
+    D3D9ShaderUniform* u = &shader->uniforms[uniformIdx];
+    if (u->isSampler) return;
+
+    IDirect3DDevice9* dev = Dev(dr);
+    int32_t values[4] = { value1, value2, value3, value4 };
+    // D3D9 doesn't have SetVertexShaderConstantI for vs_2_0, use float
+    float fvalues[4] = { (float)value1, (float)value2, (float)value3, (float)value4 };
+    for (int32_t i = 0; i < count && i < 4; i++) {
+        dev->SetVertexShaderConstantF(u->registerIndex + i, fvalues, 1);
+        dev->SetPixelShaderConstantF(u->registerIndex + i, fvalues, 1);
+    }
+}
 static uint32_t d3d9SpriteGetTexture(Renderer* renderer, int32_t tpagIndex) { (void)renderer; return (uint32_t)(tpagIndex + 1); }
 
 static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
@@ -3041,8 +3385,12 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 
     dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
 }
-static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) { (void)renderer; (void)shader; return false; }
-static bool d3d9ShadersSupported() { return false; }
+static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (shader < 0 || (uint32_t)shader >= dr->gmlShaderCount) return false;
+    return dr->gmlShaders[shader].compiled;
+}
+static bool d3d9ShadersSupported() { return true; }
 
 // ===[ Vtable ]===
 
