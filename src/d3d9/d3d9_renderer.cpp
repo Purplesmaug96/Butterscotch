@@ -715,7 +715,7 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
 
 #define FXC_EXE "/hdd/Program Files (x86)/Microsoft DirectX SDK (June 2010)/Utilities/bin/x64/fxc.exe"
 
-HRESULT CompileShaderWithFxc(
+HRESULT compileShader(
     const char* source,
     const char* profile, // "vs_2_0" or "ps_2_0"
     void** outBytecode,
@@ -780,6 +780,65 @@ void InitVertexDeclaration(IDirect3DDevice9* dev) {
 
 #endif
 
+HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSource, IDirect3DVertexShader9** pVertexShader, IDirect3DPixelShader9** pPixelShader) {
+	ID3DXBuffer* pCode = NULL;
+	ID3DXBuffer* pErr = NULL;
+	#ifdef PLATFORM_XBOX360_XDK
+    HRESULT hr = D3DXCompileShader(vsSource, (UINT)strlen(g_vsSource),
+                                   NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
+    dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
+                            (IDirect3DVertexShader9**)pVertexShader);
+	pCode->Release();
+
+    hr = D3DXCompileShader(psSource, (UINT)strlen(g_psSource),
+                           NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
+    hr = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
+                           (IDirect3DPixelShader9**)pPixelShader);
+    pCode->Release();
+
+	return S_OK;
+	#else
+	void* vsBytecode = NULL;
+    size_t vsBytecodeSize = 0;
+    HRESULT hr = compileShader(vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
+    if (FAILED(hr)) {
+        OutputDebugStringA("VS compile failed: ");
+        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
+		free(vsBytecode);
+        return E_FAIL;
+    }
+
+	HRESULT hrVS = dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)pVertexShader);
+    if (FAILED(hrVS) || !pVertexShader) {
+        Butterscotch_xdkDiagTrace("D3D9: CreateVertexShader(VS) failed hr=0x%08X\n", (unsigned)hrVS);
+        free(vsBytecode);
+        return E_FAIL;
+    }
+    free(vsBytecode);
+
+	void* psBytecode = NULL;
+    size_t psSize = 0;
+	hr = compileShader(psSource, "ps_2_0", &psBytecode, &psSize);
+    if (FAILED(hr)) {
+        OutputDebugStringA("PS compile failed: ");
+        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
+		free(psBytecode);
+		return E_FAIL;
+    }
+
+	HRESULT hrPS = dev->CreatePixelShader((const DWORD*)psBytecode, (IDirect3DPixelShader9**)pPixelShader);
+    if (FAILED(hrPS) || !pPixelShader) {
+        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader(PS) failed hr=0x%08X\n", (unsigned)hrPS);
+        free(psBytecode);
+        return E_FAIL;
+    }
+    free(psBytecode);
+
+	return S_OK;
+	#endif
+}
+
+
 // ===[ Vtable Implementations ]===
 
 static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
@@ -797,60 +856,15 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     // Allocate CPU vertex staging buffer
     dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
 
-    // Compile shaders from source
-    ID3DXBuffer* pCode = NULL;
-    ID3DXBuffer* pErr = NULL;
+    // // Compile shaders from source
+    // ID3DXBuffer* pCode = NULL;
+    // ID3DXBuffer* pErr = NULL;
 
-    #ifdef PLATFORM_XBOX360_XDK
-    HRESULT hr = D3DXCompileShader(g_vsSource, (UINT)strlen(g_vsSource),
-                                   NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
-    dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
-                            (IDirect3DVertexShader9**)&dr->pVertexShader);
-	pCode->Release();
-
-    hr = D3DXCompileShader(g_psSource, (UINT)strlen(g_psSource),
-                           NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
-    hr = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
-                           (IDirect3DPixelShader9**)&dr->pPixelShader);
-    pCode->Release();
-	#else
-	void* vsBytecode = NULL;
-    size_t vsBytecodeSize = 0;
-    HRESULT hr = CompileShaderWithFxc(g_vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
-    if (FAILED(hr)) {
-        OutputDebugStringA("VS compile failed: ");
-        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
-		free(vsBytecode);
-        return;
-    }
-
-	HRESULT hrVS = dev->CreateVertexShader((const DWORD*)vsBytecode, (IDirect3DVertexShader9**)&dr->pVertexShader);
-    if (FAILED(hrVS) || !dr->pVertexShader) {
-        Butterscotch_xdkDiagTrace("D3D9: CreateVertexShader(VS) failed hr=0x%08X\n", (unsigned)hrVS);
-        free(vsBytecode);
-        return;
-    }
-    free(vsBytecode);
-
-	void* psBytecode = NULL;
-    size_t psSize = 0;
-	hr = CompileShaderWithFxc(g_psSource, "ps_2_0", &psBytecode, &psSize);
-    if (FAILED(hr)) {
-        OutputDebugStringA("PS compile failed: ");
-        if (pErr) OutputDebugStringA((const char*)pErr->GetBufferPointer());
-		free(psBytecode);
-		return;
-    }
-
-	HRESULT hrPS = dev->CreatePixelShader((const DWORD*)psBytecode,
-                           (IDirect3DPixelShader9**)&dr->pPixelShader);
-    if (FAILED(hrPS) || !dr->pPixelShader) {
-        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader(PS) failed hr=0x%08X\n", (unsigned)hrPS);
-        free(psBytecode);
-        return;
-    }
-    free(psBytecode);
-	#endif
+	HRESULT hr = useShaders(dev, g_vsSource, g_psSource, (IDirect3DVertexShader9**)&dr->pVertexShader, (IDirect3DPixelShader9**)&dr->pPixelShader);
+	if (FAILED(hr)) {
+		Butterscotch_xdkDiagTrace("D3D9: useShaders failed hr=0x%08X\n", (unsigned)hr);
+        exit(1);
+	}
 
     // Create vertex declaration
     static const D3DVERTEXELEMENT9 decl[] = {
