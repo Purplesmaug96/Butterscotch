@@ -136,6 +136,22 @@ struct SpriteVertex {
 // On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE is used instead, so the shader is a
 // simple pass-through.
 
+#ifdef PLATFORM_XBOX360_XDK
+// Vertex shader: simple pass-through for pre-transformed screen-space vertices.
+// Position is already in screen pixels with z=0, w=1.
+// With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
+static const char* g_vsSource =
+    "struct VS_IN  { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
+    "struct VS_OUT { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
+    "VS_OUT main(VS_IN i) {\n"
+    "  VS_OUT o;\n"
+    "  o.Pos = i.Pos;\n"
+    "  o.Tex = i.Tex;\n"
+    "  o.Col = i.Col;\n"
+    "  return o;\n"
+    "}\n";
+#else
+// Only works for 640x480
 static const char* g_vsSource =
     "uniform float2 uHalfRes;\n"
     "struct VS_IN {\n"
@@ -160,6 +176,7 @@ static const char* g_vsSource =
     "    o.Col = i.Col;\n"
     "    return o;\n"
     "}\n";
+#endif
 
 static const char* g_psSource =
     "sampler2D s0 : register(s0) = sampler_state {\n"
