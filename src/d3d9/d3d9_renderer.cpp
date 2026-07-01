@@ -780,6 +780,20 @@ void InitVertexDeclaration(IDirect3DDevice9* dev) {
     dev->CreateVertexDeclaration(decl, &g_pVertexDecl);
 }
 
+#else
+
+HRESULT compileShader(
+    const char* source,
+    const char* profile, // "vs_2_0" or "ps_2_0"
+    void** outBytecode,
+    size_t* outSize)
+{
+	ID3DXBuffer* pErr = NULL;
+	HRESULT hr = D3DXCompileShader(source, (UINT)strlen(source),
+                                   NULL, NULL, "main", profile, 0, (ID3DXBuffer**)outBytecode, &pErr, NULL);
+	return hr;
+}
+
 #endif
 
 HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSource, IDirect3DVertexShader9** pVertexShader, IDirect3DPixelShader9** pPixelShader) {
@@ -1231,7 +1245,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 
     // Disable viewport transform — we use pre-transformed screen-space vertices
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+    // dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
 
     // Point filtering — pixel-perfect for 2D sprite games like Undertale.
     // Force every sampler each frame because GML shader state can be sticky.
