@@ -1315,6 +1315,8 @@ int main(int argc, char* argv[]) {
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL) || ((defined(USE_GLFW3) || defined(USE_GLFW2)) && defined(ENABLE_SW_RENDERER) )
 #if defined(USE_GLFW3) || defined(USE_GLFW2)
             if (gfx == LEGACY_GL || gfx == MODERN_GL || gfx == SOFTWARE) {
+#else
+            if (gfx == LEGACY_GL || gfx == MODERN_GL) {
 #endif
                 glad_ret = platformInitGlad((GLADloadproc)platformGetProcAddress);
                 if (glad_ret == 0 && gfx != D3D9) {
@@ -1334,11 +1336,11 @@ int main(int argc, char* argv[]) {
 #endif
 
             platformInitialized = true;
-        // } else {
-        //     // game_change path: reuse the existing window/GL context, just retitle and resize for the new game.
-        //     platformSetWindowTitle(gen8->displayName);
-        //     platformSetWindowSize(windowW, windowH);
-        // }
+        } else {
+            // game_change path: reuse the existing window/GL context, just retitle and resize for the new game.
+            platformSetWindowTitle(gen8->displayName);
+            platformSetWindowSize(windowW, windowH);
+        }
 
         // Initialize the renderer
         Renderer* renderer = nullptr;

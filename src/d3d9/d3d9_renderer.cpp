@@ -151,7 +151,8 @@ static const char* g_vsSource =
     "  return o;\n"
     "}\n";
 #else
-// Only works for 640x480
+// Transforms screen-space pixel coordinates to clip space using a uniform
+// half-resolution (uHalfRes = gameW/2, gameH/2) so it works at any resolution.
 static const char* g_vsSource =
     "uniform float2 uHalfRes;\n"
     "struct VS_IN {\n"
@@ -383,6 +384,26 @@ static void flushBatch(D3D9Renderer* dr) {
 
     IDirect3DDevice9* dev = Dev(dr);
 
+    // Determine which shaders to use based on current GML shader state
+    Renderer* renderer = (Renderer*)dr;
+    if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
+        D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
+        if (shader->compiled) {
+            dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
+            dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+            // GML shaders output clip-space coordinates, so enable viewport transform
+            dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
+        } else {
+            dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+            dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+            dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+        }
+    } else {
+        dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+        dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+        dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+    }
+
     // Bind texture
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
@@ -437,7 +458,7 @@ static void flushBatch(D3D9Renderer* dr) {
     BYTE* vertexPtr = (BYTE*)dr->vertexData;
     size_t vertexStride = sizeof(SpriteVertex);
 
-    for (uint32_t i = 0; i < dr->quadCount; i++) {
+    for (uint32_t i = 0; i < (uint32_t)dr->quadCount; i++) {
         dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vertexPtr, vertexStride);
         vertexPtr += vertexStride * 4;
     }
@@ -817,17 +838,34 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
 	ID3DXBuffer* pCode = NULL;
 	ID3DXBuffer* pErr = NULL;
 	#ifdef PLATFORM_XBOX360_XDK
-    HRESULT hr = D3DXCompileShader(vsSource, (UINT)strlen(g_vsSource),
+    // Use vsSource/psSource directly since on 360 they are g_vsSource/g_psSource (pass-through shaders)
+    HRESULT hr = D3DXCompileShader(vsSource, (UINT)strlen(vsSource),
                                    NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
-    dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
+    if (FAILED(hr)) {
+        Butterscotch_xdkDiagTrace("D3D9: D3DXCompileShader(VS) failed hr=0x%08X\n", (unsigned)hr);
+        return E_FAIL;
+    }
+    hr = dev->CreateVertexShader((const DWORD*)pCode->GetBufferPointer(),
                             (IDirect3DVertexShader9**)pVertexShader);
-	pCode->Release();
+    pCode->Release();
+    if (FAILED(hr)) {
+        Butterscotch_xdkDiagTrace("D3D9: CreateVertexShader failed hr=0x%08X\n", (unsigned)hr);
+        return E_FAIL;
+    }
 
-    hr = D3DXCompileShader(psSource, (UINT)strlen(g_psSource),
+    hr = D3DXCompileShader(psSource, (UINT)strlen(psSource),
                            NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
+    if (FAILED(hr)) {
+        Butterscotch_xdkDiagTrace("D3D9: D3DXCompileShader(PS) failed hr=0x%08X\n", (unsigned)hr);
+        return E_FAIL;
+    }
     hr = dev->CreatePixelShader((const DWORD*)pCode->GetBufferPointer(),
                            (IDirect3DPixelShader9**)pPixelShader);
     pCode->Release();
+    if (FAILED(hr)) {
+        Butterscotch_xdkDiagTrace("D3D9: CreatePixelShader failed hr=0x%08X\n", (unsigned)hr);
+        return E_FAIL;
+    }
 
 	return S_OK;
 	#else
@@ -1262,7 +1300,9 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 
     // Disable viewport transform — we use pre-transformed screen-space vertices
-    // dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+    // On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE means the GPU uses positions directly as pixels.
+    // On desktop, this define is a dummy that maps to (D3DRENDERSTATETYPE)255 and is harmless.
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
 
     // Point filtering — pixel-perfect for 2D sprite games like Undertale.
     // Force every sampler each frame because GML shader state can be sticky.
@@ -3187,6 +3227,13 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
     dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
     dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
 
+    // GML shaders output clip-space coordinates (-1 to 1), so we need the
+    // viewport transform enabled on Xbox 360. The default pass-through shader
+    // uses D3DRS_VIEWPORTENABLE=FALSE for direct pixel mapping.
+    #ifdef PLATFORM_XBOX360_XDK
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
+    #endif
+
     // Set built-in uniforms
     D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
     if (gmMatrices != nullptr) {
@@ -3209,6 +3256,12 @@ static void d3d9GpuResetShader(Renderer* renderer) {
     IDirect3DDevice9* dev = Dev(dr);
     dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
     dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+
+    // Restore viewport disable for the default pass-through shader
+    #ifdef PLATFORM_XBOX360_XDK
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+    #endif
+
     renderer->currentShader = -1;
 }
 
