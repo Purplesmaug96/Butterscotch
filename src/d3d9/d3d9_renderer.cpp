@@ -14,6 +14,12 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+#include <queue>
 
 #ifndef PLATFORM_XBOX360_XDK
 extern "C" {
@@ -516,10 +522,287 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     }
 }
 
-static bool _ok = false;
+// ===[ Async Texture Loading System ]===
+//
+// Uses a thread pool to decode texture pages on worker threads.
+// The render thread checks for completed decodes and uploads to GPU.
+// Draw functions use ensureTexturePageLoadedAsync and skip rendering
+// if the texture isn't ready yet, preventing stutter.
 
-static bool _ensureTextureLoaded_state = false;
+// Maximum number of concurrent decode worker threads
+static const uint32_t kMaxDecodeWorkers = 4;
 
+// Texture load states
+enum TextureLoadState : uint8_t {
+    TEX_LOAD_IDLE      = 0, // Not queued, not loaded
+    TEX_LOAD_QUEUED    = 1, // Queued for decode (or being decoded)
+    TEX_LOAD_DECODED   = 2, // Decoded, ready for GPU upload on render thread
+    TEX_LOAD_FAILED    = 3, // Decode failed, don't retry
+    TEX_LOAD_UPLOADING = 4, // Being uploaded to GPU (render thread)
+};
+
+// A decode work item
+struct DecodeWorkItem {
+    uint32_t textureIndex;
+    const uint8_t* blobData;
+    int blobSize;
+    bool gm2022_5;
+};
+
+// Global thread pool state (per renderer)
+struct TextureDecodePool {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::queue<DecodeWorkItem> workQueue;
+    std::vector<std::thread> workers;
+    bool shutdown = false;
+    uint32_t numWorkers = 0;
+};
+
+// Worker thread function: decodes a texture page from blob data
+static void textureDecodeWorker(D3D9Renderer* dr) {
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (!pool) return;
+
+    while (true) {
+        DecodeWorkItem item;
+        {
+            std::unique_lock<std::mutex> lock(pool->mutex);
+            pool->cv.wait(lock, [pool]() {
+                return pool->shutdown || !pool->workQueue.empty();
+            });
+
+            if (pool->shutdown) return;
+
+            item = pool->workQueue.front();
+            pool->workQueue.pop();
+        }
+
+        // Decode the texture
+        int w = 0, h = 0;
+        uint8_t* pixels = ImageDecoder_decodeToRgba(item.blobData, (size_t)item.blobSize, item.gm2022_5, &w, &h);
+
+        // Store result
+        {
+            std::lock_guard<std::mutex> lock(pool->mutex);
+            if (pixels && w > 0 && h > 0) {
+                // Store decoded data for render thread to upload
+                dr->texturePendingRGBA[item.textureIndex] = pixels;
+                dr->texturePendingW[item.textureIndex] = (uint32_t)w;
+                dr->texturePendingH[item.textureIndex] = (uint32_t)h;
+                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)item.blobSize;
+                dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
+            } else {
+                dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
+                Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u", item.textureIndex);
+            }
+            dr->textureDecodeInFlight--;
+        }
+    }
+}
+
+// Start a decode worker if we're under the concurrency limit
+static void maybeStartWorker(D3D9Renderer* dr) {
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (!pool) return;
+
+    std::lock_guard<std::mutex> lock(pool->mutex);
+    if (pool->numWorkers < kMaxDecodeWorkers && !pool->shutdown) {
+        pool->workers.emplace_back(textureDecodeWorker, dr);
+        pool->numWorkers++;
+    }
+}
+
+// Queue a texture page for async decode
+static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
+    if (!dr || textureIndex >= dr->textureCount) return;
+    if (dr->textureLoadState[textureIndex] != TEX_LOAD_IDLE) return;
+
+    DataWin* dw = dr->base.dataWin;
+    if (!dw || textureIndex >= dw->txtr.count) return;
+
+    Texture* txtr = &dw->txtr.textures[textureIndex];
+
+    // Only queue if we have blob data to decode
+    if (!txtr->blobData || txtr->blobSize <= 0) {
+        // External textures can't be decoded async (file I/O on worker thread is risky)
+        // Fall through to synchronous path
+        return;
+    }
+
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (!pool) return;
+
+    // Mark as queued
+    dr->textureLoadState[textureIndex] = TEX_LOAD_QUEUED;
+    dr->textureDecodeInFlight++;
+
+    bool gm2022_5 = DataWin_isVersionAtLeast(((Renderer*)dr)->dataWin, 2022, 5, 0, 0);
+
+    DecodeWorkItem item;
+    item.textureIndex = textureIndex;
+    item.blobData = txtr->blobData;
+    item.blobSize = (int)txtr->blobSize;
+    item.gm2022_5 = gm2022_5;
+
+    {
+        std::lock_guard<std::mutex> lock(pool->mutex);
+        pool->workQueue.push(item);
+    }
+    pool->cv.notify_one();
+
+    // Ensure we have enough workers
+    maybeStartWorker(dr);
+}
+
+// Upload a decoded texture to the GPU (must be called on render thread)
+static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
+    if (!dr || textureIndex >= dr->textureCount) return false;
+    if (dr->textureLoadState[textureIndex] != TEX_LOAD_DECODED) return false;
+
+    uint8_t* pixels = dr->texturePendingRGBA[textureIndex];
+    uint32_t w = dr->texturePendingW[textureIndex];
+    uint32_t h = dr->texturePendingH[textureIndex];
+    uint32_t byteSize = dr->texturePendingByteSize[textureIndex];
+
+    if (!pixels || w == 0 || h == 0) {
+        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+        return false;
+    }
+
+    // Mark as uploading to prevent re-entry
+    dr->textureLoadState[textureIndex] = TEX_LOAD_UPLOADING;
+
+    IDirect3DDevice9* dev = Dev(dr);
+    IDirect3DTexture9* tex = NULL;
+    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+    if (FAILED(hr) || !tex) {
+        Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
+        stbi_image_free(pixels);
+        dr->texturePendingRGBA[textureIndex] = NULL;
+        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+        return false;
+    }
+
+    D3DLOCKED_RECT lr;
+    hr = tex->LockRect(0, &lr, NULL, 0);
+    if (FAILED(hr)) {
+        Butterscotch_xdkDiagTrace("D3D9: async LockRect failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
+        tex->Release();
+        stbi_image_free(pixels);
+        dr->texturePendingRGBA[textureIndex] = NULL;
+        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+        return false;
+    }
+
+    for (uint32_t y2 = 0; y2 < h; y2++) {
+        uint8_t* src = pixels + y2 * w * 4;
+        DWORD* dst = (DWORD*)((uint8_t*)lr.pBits + y2 * lr.Pitch);
+        for (uint32_t x2 = 0; x2 < w; x2++) {
+            uint8_t r = src[x2 * 4 + 0];
+            uint8_t g = src[x2 * 4 + 1];
+            uint8_t b = src[x2 * 4 + 2];
+            uint8_t a = src[x2 * 4 + 3];
+            if (a == 0) { r = 0; g = 0; b = 0; }
+            dst[x2] = D3DCOLOR_ARGB(a, r, g, b);
+        }
+    }
+    tex->UnlockRect(0);
+
+    // Free the CPU-side decoded pixels
+    stbi_image_free(pixels);
+    dr->texturePendingRGBA[textureIndex] = NULL;
+
+    // Install the new texture
+    ensureTextureCacheRoom(dr);
+    dr->textures[textureIndex] = tex;
+    dr->textureWidths[textureIndex] = (int32_t)w;
+    dr->textureHeights[textureIndex] = (int32_t)h;
+    dr->textureBlobSizes[textureIndex] = byteSize;
+    dr->textureBytesUsed += byteSize;
+    dr->loadedTexturePages++;
+    dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE; // Reset to idle (loaded)
+
+    Butterscotch_xdkDiagTrace("D3D9: async loaded texture page %u %dx%d", textureIndex, w, h);
+    return true;
+}
+
+// Process all completed async decodes on the render thread
+static void processCompletedDecodes(D3D9Renderer* dr) {
+    if (!dr || !dr->textureLoadState) return;
+
+    for (uint32_t i = 0; i < dr->textureCount; i++) {
+        if (dr->textureLoadState[i] == TEX_LOAD_DECODED) {
+            uploadDecodedTexture(dr, i);
+        }
+    }
+}
+
+// Async version: returns true if texture is ready to render, false if still loading.
+// Does NOT block. Queues async decode if needed.
+static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
+    if (!dr || textureIndex >= dr->textureCount) return false;
+
+    // Already loaded on GPU
+    if (dr->textures[textureIndex]) {
+        if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+        return true;
+    }
+
+    // Check async state
+    uint8_t state = dr->textureLoadState[textureIndex];
+    switch (state) {
+        case TEX_LOAD_DECODED:
+            // Decoded but not uploaded yet - upload now on render thread
+            if (uploadDecodedTexture(dr, textureIndex)) {
+                if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+                return true;
+            }
+            return false;
+
+        case TEX_LOAD_QUEUED:
+        case TEX_LOAD_UPLOADING:
+            // Still being decoded or uploaded
+            return false;
+
+        case TEX_LOAD_FAILED:
+            // Previously failed, don't retry
+            return false;
+
+        case TEX_LOAD_IDLE:
+        default:
+            break;
+    }
+
+    // Not queued yet. Try to queue for async decode.
+    DataWin* dw = dr->base.dataWin;
+    if (!dw || textureIndex >= dw->txtr.count) return false;
+
+    Texture* txtr = &dw->txtr.textures[textureIndex];
+
+    // If we have blob data, queue async decode
+    if (txtr->blobData && txtr->blobSize > 0) {
+        queueAsyncDecode(dr, textureIndex);
+        return false;
+    }
+
+    // External textures (no blob data) - must load synchronously
+    if (txtr->present) {
+        ensureTextureCacheRoom(dr);
+        bool ok = loadExternalTexturePage(dr, textureIndex);
+        if (ok) {
+            dr->loadedTexturePages++;
+            if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+            return true;
+        }
+        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+        return false;
+    }
+
+    return false;
+}
+
+// Synchronous fallback (for external textures and non-async callers)
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return false;
     if (dr->textures[textureIndex]) {
@@ -527,6 +810,24 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
         return true;
     }
 
+    // Try async first (non-blocking check)
+    if (ensureTexturePageLoadedAsync(dr, textureIndex)) {
+        return true;
+    }
+
+    // If async is in progress, process completed decodes (may upload our texture)
+    if (dr->textureLoadState[textureIndex] == TEX_LOAD_QUEUED ||
+        dr->textureLoadState[textureIndex] == TEX_LOAD_DECODED ||
+        dr->textureLoadState[textureIndex] == TEX_LOAD_UPLOADING) {
+        processCompletedDecodes(dr);
+        if (dr->textures[textureIndex]) {
+            if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+            return true;
+        }
+        return false;
+    }
+
+    // Fall back to synchronous decode for external textures
     DataWin* dw = dr->base.dataWin;
     if (!dw || textureIndex >= dw->txtr.count) return false;
 
@@ -537,45 +838,23 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (txtr->blobData && txtr->blobSize > 0) {
         ok = loadTextureBytes(dr, textureIndex, txtr->blobData, (int)txtr->blobSize, "data.win");
     } else if (txtr->present) {
-		ok = loadExternalTexturePage(dr, textureIndex);
+        ok = loadExternalTexturePage(dr, textureIndex);
     }
 
-	if (ok) {
-		// Only count this as a newly-loaded page when it transitioned from NULL -> valid.
-		dr->loadedTexturePages++;
-	}
-	if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+    if (ok) {
+        dr->loadedTexturePages++;
+    }
+    if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
 
-	_ok = ok;
     return ok;
 }
 
-#include <bits/stdc++.h>
-
 static bool _ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
-	_ensureTextureLoaded_state = true;
-	ensureTexturePageLoaded(dr, textureIndex);
-	_ensureTextureLoaded_state = false;
-}
-
-static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
-	if (_ensureTextureLoaded_state) {
-		return false;
-	}
-
-	if (!dr || textureIndex >= dr->textureCount) {
-		_ok = false;
-		return false;
-	}
-    if (dr->textures[textureIndex]) {
-        if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-		_ok = true;
-        return true;
-    }
-
-	thread t(_ensureTexturePageLoadedAsync, dr, textureIndex);
-
-	return false;
+    // Legacy worker entrypoint (no longer used).
+    // Kept only to avoid breaking references in older code.
+    (void)dr;
+    (void)textureIndex;
+    return false;
 }
 
 extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
@@ -1214,6 +1493,21 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->frameCounter = 1;
     Butterscotch_xdkDiagTrace("D3D9: texture pages will be loaded lazily count=%u", dr->textureCount);
 
+    // Initialize async texture loading system
+    dr->textureLoadState = (uint8_t*)safeCalloc(dr->textureCount, sizeof(uint8_t));
+    dr->texturePendingRGBA = (uint8_t**)safeCalloc(dr->textureCount, sizeof(uint8_t*));
+    dr->texturePendingW = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
+    dr->texturePendingH = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
+    dr->texturePendingByteSize = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
+    dr->textureDecodeWorkerConcurrency = kMaxDecodeWorkers;
+    dr->textureDecodeInFlight = 0;
+    dr->textureDecodedUploadCursor = 0;
+
+    // Create the decode pool
+    TextureDecodePool* pool = new TextureDecodePool();
+    dr->textureLoadMutex = (void*)pool;
+    dr->textureLoadCond = (void*)&pool->cv;
+
     dr->originalTexturePageCount = dataWin->txtr.count;
     dr->originalTpagCount = dataWin->tpag.count;
     dr->originalSpriteCount = dataWin->sprt.count;
@@ -1236,6 +1530,33 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 static void d3d9Destroy(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    // Shut down the decode pool
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (pool) {
+        {
+            std::lock_guard<std::mutex> lock(pool->mutex);
+            pool->shutdown = true;
+        }
+        pool->cv.notify_all();
+        for (auto& t : pool->workers) {
+            if (t.joinable()) t.join();
+        }
+        delete pool;
+        dr->textureLoadMutex = NULL;
+        dr->textureLoadCond = NULL;
+    }
+
+    // Free any pending decoded buffers
+    if (dr->texturePendingRGBA) {
+        for (uint32_t i = 0; i < dr->textureCount; i++) {
+            if (dr->texturePendingRGBA[i]) {
+                stbi_image_free(dr->texturePendingRGBA[i]);
+                dr->texturePendingRGBA[i] = NULL;
+            }
+        }
+    }
+
     for (uint32_t i = 0; i < dr->textureCount; i++) {
         if (dr->textures[i]) ((IDirect3DTexture9*)dr->textures[i])->Release();
     }
@@ -1244,6 +1565,11 @@ static void d3d9Destroy(Renderer* renderer) {
     free(dr->textureHeights);
 	free(dr->textureBlobSizes);
     free(dr->textureLastUsedFrame);
+    free(dr->textureLoadState);
+    free(dr->texturePendingRGBA);
+    free(dr->texturePendingW);
+    free(dr->texturePendingH);
+    free(dr->texturePendingByteSize);
     free(dr->vertexData);
     if (dr->whiteTexture) ((IDirect3DTexture9*)dr->whiteTexture)->Release();
     releaseApplicationSurface(dr);
@@ -1279,6 +1605,9 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     dr->screenH = windowH;
     dr->frameCounter++;
     if (dr->frameCounter == 0) dr->frameCounter = 1;
+
+    // Process any completed async texture decodes before rendering
+    processCompletedDecodes(dr);
 
     // Fit the game inside the 720p backbuffer. On Xbox 360, 1080p backbuffers
     // can fail to allocate; keep 720p and rely on point sampling for crispness.
@@ -1519,7 +1848,10 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
                         texPageId, dr->textureCount, tpagIndex);
         return;
     }
-    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    // Use async loading - skip if texture not ready yet
+    if (!ensureTexturePageLoadedAsync(dr, (uint32_t)texPageId)) {
+        return;
+    }
     if (!dr->textures[texPageId]) {
         static int nullTextureLog = 0;
         d3d9DiagLimited(&nullTextureLog, 64, "D3D9: drawSprite null texture page=%d tpag=%d", texPageId, tpagIndex);
@@ -1625,7 +1957,10 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
                         texPageId, dr->textureCount, tpagIndex);
         return;
     }
-    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    // Use async loading - skip if texture not ready yet
+    if (!ensureTexturePageLoadedAsync(dr, (uint32_t)texPageId)) {
+        return;
+    }
     if (!dr->textures[texPageId]) {
         static int nullTextureLog = 0;
         d3d9DiagLimited(&nullTextureLog, 64, "D3D9: drawSpritePart null texture page=%d tpag=%d", texPageId, tpagIndex);
@@ -1716,7 +2051,10 @@ static void d3d9DrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, f
                         texPageId, dr->textureCount, tpagIndex);
         return;
     }
-    ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+    // Use async loading - skip if texture not ready yet
+    if (!ensureTexturePageLoadedAsync(dr, (uint32_t)texPageId)) {
+        return;
+    }
     if (!dr->textures[texPageId]) {
         static int nullTextureLog = 0;
         d3d9DiagLimited(&nullTextureLog, 64, "D3D9: drawSprite null texture page=%d tpag=%d", texPageId, tpagIndex);
@@ -1904,7 +2242,10 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
         fontTpag = &dw->tpag.items[fontTpagIndex];
         fontPageId = fontTpag->texturePageId;
         if (0 > fontPageId || dr->textureCount <= (uint32_t)fontPageId) return;
-        ensureTexturePageLoaded(dr, (uint32_t)fontPageId);
+        // Use async loading - skip if texture not ready yet
+        if (!ensureTexturePageLoadedAsync(dr, (uint32_t)fontPageId)) {
+            return;
+        }
         if (!dr->textures[fontPageId]) return;
 
         fontTexW = (float)dr->textureWidths[fontPageId];
@@ -2061,7 +2402,12 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
                             gradientX += glyph->shift;
                             goto skip_glyph_draw;
                         }
-                        ensureTexturePageLoaded(dr, (uint32_t)glyphPageId);
+                        // Use async loading - skip glyph if texture not ready yet
+                        if (!ensureTexturePageLoadedAsync(dr, (uint32_t)glyphPageId)) {
+                            cursorX += glyph->shift;
+                            gradientX += glyph->shift;
+                            goto skip_glyph_draw;
+                        }
                         if (!dr->textures[glyphPageId]) {
                             cursorX += glyph->shift;
                             gradientX += glyph->shift;
@@ -2254,11 +2600,22 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     dr->textureWidths = (int32_t*)safeRealloc(dr->textureWidths, (dr->textureCount + 1) * sizeof(int32_t));
     dr->textureHeights = (int32_t*)safeRealloc(dr->textureHeights, (dr->textureCount + 1) * sizeof(int32_t));
     dr->textureLastUsedFrame = (uint32_t*)safeRealloc(dr->textureLastUsedFrame, (dr->textureCount + 1) * sizeof(uint32_t));
+    // Also grow async arrays
+    dr->textureLoadState = (uint8_t*)safeRealloc(dr->textureLoadState, (dr->textureCount + 1) * sizeof(uint8_t));
+    dr->texturePendingRGBA = (uint8_t**)safeRealloc(dr->texturePendingRGBA, (dr->textureCount + 1) * sizeof(uint8_t*));
+    dr->texturePendingW = (uint32_t*)safeRealloc(dr->texturePendingW, (dr->textureCount + 1) * sizeof(uint32_t));
+    dr->texturePendingH = (uint32_t*)safeRealloc(dr->texturePendingH, (dr->textureCount + 1) * sizeof(uint32_t));
+    dr->texturePendingByteSize = (uint32_t*)safeRealloc(dr->texturePendingByteSize, (dr->textureCount + 1) * sizeof(uint32_t));
 
     dr->textureLastUsedFrame[pageId] = 0;
     dr->textures[pageId] = NULL;
     dr->textureWidths[pageId] = 0;
     dr->textureHeights[pageId] = 0;
+    dr->textureLoadState[pageId] = TEX_LOAD_IDLE;
+    dr->texturePendingRGBA[pageId] = NULL;
+    dr->texturePendingW[pageId] = 0;
+    dr->texturePendingH[pageId] = 0;
+    dr->texturePendingByteSize[pageId] = 0;
     dr->textureCount++;
 
 
@@ -2806,13 +3163,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
         // path the GML code handles stretching the app surface to the game frame,
         // and setGameTargetTransform correctly maps the game frame to the screen.
         setGameTargetTransform(dr);
-        // d3d9DiagLimited(&switchLogged, 64,
-        //                 "D3D9: manual application_surface present room=%d src=%d,%d %dx%d dst=%.2f,%.2f scale=%.2f,%.2f game=%dx%d screen=%dx%d renderScale=%.3f offX=%.1f offY=%.1f",
-        //                 renderer->runner ? renderer->runner->currentRoomIndex : -1,
-        //                 srcLeft, srcTop, srcWidth, srcHeight,
-        //                 x, y, xscale, yscale,
-        //                 dr->gameW, dr->gameH, dr->screenW, dr->screenH,
-        //                 dr->renderScale, dr->renderOffsetX, dr->renderOffsetY);
         Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
         applyPointSampling(Dev(dr));
     }

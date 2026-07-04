@@ -116,6 +116,37 @@ typedef struct {
     int32_t* surfaceHeight;
     uint32_t surfaceCount;
 
+    // ===[ Async texture loading (decode on worker threads only) ]===
+    // State per decoded texture page. This backend currently supports:
+    // - worker threads: decode PNG bytes -> RGBA CPU buffer
+    // - render thread: create/upload IDirect3DTexture9 using decoded RGBA
+    // - render-time call sites: skip drawing until the page is uploaded
+
+    // 0 = idle/unqueued
+    // 1 = queued (a worker is decoding)
+    // 2 = decoded/ready (upload on render thread)
+    // 3 = failed (do not keep retrying every frame)
+    uint8_t* textureLoadState;
+
+    // Decoded CPU RGBA buffers owned by the renderer until uploaded.
+    // width/height are in pixels; byteSize is width*height*4.
+    uint8_t** texturePendingRGBA;
+    uint32_t* texturePendingW;
+    uint32_t* texturePendingH;
+    uint32_t* texturePendingByteSize;
+
+    // Simple counters/knobs
+    uint32_t textureDecodeWorkerConcurrency;
+    uint32_t textureDecodeInFlight;
+
+    // Mutex/condition-variable implemented as opaque pointers to avoid
+    // including C++ threading headers in the C header.
+    void* textureLoadMutex;
+    void* textureLoadCond;
+
+    // Render-thread bookkeeping
+    uint32_t textureDecodedUploadCursor;
+
 	#ifdef PLATFORM_XBOX360_XDK
 	static
 	#endif
