@@ -516,6 +516,10 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     }
 }
 
+static bool _ok = false;
+
+static bool _ensureTextureLoaded_state = false;
+
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return false;
     if (dr->textures[textureIndex]) {
@@ -542,7 +546,36 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 	}
 	if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
 
+	_ok = ok;
     return ok;
+}
+
+#include <bits/stdc++.h>
+
+static bool _ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
+	_ensureTextureLoaded_state = true;
+	ensureTexturePageLoaded(dr, textureIndex);
+	_ensureTextureLoaded_state = false;
+}
+
+static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
+	if (_ensureTextureLoaded_state) {
+		return false;
+	}
+
+	if (!dr || textureIndex >= dr->textureCount) {
+		_ok = false;
+		return false;
+	}
+    if (dr->textures[textureIndex]) {
+        if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+		_ok = true;
+        return true;
+    }
+
+	thread t(_ensureTexturePageLoadedAsync, dr, textureIndex);
+
+	return false;
 }
 
 extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
