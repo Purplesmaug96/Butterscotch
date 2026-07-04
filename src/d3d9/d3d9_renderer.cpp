@@ -14,12 +14,21 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <algorithm>
+
+// Threading strategy:
+// - Desktop/Windows: use std::thread/std::mutex/std::condition_variable
+// - Xbox 360 XDK: use Win32 API (where available in headers) and/or XTL/xtl threading primitives.
+//   Note: Xbox 360 toolchains typically do not ship with the full C++ <thread> implementation.
+
+#ifndef PLATFORM_XBOX360_XDK
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
 #include <vector>
 #include <queue>
+#endif
+
 
 #ifndef PLATFORM_XBOX360_XDK
 extern "C" {
@@ -493,9 +502,14 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
 
 static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
+#ifdef PLATFORM_XBOX360_XDK
+    // Xbox 360: no std::mutex/unique_lock available.
+#else
     std::mutex* gpuMutex = dr && dr->textureGpuMutex ? (std::mutex*)dr->textureGpuMutex : nullptr;
     std::unique_lock<std::mutex> gpuLock;
     if (gpuMutex) gpuLock = std::unique_lock<std::mutex>(*gpuMutex);
+#endif
+
 
     if (!dr || index >= dr->textureCount || !dr->textures || !dr->textures[index]) return;
 
@@ -552,23 +566,33 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
 }
 
 // ===[ Async Texture Loading System ]===
+
+// Texture loading is asynchronous on desktop builds.
+// On Xbox 360 we disable the std::thread-based implementation and fall back
+// to synchronous loading (no decoding threads), keeping builds compilable.
 //
-// Uses a thread pool to decode texture pages on worker threads.
-// The render thread checks for completed decodes and uploads to GPU.
-// Draw functions use ensureTexturePageLoadedAsync and skip rendering
-// if the texture isn't ready yet, preventing stutter.
+#ifdef PLATFORM_XBOX360_XDK
+
+// Xbox 360: keep the same lazy API surface, but use fully synchronous loading.
+// This avoids std::thread/std::mutex/std::condition_variable which are not
+// available in the 360 toolchain.
+#define processCompletedDecodes(dr)
+
+#define ensureTexturePageLoadedAsync ensureTexturePageLoaded
+
+#endif
 
 // Maximum number of concurrent decode worker threads
 static const uint32_t kMaxDecodeWorkers = 4;
 
 // Texture load states
-enum TextureLoadState : uint8_t {
+typedef enum {
     TEX_LOAD_IDLE      = 0, // Not queued, not loaded
     TEX_LOAD_QUEUED    = 1, // Queued for decode (or being decoded)
     TEX_LOAD_DECODED   = 2, // Decoded, ready for GPU upload on render thread
     TEX_LOAD_FAILED    = 3, // Decode failed, don't retry
     TEX_LOAD_UPLOADING = 4, // Being uploaded to GPU (render thread)
-};
+} TextureLoadState;
 
 // A decode work item
 struct DecodeWorkItem {
@@ -580,14 +604,27 @@ struct DecodeWorkItem {
 
 // Global thread pool state (per renderer)
 struct TextureDecodePool {
+	#ifdef PLATFORM_XBOX360_XDK
+	#else
     std::mutex mutex;
     std::condition_variable cv;
     std::queue<DecodeWorkItem> workQueue;
     std::vector<std::thread> workers;
-    bool shutdown = false;
-    uint32_t numWorkers = 0;
+	#endif
+    bool shutdown;
+    uint32_t numWorkers;
 };
 
+#ifdef PLATFORM_XBOX360_XDK
+// Worker thread function: decodes a texture page from blob data
+static void textureDecodeWorker(D3D9Renderer* dr) {
+}
+
+// Start a decode worker if we're under the concurrency limit
+static void maybeStartWorker(D3D9Renderer* dr) {
+}
+
+#else
 // Worker thread function: decodes a texture page from blob data
 static void textureDecodeWorker(D3D9Renderer* dr) {
     TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
@@ -642,6 +679,8 @@ static void maybeStartWorker(D3D9Renderer* dr) {
     }
 }
 
+#endif
+
 // Queue a texture page for async decode
 static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return;
@@ -674,11 +713,13 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
     item.blobSize = (int)txtr->blobSize;
     item.gm2022_5 = gm2022_5;
 
+	#ifndef PLATFORM_XBOX360_XDK
     {
         std::lock_guard<std::mutex> lock(pool->mutex);
         pool->workQueue.push(item);
     }
     pool->cv.notify_one();
+	#endif
 
     // Ensure we have enough workers
     maybeStartWorker(dr);
@@ -761,6 +802,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     return true;
 }
 
+#ifndef PLATFORM_XBOX360_XDK
 // Process all completed async decodes on the render thread
 static void processCompletedDecodes(D3D9Renderer* dr) {
     if (!dr || !dr->textureLoadState) return;
@@ -835,6 +877,7 @@ static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex
 
     return false;
 }
+#endif
 
 // Synchronous fallback (for external textures and non-async callers)
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
@@ -1540,15 +1583,13 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     // Create the decode pool
     TextureDecodePool* pool = new TextureDecodePool();
     dr->textureLoadMutex = (void*)pool;
-    dr->textureLoadCond = (void*)&pool->cv;
+
+	#ifndef PLATFORM_XBOX360_XDK
+	dr->textureLoadCond = (void*)&pool->cv;
 
     // Create GPU-side texture cache mutex
     dr->textureGpuMutex = (void*)new std::mutex();
-
-
-
-
-
+	#endif
 
     dr->originalTexturePageCount = dataWin->txtr.count;
     dr->originalTpagCount = dataWin->tpag.count;
@@ -1576,6 +1617,7 @@ static void d3d9Destroy(Renderer* renderer) {
     // Shut down the decode pool
     TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
 
+	#ifndef PLATFORM_XBOX360_XDK
     // Stop workers first, then release GPU cache mutex.
     if (pool) {
         {
@@ -1596,6 +1638,7 @@ static void d3d9Destroy(Renderer* renderer) {
         delete m;
         dr->textureGpuMutex = NULL;
     }
+	#endif
 
     // Free any pending decoded buffers
 
