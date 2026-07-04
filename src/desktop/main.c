@@ -56,6 +56,7 @@ extern "C" {
 #ifdef ENABLE_LEGACY_GL
 #include "gl_legacy_renderer.h"
 #endif
+#include "gl_wrappers.h"
 #endif
 #ifdef ENABLE_SW_RENDERER
 #include "sw_renderer.h"
@@ -109,7 +110,7 @@ static int platformInitGlad(GLADloadproc load) {
 }
 #endif
 
-#ifdef ENABLE_MODERN_GL
+#if (defined(ENABLE_MODERN_GL) || defined(ENABLE_LEGACY_GL)) && !defined(NDEBUG)
 static void APIENTRY glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, MAYBE_UNUSED GLsizei length, const GLchar* message, MAYBE_UNUSED const void* userParam) {
     const char* sourceStr;
     switch (source) {
@@ -415,6 +416,8 @@ static void printUsage(const char *argv0) {
         "    --profile-gml-scripts                  - Log which GML scripts are the heaviest in terms of time and executed instructions\n"
         "    --save-folder <directory>              - Set the directory will save files will be stored\n"
         "    --game-args <args>                     - Arguments to pass to the game\n"
+        "    --lazy-textures                        - Load textures into VRAM on first use, improving startup times\n"
+        "    --load-type <type>                     - Specify how data.win is loaded, per-chunk or all at once\n"
 #ifdef EABLE_VM_OPCODE_PROFILER
         "    --profile-opcodes                      - Rank which GML opcodes were executed the most\n"
 #endif
@@ -845,7 +848,7 @@ static void writeFramebufferAsPng(GLuint fbo, int width, int height, const char*
     }
 
     free(pixels);
-    printf("%s: %s (%dx%d)\n", logPrefix, filename, width, height);
+    fprintf(stderr, "%s: %s (%dx%d)\n", logPrefix, filename, width, height);
 }
 
 static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frameNumber, int width, int height, bool flipY) {
@@ -996,8 +999,9 @@ int main(int argc, char* argv[]) {
     bool platformInitialized = false;
     int32_t inputFrameCount = 0;
 
+    int glad_ret;
     while (true) {
-        printf("Loading %s...\n", args.dataWinPath);
+        fprintf(stderr, "Loading %s...\n", args.dataWinPath);
 
         DataWinParserOptions options = {0};
         options.parseGen8 = true;
@@ -1030,12 +1034,12 @@ int main(int argc, char* argv[]) {
         DataWin* dataWin = DataWin_parse(currentDataWinPath, options);
 
         Gen8* gen8 = &dataWin->gen8;
-        printf("Loaded \"%s\" (%d) successfully! [WAD Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->wadVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
+        fprintf(stderr, "Loaded \"%s\" (%d) successfully! [WAD Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->wadVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
 
 #ifdef HAVE_MALLINFO2
         {
             struct mallinfo2 mi = mallinfo2();
-            printf("Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
+            fprintf(stderr, "Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
         }
 #endif
 
@@ -1058,7 +1062,7 @@ int main(int argc, char* argv[]) {
         if (args.hasSeed) {
             srand((unsigned int) args.seed);
             vm->hasFixedSeed = true;
-            printf("Using fixed RNG seed: %d\n", args.seed);
+            fprintf(stderr, "Using fixed RNG seed: %d\n", args.seed);
         }
 
         if (args.printRooms) {
@@ -1304,7 +1308,6 @@ int main(int argc, char* argv[]) {
         int32_t windowW, windowH;
         resolveWindowSize(&args, gen8->defaultWindowWidth, gen8->defaultWindowHeight, &windowW, &windowH);
 
-        int glad_ret;
         if (!platformInitialized) {
             if (!platformInit(windowW, windowH, windowTitle, args.headless)) {
                 DataWin_free(dataWin);
@@ -1330,7 +1333,7 @@ int main(int argc, char* argv[]) {
 #endif
 
             // Install the OpenGL debug message callback
-#ifdef ENABLE_MODERN_GL
+#if (defined(ENABLE_MODERN_GL) || defined(ENABLE_LEGACY_GL)) && !defined(NDEBUG)
             if (gfx == MODERN_GL)
                 installGLDebugCallback();
 #endif
@@ -1890,7 +1893,7 @@ int main(int argc, char* argv[]) {
                 free(currentGameArgs[i]);
             }
             arrfree(currentGameArgs);
-            printf("Bye! :3\n");
+            fprintf(stderr, "Bye! :3\n");
 #ifdef _WIN32
             timeEndPeriod(1);
 #endif

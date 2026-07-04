@@ -3,11 +3,6 @@
 
 CC := cc
 
-OS := $(shell uname -s)
-ifneq ($(filter Windows_NT MINGW% MSYS% CYGWIN%,$(OS)),)
-OS := Windows
-endif
-
 ifeq ($(filter clean distclean,$(MAKECMDGOALS)),)
 
 -include compat/config.mk
@@ -191,11 +186,7 @@ else
 ifeq ($(OS),Darwin)
 LIBS += -lobjc
 else
-ifneq ($(filter Linux Haiku %BSD Unix,$(OS)),) # OS is 'Linux', 'Haiku', '*BSD', or 'Unix'
 LIBS += -lm
-else
-$(error unknown OS '$(OS)', please manually set the OS variable)
-endif
 endif
 endif
 

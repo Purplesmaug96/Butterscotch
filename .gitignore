@@ -12,3 +12,4 @@ tmp_shader.hlsl
 CMakeUserPresets.json
 .devcontainer/
 compat/config.mk
+/.vs
