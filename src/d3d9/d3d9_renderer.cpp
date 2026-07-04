@@ -450,10 +450,17 @@ static void flushBatch(D3D9Renderer* dr) {
         dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
     }
 
-    // Bind texture - when a GML shader is active, bind to sampler slot 0
-    // (in the future, shader samplers could map to different slots)
+    // Bind texture - re-validate pointer because the texture may have been
+    // evicted from the cache between when the quads were added and now.
+    // DXVK caches texture references internally, so binding a dangling pointer
+    // will crash when DrawPrimitiveUP tries to use it.
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
-        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
+        void* tex = dr->textures[dr->currentTextureIndex];
+        if (tex != NULL) {
+            dev->SetTexture(0, (IDirect3DBaseTexture9*)tex);
+        } else {
+            dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
+        }
     } else {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
     }
@@ -485,7 +492,9 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
         dr->currentTextureIndex = -1;
         Dev(dr)->SetTexture(0, NULL);
     }
-    ((IDirect3DTexture9*)dr->textures[index])->Release();
+	if (dr->textures[index] != NULL) {
+    	((IDirect3DTexture9*)dr->textures[index])->Release();
+	}
 	dr->textureBytesUsed -= dr->textureBlobSizes[index];
     dr->textureWidths[index] = 0;
     dr->textureHeights[index] = 0;
