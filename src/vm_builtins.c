@@ -31,7 +31,7 @@
 #include "base64.h"
 #include "gettime.h"
 
-#ifdef __GNUC__
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #endif
 

@@ -1606,7 +1606,7 @@ int main(int argc, char* argv[]) {
                     if (args.dumpJsonFilePattern != nullptr) {
                         char filename[512];
                         snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
-                        FILE* f = fopen(filename, "w");
+                        FILE* f = fopen(filename, "wb");
                         if (f != nullptr) {
                             fwrite(json, 1, strlen(json), f);
                             fputc('\n', f);
@@ -1718,7 +1718,7 @@ int main(int argc, char* argv[]) {
                     if (args.dumpJsonFilePattern != nullptr) {
                         char filename[512];
                         snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
-                        FILE* f = fopen(filename, "w");
+                        FILE* f = fopen(filename, "wb");
                         if (f != nullptr) {
                             fwrite(json, 1, strlen(json), f);
                             fputc('\n', f);
