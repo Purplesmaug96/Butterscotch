@@ -429,10 +429,16 @@ IDirect3DVertexDeclaration9* g_pVertexDecl = NULL;
 static void flushBatch(D3D9Renderer* dr) {
     if (dr->quadCount == 0) return;
 
+    // Prevent evicting/releasing a texture page while DXVK is drawing with DrawPrimitiveUP.
+    std::mutex* gpuMutex = dr && dr->textureGpuMutex ? (std::mutex*)dr->textureGpuMutex : nullptr;
+    std::unique_lock<std::mutex> gpuLock;
+    if (gpuMutex) gpuLock = std::unique_lock<std::mutex>(*gpuMutex);
+
     IDirect3DDevice9* dev = Dev(dr);
 
     // Bind declaration
     dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+
 
     // Determine which shaders to use based on current GML shader state
     Renderer* renderer = (Renderer*)dr;
@@ -486,7 +492,12 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
 
 static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
+    std::mutex* gpuMutex = dr && dr->textureGpuMutex ? (std::mutex*)dr->textureGpuMutex : nullptr;
+    std::unique_lock<std::mutex> gpuLock;
+    if (gpuMutex) gpuLock = std::unique_lock<std::mutex>(*gpuMutex);
+
     if (!dr || index >= dr->textureCount || !dr->textures || !dr->textures[index]) return;
+
     if (dr->currentTextureIndex == (int32_t)index) {
         flushBatch(dr);
         dr->currentTextureIndex = -1;
@@ -1517,6 +1528,14 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->textureLoadMutex = (void*)pool;
     dr->textureLoadCond = (void*)&pool->cv;
 
+    // Create GPU-side texture cache mutex
+    dr->textureGpuMutex = (void*)new std::mutex();
+
+
+
+
+
+
     dr->originalTexturePageCount = dataWin->txtr.count;
     dr->originalTpagCount = dataWin->tpag.count;
     dr->originalSpriteCount = dataWin->sprt.count;
@@ -1542,6 +1561,8 @@ static void d3d9Destroy(Renderer* renderer) {
 
     // Shut down the decode pool
     TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+
+    // Stop workers first, then release GPU cache mutex.
     if (pool) {
         {
             std::lock_guard<std::mutex> lock(pool->mutex);
@@ -1556,7 +1577,15 @@ static void d3d9Destroy(Renderer* renderer) {
         dr->textureLoadCond = NULL;
     }
 
+    if (dr->textureGpuMutex) {
+        std::mutex* m = (std::mutex*)dr->textureGpuMutex;
+        delete m;
+        dr->textureGpuMutex = NULL;
+    }
+
     // Free any pending decoded buffers
+
+
     if (dr->texturePendingRGBA) {
         for (uint32_t i = 0; i < dr->textureCount; i++) {
             if (dr->texturePendingRGBA[i]) {

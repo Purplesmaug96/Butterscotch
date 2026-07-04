@@ -144,6 +144,14 @@ typedef struct {
     void* textureLoadMutex;
     void* textureLoadCond;
 
+    // Serializes GPU-side texture cache mutations (eviction + pointer swaps)
+    // with draw-batch submission to avoid releasing textures while DXVK holds refs.
+    void* textureGpuMutex;
+
+
+
+
+
     // Render-thread bookkeeping
     uint32_t textureDecodedUploadCursor;
 
