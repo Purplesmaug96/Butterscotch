@@ -3765,9 +3765,13 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
     }
 }
 
+#define D3D9_DISABLE_SHADERS
 
 // Compile a GML shader on demand (lazy compilation)
 static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
+	#ifdef D3D9_DISABLE_SHADERS
+	return;
+	#else
     if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return;
     D3D9GMLShader* gmlShader = &dr->gmlShaders[shaderIndex];
     if (gmlShader->compileAttempted) return;
@@ -3795,6 +3799,7 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 
     IDirect3DDevice9* dev = Dev(dr);
     compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
+	#endif
 }
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
