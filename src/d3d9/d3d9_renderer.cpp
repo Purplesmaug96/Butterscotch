@@ -568,19 +568,9 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
 // ===[ Async Texture Loading System ]===
 
 // Texture loading is asynchronous on desktop builds.
-// On Xbox 360 we disable the std::thread-based implementation and fall back
-// to synchronous loading (no decoding threads), keeping builds compilable.
-//
-#ifdef PLATFORM_XBOX360_XDK
-
-// Xbox 360: keep the same lazy API surface, but use fully synchronous loading.
-// This avoids std::thread/std::mutex/std::condition_variable which are not
-// available in the 360 toolchain.
-#define processCompletedDecodes(dr)
-
-#define ensureTexturePageLoadedAsync ensureTexturePageLoaded
-
-#endif
+// On Xbox 360 we implement the decoder worker pool using Win32 APIs.
+// This keeps the desktop path using std::thread while allowing the XDK
+// toolchain to build and execute correctly.
 
 // Maximum number of concurrent decode worker threads
 static const uint32_t kMaxDecodeWorkers = 4;
@@ -604,24 +594,104 @@ struct DecodeWorkItem {
 
 // Global thread pool state (per renderer)
 struct TextureDecodePool {
-	#ifdef PLATFORM_XBOX360_XDK
-	#else
+#ifdef PLATFORM_XBOX360_XDK
+    CRITICAL_SECTION mutex;
+    HANDLE workEvent;
+    DecodeWorkItem* workQueue;
+    uint32_t queueHead;
+    uint32_t queueTail;
+    uint32_t queueCount;
+    uint32_t queueCapacity;
+    HANDLE workers[kMaxDecodeWorkers];
+#else
     std::mutex mutex;
     std::condition_variable cv;
     std::queue<DecodeWorkItem> workQueue;
     std::vector<std::thread> workers;
-	#endif
+#endif
     bool shutdown;
     uint32_t numWorkers;
 };
 
 #ifdef PLATFORM_XBOX360_XDK
+static DWORD WINAPI textureDecodeWorkerThreadProc(LPVOID param);
+
 // Worker thread function: decodes a texture page from blob data
 static void textureDecodeWorker(D3D9Renderer* dr) {
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (!pool) return;
+
+    while (true) {
+        WaitForSingleObject(pool->workEvent, INFINITE);
+
+        while (true) {
+            DecodeWorkItem item;
+			ZERO_STRUCT(item);
+            bool gotItem = false;
+            bool shouldExit = false;
+
+            EnterCriticalSection(&pool->mutex);
+            if (pool->queueCount > 0) {
+                item = pool->workQueue[pool->queueHead];
+                pool->queueHead = (pool->queueHead + 1) % pool->queueCapacity;
+                pool->queueCount--;
+                gotItem = true;
+            }
+            shouldExit = pool->shutdown && pool->queueCount == 0;
+            LeaveCriticalSection(&pool->mutex);
+
+            if (!gotItem) {
+                if (shouldExit) return;
+                break;
+            }
+
+            int w = 0, h = 0;
+            uint8_t* pixels = ImageDecoder_decodeToRgba(item.blobData, (size_t)item.blobSize, item.gm2022_5, &w, &h);
+
+            EnterCriticalSection(&pool->mutex);
+            if (pixels && w > 0 && h > 0) {
+                dr->texturePendingRGBA[item.textureIndex] = pixels;
+                dr->texturePendingW[item.textureIndex] = (uint32_t)w;
+                dr->texturePendingH[item.textureIndex] = (uint32_t)h;
+                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)item.blobSize;
+                dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
+            } else {
+                dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
+                Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u", item.textureIndex);
+            }
+            dr->textureDecodeInFlight--;
+            LeaveCriticalSection(&pool->mutex);
+        }
+    }
+}
+
+static DWORD WINAPI textureDecodeWorkerThreadProc(LPVOID param) {
+    textureDecodeWorker((D3D9Renderer*)param);
+    return 0;
 }
 
 // Start a decode worker if we're under the concurrency limit
 static void maybeStartWorker(D3D9Renderer* dr) {
+    TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
+    if (!pool) return;
+
+    uint32_t workerIndex = UINT32_MAX;
+    EnterCriticalSection(&pool->mutex);
+    if (pool->numWorkers < kMaxDecodeWorkers && !pool->shutdown) {
+        workerIndex = pool->numWorkers++;
+    }
+    LeaveCriticalSection(&pool->mutex);
+
+    if (workerIndex != UINT32_MAX) {
+        HANDLE thread = CreateThread(NULL, 0, textureDecodeWorkerThreadProc, dr, 0, NULL);
+        if (thread) {
+            pool->workers[workerIndex] = thread;
+        } else {
+            EnterCriticalSection(&pool->mutex);
+            pool->numWorkers--;
+            LeaveCriticalSection(&pool->mutex);
+        }
+    }
 }
 
 #else
@@ -713,13 +783,28 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
     item.blobSize = (int)txtr->blobSize;
     item.gm2022_5 = gm2022_5;
 
-	#ifndef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360_XDK
+    EnterCriticalSection(&pool->mutex);
+    if (pool->queueCount < pool->queueCapacity) {
+        pool->workQueue[pool->queueTail] = item;
+        pool->queueTail = (pool->queueTail + 1) % pool->queueCapacity;
+        pool->queueCount++;
+    } else {
+        dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE;
+        dr->textureDecodeInFlight--;
+        LeaveCriticalSection(&pool->mutex);
+        Butterscotch_xdkDiagTrace("D3D9: async decode queue full for texture page %u", textureIndex);
+        return;
+    }
+    LeaveCriticalSection(&pool->mutex);
+    SetEvent(pool->workEvent);
+#else
     {
         std::lock_guard<std::mutex> lock(pool->mutex);
         pool->workQueue.push(item);
     }
     pool->cv.notify_one();
-	#endif
+#endif
 
     // Ensure we have enough workers
     maybeStartWorker(dr);
@@ -802,7 +887,6 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     return true;
 }
 
-#ifndef PLATFORM_XBOX360_XDK
 // Process all completed async decodes on the render thread
 static void processCompletedDecodes(D3D9Renderer* dr) {
     if (!dr || !dr->textureLoadState) return;
@@ -877,7 +961,6 @@ static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex
 
     return false;
 }
-#endif
 
 // Synchronous fallback (for external textures and non-async callers)
 static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
@@ -1584,12 +1667,22 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     TextureDecodePool* pool = new TextureDecodePool();
     dr->textureLoadMutex = (void*)pool;
 
-	#ifndef PLATFORM_XBOX360_XDK
-	dr->textureLoadCond = (void*)&pool->cv;
-
-    // Create GPU-side texture cache mutex
+#ifdef PLATFORM_XBOX360_XDK
+    InitializeCriticalSection(&pool->mutex);
+    pool->workEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    pool->workQueue = new DecodeWorkItem[256];
+    pool->queueHead = 0;
+    pool->queueTail = 0;
+    pool->queueCount = 0;
+    pool->queueCapacity = 256;
+    pool->shutdown = false;
+    pool->numWorkers = 0;
+    dr->textureLoadCond = NULL;
+    dr->textureGpuMutex = NULL;
+#else
+    dr->textureLoadCond = (void*)&pool->cv;
     dr->textureGpuMutex = (void*)new std::mutex();
-	#endif
+#endif
 
     dr->originalTexturePageCount = dataWin->txtr.count;
     dr->originalTpagCount = dataWin->tpag.count;
@@ -1617,7 +1710,27 @@ static void d3d9Destroy(Renderer* renderer) {
     // Shut down the decode pool
     TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
 
-	#ifndef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360_XDK
+    if (pool) {
+        EnterCriticalSection(&pool->mutex);
+        pool->shutdown = true;
+        LeaveCriticalSection(&pool->mutex);
+        SetEvent(pool->workEvent);
+
+        for (uint32_t i = 0; i < pool->numWorkers; i++) {
+            if (pool->workers[i]) {
+                WaitForSingleObject(pool->workers[i], INFINITE);
+                CloseHandle(pool->workers[i]);
+            }
+        }
+
+        CloseHandle(pool->workEvent);
+        DeleteCriticalSection(&pool->mutex);
+        delete[] pool->workQueue;
+        delete pool;
+        dr->textureLoadMutex = NULL;
+    }
+#else
     // Stop workers first, then release GPU cache mutex.
     if (pool) {
         {
@@ -1638,7 +1751,7 @@ static void d3d9Destroy(Renderer* renderer) {
         delete m;
         dr->textureGpuMutex = NULL;
     }
-	#endif
+#endif
 
     // Free any pending decoded buffers
 
