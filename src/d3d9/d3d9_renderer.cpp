@@ -471,6 +471,7 @@ static void flushBatch(D3D9Renderer* dr) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
     }
 
+
     // Loop through each quad and draw it as a 2-triangle list.
     // 4 vertices per quad -> 6 vertices consumed if using TRIANGLELIST, so
     // we submit as TRIANGLESTRIP with 4 vertices -> 2 triangles.
@@ -499,10 +500,13 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
     if (!dr || index >= dr->textureCount || !dr->textures || !dr->textures[index]) return;
 
     if (dr->currentTextureIndex == (int32_t)index) {
-        flushBatch(dr);
+        // Eviction must not happen mid-batch. Caller ensures safe point.
+        // Just invalidate the binding cache; actual DrawPrimitiveUP must
+        // already have been flushed by the time releaseTexturePage runs.
         dr->currentTextureIndex = -1;
         Dev(dr)->SetTexture(0, NULL);
     }
+
 	if (dr->textures[index] != NULL) {
     	((IDirect3DTexture9*)dr->textures[index])->Release();
 	}
@@ -514,9 +518,14 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
 }
 
 static void ensureTextureCacheRoom(D3D9Renderer* dr) {
+    // Only evict at safe points (between batches) to avoid releasing
+    // textures while DXVK still references them for DrawPrimitiveUP.
+    if (!dr || dr->quadCount != 0) return;
+
     const uint32_t maxLoadedPages = 24;
 	const uint32_t maxTextureBytesUsed = (256 * 1024 * 1024); // 256 MB
     while (dr->loadedTexturePages > maxLoadedPages || dr->textureBytesUsed > maxTextureBytesUsed) {
+
         // Evict the least recently used page (by frameCounter ordering)
         uint32_t victim = UINT_MAX;
         uint32_t bestAge = 0;
@@ -677,6 +686,11 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 
 // Upload a decoded texture to the GPU (must be called on render thread)
 static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
+    // Upload+eviction touches the GPU-visible texture cache.
+    // Do it only at batch boundaries (quadCount must be 0) and serialize
+    // against any concurrent eviction.
+    if (dr && dr->quadCount != 0) return false;
+
     if (!dr || textureIndex >= dr->textureCount) return false;
     if (dr->textureLoadState[textureIndex] != TEX_LOAD_DECODED) return false;
 
@@ -733,9 +747,9 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     stbi_image_free(pixels);
     dr->texturePendingRGBA[textureIndex] = NULL;
 
-    // Install the new texture
-    ensureTextureCacheRoom(dr);
+    // Install the new texture (eviction must have been done at a safe point).
     dr->textures[textureIndex] = tex;
+
     dr->textureWidths[textureIndex] = (int32_t)w;
     dr->textureHeights[textureIndex] = (int32_t)h;
     dr->textureBlobSizes[textureIndex] = byteSize;

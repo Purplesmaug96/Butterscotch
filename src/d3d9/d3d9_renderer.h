@@ -148,10 +148,6 @@ typedef struct {
     // with draw-batch submission to avoid releasing textures while DXVK holds refs.
     void* textureGpuMutex;
 
-
-
-
-
     // Render-thread bookkeeping
     uint32_t textureDecodedUploadCursor;
 
