@@ -53,7 +53,7 @@ extern "C" {
 #define D3DRESOLVE_RENDERTARGET0 0
 #define D3DRS_VIEWPORTENABLE     (D3DRENDERSTATETYPE)255 // Dummy ID to bypass compiler
 
-// 4. Legacy Windows D3DX Library Stubs
+// Legacy Windows D3DX Library Stubs
 #define D3DX_FILTER_POINT 1
 struct ID3DXBuffer {
     virtual HRESULT QueryInterface(const IID&, void**) = 0;
