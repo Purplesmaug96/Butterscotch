@@ -2094,10 +2094,12 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
     float v1 = texelEnd((float)tpag->sourceY, (float)tpag->sourceHeight, texH);
 
     // Quad corners in local space (before transform)
+    // Use targetWidth/Height (draw size in bounding rect), not sourceWidth/Height (texture sample size).
+    // They differ when the texture was auto-downscaled by GMS to fit a texture page.
     float localX0 = (float)tpag->targetX - originX;
     float localY0 = (float)tpag->targetY - originY;
-    float localX1 = localX0 + (float)tpag->sourceWidth;
-    float localY1 = localY0 + (float)tpag->sourceHeight;
+    float localX1 = localX0 + (float)tpag->targetWidth;
+    float localY1 = localY0 + (float)tpag->targetHeight;
 
     // Scale
     localX0 *= xscale; localY0 *= yscale;
@@ -2313,7 +2315,8 @@ static void d3d9DrawRectangle(Renderer* renderer, float x1, float y1, float x2, 
 
     float sx0, sy0, sx1, sy1;
     transformPoint(dr, x1, y1, &sx0, &sy0);
-    transformPoint(dr, x2, y2, &sx1, &sy1);
+    // GML adds +1 to width/height for filled rects (matching GL renderer behavior)
+    transformPoint(dr, x2 + 1.0f, y2 + 1.0f, &sx1, &sy1);
 
     setVertex(&v[0], sx0, sy0, 0, 0, cr, cg, cb, ca);
     setVertex(&v[1], sx1, sy0, 1, 0, cr, cg, cb, ca);
@@ -2814,11 +2817,14 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     dr->texturePendingW = (uint32_t*)safeRealloc(dr->texturePendingW, (dr->textureCount + 1) * sizeof(uint32_t));
     dr->texturePendingH = (uint32_t*)safeRealloc(dr->texturePendingH, (dr->textureCount + 1) * sizeof(uint32_t));
     dr->texturePendingByteSize = (uint32_t*)safeRealloc(dr->texturePendingByteSize, (dr->textureCount + 1) * sizeof(uint32_t));
+    // Also grow the blob-size array (used by eviction and destruction)
+    dr->textureBlobSizes = (uint32_t*)safeRealloc(dr->textureBlobSizes, (dr->textureCount + 1) * sizeof(uint32_t));
 
     dr->textureLastUsedFrame[pageId] = 0;
     dr->textures[pageId] = NULL;
     dr->textureWidths[pageId] = 0;
     dr->textureHeights[pageId] = 0;
+    dr->textureBlobSizes[pageId] = 0;
     dr->textureLoadState[pageId] = TEX_LOAD_IDLE;
     dr->texturePendingRGBA[pageId] = NULL;
     dr->texturePendingW[pageId] = 0;
@@ -2832,7 +2838,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     IDirect3DDevice9* dev = Dev(dr);
 
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     if (FAILED(hr) || !tex) {
         free(rgba);
         return -1;
@@ -2847,18 +2853,16 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     }
 
     for (int32_t yy = 0; yy < srcH; yy++) {
-        uint8_t* dstRow = (uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch;
         uint8_t* srcRow = rgba + (size_t)yy * (size_t)srcW * 4;
+        DWORD* dst = (DWORD*)((uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch);
         for (int32_t xx = 0; xx < srcW; xx++) {
             // Convert RGBA -> D3DCOLOR_ARGB(A,R,G,B)
+            // D3DFMT_A8R8G8B8 in little-endian memory: byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
             uint8_t r = srcRow[xx * 4 + 0];
             uint8_t g = srcRow[xx * 4 + 1];
             uint8_t b = srcRow[xx * 4 + 2];
             uint8_t a = srcRow[xx * 4 + 3];
-            dstRow[xx * 4 + 0] = r;
-            dstRow[xx * 4 + 1] = g;
-            dstRow[xx * 4 + 2] = b;
-            dstRow[xx * 4 + 3] = a;
+            dst[xx] = D3DCOLOR_ARGB(a, r, g, b);
         }
     }
 
