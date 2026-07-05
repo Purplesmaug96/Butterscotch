@@ -510,17 +510,41 @@ static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index);
 static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface);
 static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
 
+// Texture load states
+typedef enum {
+    TEX_LOAD_IDLE      = 0, // Not queued, not loaded
+    TEX_LOAD_QUEUED    = 1, // Queued for decode (or being decoded)
+    TEX_LOAD_DECODED   = 2, // Decoded, ready for GPU upload on render thread
+    TEX_LOAD_FAILED    = 3, // Decode failed, don't retry
+    TEX_LOAD_UPLOADING = 4, // Being uploaded to GPU (render thread)
+} TextureLoadState;
+
 static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
-#ifdef PLATFORM_XBOX360_XDK
-    // Xbox 360: no std::mutex/unique_lock available.
-#else
+#ifndef PLATFORM_XBOX360_XDK
     std::mutex* gpuMutex = dr && dr->textureGpuMutex ? (std::mutex*)dr->textureGpuMutex : nullptr;
     std::unique_lock<std::mutex> gpuLock;
     if (gpuMutex) gpuLock = std::unique_lock<std::mutex>(*gpuMutex);
 #endif
 
+    // IMPORTANT: eviction must also free any CPU-side decoded buffer that might
+    // be pending for upload. Otherwise, evicting pages while async decode is
+    // in-flight can accumulate unbounded RAM.
 
-    if (!dr || index >= dr->textureCount || !dr->textures || !dr->textures[index]) return;
+    if (!dr || index >= dr->textureCount) return;
+
+    // Best-effort free decoded pixels (decode worker ownership transferred
+    // to texturePendingRGBA when it completes).
+    if (dr->texturePendingRGBA && dr->texturePendingRGBA[index]) {
+        stbi_image_free(dr->texturePendingRGBA[index]);
+        dr->texturePendingRGBA[index] = NULL;
+    }
+    if (dr->texturePendingW) dr->texturePendingW[index] = 0;
+    if (dr->texturePendingH) dr->texturePendingH[index] = 0;
+    if (dr->texturePendingByteSize) dr->texturePendingByteSize[index] = 0;
+    if (dr->textureLoadState) dr->textureLoadState[index] = TEX_LOAD_IDLE;
+
+    // If there's no GPU texture currently resident, nothing more to evict.
+    if (!dr->textures || !dr->textures[index]) return;
 
     if (dr->currentTextureIndex == (int32_t)index) {
         // Eviction must not happen mid-batch. Caller ensures safe point.
@@ -530,15 +554,16 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
         Dev(dr)->SetTexture(0, NULL);
     }
 
-	if (dr->textures[index] != NULL) {
-    	((IDirect3DTexture9*)dr->textures[index])->Release();
-	}
-	dr->textureBytesUsed -= dr->textureBlobSizes[index];
+    if (dr->textures[index] != NULL) {
+        ((IDirect3DTexture9*)dr->textures[index])->Release();
+    }
+    dr->textureBytesUsed -= dr->textureBlobSizes[index];
     dr->textureWidths[index] = 0;
     dr->textureHeights[index] = 0;
     if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[index] = 0;
     if (dr->loadedTexturePages > 0) dr->loadedTexturePages--;
 }
+
 
 static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     // Only evict at safe points (between batches) to avoid releasing
@@ -609,15 +634,6 @@ static const uint32_t kMaxDecodeWorkers = 2;
 #else
 static const uint32_t kMaxDecodeWorkers = 4;
 #endif
-
-// Texture load states
-typedef enum {
-    TEX_LOAD_IDLE      = 0, // Not queued, not loaded
-    TEX_LOAD_QUEUED    = 1, // Queued for decode (or being decoded)
-    TEX_LOAD_DECODED   = 2, // Decoded, ready for GPU upload on render thread
-    TEX_LOAD_FAILED    = 3, // Decode failed, don't retry
-    TEX_LOAD_UPLOADING = 4, // Being uploaded to GPU (render thread)
-} TextureLoadState;
 
 // A decode work item
 struct DecodeWorkItem {
@@ -898,9 +914,15 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 // Upload a decoded texture to the GPU (must be called on render thread)
 static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     // Upload+eviction touches the GPU-visible texture cache.
-    // Do it only at batch boundaries (quadCount must be 0) and serialize
-    // against any concurrent eviction.
+    // On Xbox 360, avoid any risk of using a texture while it is being
+    // released/evicted in another code path.
+    // This function must only run at safe batch boundaries.
     if (dr && dr->quadCount != 0) return false;
+
+    // Safety: if there are any async pages pending/decoded, do not evict in
+    // the same frame unless we are at a safe point. (We keep eviction
+    // triggered by ensureTextureCacheRoom() only at quadCount==0.)
+
 
     if (!dr || textureIndex >= dr->textureCount) return false;
     if (dr->textureLoadState[textureIndex] != TEX_LOAD_DECODED) return false;
@@ -1043,33 +1065,10 @@ static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex
 
     Texture* txtr = &dw->txtr.textures[textureIndex];
 
-    // On Xbox 360 we keep the lazy parser path but still decode embedded texture pages
-    // synchronously on first use so we do not regress the visible texture output.
-#ifdef PLATFORM_XBOX360_XDK
-    if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
-        ensureTextureCacheRoom(dr);
-        uint8_t* blobBytes = NULL;
-        int blobByteSize = 0;
-        if (readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
-            bool ok = loadTextureBytes(dr, textureIndex, blobBytes, blobByteSize, "data.win");
-            if (blobBytes && blobBytes != txtr->blobData) {
-                free(blobBytes);
-            }
-            if (ok) {
-                dr->loadedTexturePages++;
-                if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-                return true;
-            }
-        }
-        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
-        return false;
-    }
-#else
     if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
         queueAsyncDecode(dr, textureIndex);
         return false;
     }
-#endif
 
     // External textures (no blob data) - must load synchronously
     if (txtr->present) {
