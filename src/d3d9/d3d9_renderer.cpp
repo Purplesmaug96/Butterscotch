@@ -391,6 +391,15 @@ static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float
     *outA = alpha;
 }
 
+// Write a pixel in D3DFMT_A8R8G8B8 format.
+// D3DCOLOR_ARGB(a,r,g,b) = (a<<24)|(r<<16)|(g<<8)|b
+// On big-endian (Xbox 360 PowerPC): byte[0]=A, byte[1]=R, byte[2]=G, byte[3]=B
+// On little-endian (desktop x86):     byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
+// D3DFMT_A8R8G8B8 expects A in the MSB, so D3DCOLOR_ARGB is correct on both.
+static inline void writePixelBGRA(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    *(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
+}
+
 // ===[ Batch Flush ]===
 
 #ifdef PLATFORM_XBOX360_XDK
@@ -536,8 +545,15 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     // textures while DXVK still references them for DrawPrimitiveUP.
     if (!dr || dr->quadCount != 0) return;
 
+    // On Xbox 360 with only ~512MB total RAM, use a smaller texture cache
+#ifdef PLATFORM_XBOX360_XDK
+    const uint32_t maxLoadedPages = 16;
+    const uint32_t maxTextureBytesUsed = (64 * 1024 * 1024); // 64 MB for 360
+#else
     const uint32_t maxLoadedPages = 24;
-	const uint32_t maxTextureBytesUsed = (256 * 1024 * 1024); // 256 MB
+    const uint32_t maxTextureBytesUsed = (256 * 1024 * 1024); // 256 MB
+#endif
+
     while (dr->loadedTexturePages > maxLoadedPages || dr->textureBytesUsed > maxTextureBytesUsed) {
 
         // Evict the least recently used page (by frameCounter ordering)
@@ -545,14 +561,28 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
         uint32_t bestAge = 0;
         bool haveVictim = false;
 
+        // Track the oldest valid frame for LRU comparison
+        uint32_t oldestValidFrame = dr->frameCounter;
+
         for (uint32_t i = 0; i < dr->textureCount; i++) {
             if (!dr->textures[i]) continue;
             if ((int32_t)i == dr->currentTextureIndex) continue;
 
             uint32_t last = dr->textureLastUsedFrame ? dr->textureLastUsedFrame[i] : 0;
-            // If last==0, treat as very old.
-            uint32_t age = (last == 0) ? 0 : (last);
+            // If last==0 or hasn't been used this epoch, treat as very old.
+            if (last == 0) {
+                // Immediately evict textures that have never been used
+                victim = i;
+                haveVictim = true;
+                break;
+            }
 
+            // Track the oldest frame in use
+            if (last < oldestValidFrame) {
+                oldestValidFrame = last;
+            }
+
+            uint32_t age = last;
             if (!haveVictim || age < bestAge) {
                 bestAge = age;
                 victim = i;
@@ -857,14 +887,14 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
     for (uint32_t y2 = 0; y2 < h; y2++) {
         uint8_t* src = pixels + y2 * w * 4;
-        DWORD* dst = (DWORD*)((uint8_t*)lr.pBits + y2 * lr.Pitch);
+        uint8_t* dst = (uint8_t*)lr.pBits + y2 * lr.Pitch;
         for (uint32_t x2 = 0; x2 < w; x2++) {
             uint8_t r = src[x2 * 4 + 0];
             uint8_t g = src[x2 * 4 + 1];
             uint8_t b = src[x2 * 4 + 2];
             uint8_t a = src[x2 * 4 + 3];
             if (a == 0) { r = 0; g = 0; b = 0; }
-            dst[x2] = D3DCOLOR_ARGB(a, r, g, b);
+            writePixelBGRA(dst + x2 * 4, r, g, b, a);
         }
     }
     tex->UnlockRect(0);
@@ -887,23 +917,41 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     return true;
 }
 
-// Process all completed async decodes on the render thread
+// Process all completed async decodes on the render thread, optimized to only scan textures that need uploading
 static void processCompletedDecodes(D3D9Renderer* dr) {
     if (!dr || !dr->textureLoadState) return;
 
-    for (uint32_t i = 0; i < dr->textureCount; i++) {
+    // Optimization: only scan from the last upload cursor forward, wrapping around
+    // This distributes the scan evenly across frames instead of scanning all textures every frame
+    uint32_t startCursor = dr->textureDecodedUploadCursor;
+    uint32_t checked = 0;
+    uint32_t maxChecks = 256; // Limit checks per frame to avoid long stalls
+
+    while (checked < maxChecks && checked < dr->textureCount) {
+        uint32_t i = dr->textureDecodedUploadCursor;
+        dr->textureDecodedUploadCursor = (dr->textureDecodedUploadCursor + 1) % dr->textureCount;
+        checked++;
+
         if (dr->textureLoadState[i] == TEX_LOAD_DECODED) {
             uploadDecodedTexture(dr, i);
         }
+
+        // If we've wrapped all the way around, stop
+        if (dr->textureDecodedUploadCursor == startCursor) break;
     }
 }
 
-// Async version: returns true if texture is ready to render, false if still loading.
-// Does NOT block. Queues async decode if needed.
+// Fast check: returns true only if texture is already GPU-loaded
+static inline bool isTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
+    return dr->textures[textureIndex] != NULL;
+}
+
+// Priority-ordered async ensure: processes pending uploads in order rather than
+// checking every texture every frame. Also handles the first-time synchronous fallback.
 static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return false;
 
-    // Already loaded on GPU
+    // Already loaded on GPU - fast path
     if (dr->textures[textureIndex]) {
         if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
         return true;
@@ -1101,14 +1149,14 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
     }
     for (int y2 = 0; y2 < h; y2++) {
         uint8_t* src = pixels + y2 * w * 4;
-        DWORD* dst = (DWORD*)((uint8_t*)lr.pBits + y2 * lr.Pitch);
+        uint8_t* dst = (uint8_t*)lr.pBits + y2 * lr.Pitch;
         for (int x2 = 0; x2 < w; x2++) {
             uint8_t r = src[x2 * 4 + 0];
             uint8_t g = src[x2 * 4 + 1];
             uint8_t b = src[x2 * 4 + 2];
             uint8_t a = src[x2 * 4 + 3];
             if (a == 0) { r = 0; g = 0; b = 0; }
-            dst[x2] = D3DCOLOR_ARGB(a, r, g, b);
+            writePixelBGRA(dst + x2 * 4, r, g, b, a);
         }
     }
     tex->UnlockRect(0);
@@ -2854,15 +2902,14 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 
     for (int32_t yy = 0; yy < srcH; yy++) {
         uint8_t* srcRow = rgba + (size_t)yy * (size_t)srcW * 4;
-        DWORD* dst = (DWORD*)((uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch);
+        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch;
         for (int32_t xx = 0; xx < srcW; xx++) {
-            // Convert RGBA -> D3DCOLOR_ARGB(A,R,G,B)
-            // D3DFMT_A8R8G8B8 in little-endian memory: byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
+            // Convert RGBA -> A8R8G8B8 in correct byte order
             uint8_t r = srcRow[xx * 4 + 0];
             uint8_t g = srcRow[xx * 4 + 1];
             uint8_t b = srcRow[xx * 4 + 2];
             uint8_t a = srcRow[xx * 4 + 3];
-            dst[xx] = D3DCOLOR_ARGB(a, r, g, b);
+            writePixelBGRA(dst + xx * 4, r, g, b, a);
         }
     }
 
@@ -3688,15 +3735,28 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
         return false;
     }
 
+    // Read D3DFMT_A8R8G8B8 back to RGBA, handling endianness
     for (int y2 = 0; y2 < h; y2++) {
-        DWORD* src = (DWORD*)((uint8_t*)lr.pBits + y2 * lr.Pitch);
+        uint8_t* src = (uint8_t*)lr.pBits + y2 * lr.Pitch;
         uint8_t* dst = outRGBA + y2 * w * 4;
         for (int x2 = 0; x2 < w; x2++) {
-            DWORD pixel = src[x2];
-            dst[x2 * 4 + 0] = (uint8_t)(pixel & 0xFF);         // R
-            dst[x2 * 4 + 1] = (uint8_t)((pixel >> 8) & 0xFF); // G
-            dst[x2 * 4 + 2] = (uint8_t)((pixel >> 16) & 0xFF); // B
-            dst[x2 * 4 + 3] = (uint8_t)((pixel >> 24) & 0xFF); // A
+            // A8R8G8B8 in little-endian memory: byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
+            // On big-endian (360), D3DXLoadSurfaceFromSurface byte-swaps the data
+            // On little-endian (desktop), bytes are already B,G,R,A
+#ifdef PLATFORM_XBOX360_XDK
+            // D3DXLoadSurfaceFromSurface writes A8R8G8B8 in big-endian byte order on PowerPC
+            // So byte[0]=A, byte[1]=R, byte[2]=G, byte[3]=B
+            dst[x2 * 4 + 0] = src[x2 * 4 + 1]; // R
+            dst[x2 * 4 + 1] = src[x2 * 4 + 2]; // G
+            dst[x2 * 4 + 2] = src[x2 * 4 + 3]; // B
+            dst[x2 * 4 + 3] = src[x2 * 4 + 0]; // A
+#else
+            // Little-endian: byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
+            dst[x2 * 4 + 0] = src[x2 * 4 + 2]; // R
+            dst[x2 * 4 + 1] = src[x2 * 4 + 1]; // G
+            dst[x2 * 4 + 2] = src[x2 * 4 + 0]; // B
+            dst[x2 * 4 + 3] = src[x2 * 4 + 3]; // A
+#endif
         }
     }
 
@@ -3997,7 +4057,6 @@ static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
 
     return 1.0f;
 }
-
 
 static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs) {
     if (!outUVs) return false;
