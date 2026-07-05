@@ -602,8 +602,13 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
 // This keeps the desktop path using std::thread while allowing the XDK
 // toolchain to build and execute correctly.
 
-// Maximum number of concurrent decode worker threads
+// Maximum number of concurrent decode worker threads. The Xbox 360 path uses
+// fewer workers to avoid extra CPU and memory pressure during gameplay.
+#ifdef PLATFORM_XBOX360_XDK
+static const uint32_t kMaxDecodeWorkers = 2;
+#else
 static const uint32_t kMaxDecodeWorkers = 4;
+#endif
 
 // Texture load states
 typedef enum {
@@ -618,6 +623,7 @@ typedef enum {
 struct DecodeWorkItem {
     uint32_t textureIndex;
     const uint8_t* blobData;
+    bool ownedBlob;
     int blobSize;
     bool gm2022_5;
 };
@@ -677,6 +683,10 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
 
             int w = 0, h = 0;
             uint8_t* pixels = ImageDecoder_decodeToRgba(item.blobData, (size_t)item.blobSize, item.gm2022_5, &w, &h);
+
+            if (item.ownedBlob && item.blobData) {
+                free((void*)item.blobData);
+            }
 
             EnterCriticalSection(&pool->mutex);
             if (pixels && w > 0 && h > 0) {
@@ -748,6 +758,10 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
         int w = 0, h = 0;
         uint8_t* pixels = ImageDecoder_decodeToRgba(item.blobData, (size_t)item.blobSize, item.gm2022_5, &w, &h);
 
+        if (item.ownedBlob && item.blobData) {
+            free((void*)item.blobData);
+        }
+
         // Store result
         {
             std::lock_guard<std::mutex> lock(pool->mutex);
@@ -781,6 +795,31 @@ static void maybeStartWorker(D3D9Renderer* dr) {
 
 #endif
 
+static bool readTexturePageBytes(D3D9Renderer* dr, uint32_t textureIndex, uint8_t** outBytes, int* outSize) {
+    if (!dr || !outBytes || !outSize || textureIndex >= dr->textureCount) return false;
+
+    *outBytes = NULL;
+    *outSize = 0;
+
+    DataWin* dw = dr->base.dataWin;
+    if (!dw || textureIndex >= dw->txtr.count) return false;
+
+    Texture* txtr = &dw->txtr.textures[textureIndex];
+    if (!txtr) return false;
+
+    if (txtr->blobData && txtr->blobSize > 0) {
+        *outBytes = (uint8_t*)txtr->blobData;
+        *outSize = (int)txtr->blobSize;
+        return true;
+    }
+
+    if (txtr->blobOffset > 0 && txtr->blobSize > 0) {
+        return DataWin_readBytesAt(dw, txtr->blobOffset, txtr->blobSize, outBytes);
+    }
+
+    return false;
+}
+
 // Queue a texture page for async decode
 static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
     if (!dr || textureIndex >= dr->textureCount) return;
@@ -791,8 +830,10 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 
     Texture* txtr = &dw->txtr.textures[textureIndex];
 
-    // Only queue if we have blob data to decode
-    if (!txtr->blobData || txtr->blobSize <= 0) {
+    // Only queue if we have blob data to decode. Embedded TXTR payloads are read
+    // from the backing data.win file on demand so the parser does not need to keep
+    // all texture bytes resident in RAM.
+    if (txtr->blobSize <= 0 || (txtr->blobOffset == 0 && !txtr->blobData)) {
         // External textures can't be decoded async (file I/O on worker thread is risky)
         // Fall through to synchronous path
         return;
@@ -807,10 +848,24 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 
     bool gm2022_5 = DataWin_isVersionAtLeast(((Renderer*)dr)->dataWin, 2022, 5, 0, 0);
 
+    uint8_t* blobBytes = NULL;
+    int blobByteSize = 0;
+    bool ownBlob = false;
+    if (!readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
+        dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE;
+        dr->textureDecodeInFlight--;
+        return;
+    }
+
+    if (blobBytes && blobByteSize > 0 && (!txtr->blobData || txtr->blobSize <= 0)) {
+        ownBlob = true;
+    }
+
     DecodeWorkItem item;
     item.textureIndex = textureIndex;
-    item.blobData = txtr->blobData;
-    item.blobSize = (int)txtr->blobSize;
+    item.blobData = blobBytes;
+    item.ownedBlob = ownBlob;
+    item.blobSize = blobByteSize;
     item.gm2022_5 = gm2022_5;
 
 #ifdef PLATFORM_XBOX360_XDK
@@ -988,11 +1043,33 @@ static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex
 
     Texture* txtr = &dw->txtr.textures[textureIndex];
 
-    // If we have blob data, queue async decode
-    if (txtr->blobData && txtr->blobSize > 0) {
+    // On Xbox 360 we keep the lazy parser path but still decode embedded texture pages
+    // synchronously on first use so we do not regress the visible texture output.
+#ifdef PLATFORM_XBOX360_XDK
+    if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
+        ensureTextureCacheRoom(dr);
+        uint8_t* blobBytes = NULL;
+        int blobByteSize = 0;
+        if (readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
+            bool ok = loadTextureBytes(dr, textureIndex, blobBytes, blobByteSize, "data.win");
+            if (blobBytes && blobBytes != txtr->blobData) {
+                free(blobBytes);
+            }
+            if (ok) {
+                dr->loadedTexturePages++;
+                if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+                return true;
+            }
+        }
+        dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+        return false;
+    }
+#else
+    if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
         queueAsyncDecode(dr, textureIndex);
         return false;
     }
+#endif
 
     // External textures (no blob data) - must load synchronously
     if (txtr->present) {
@@ -1043,8 +1120,15 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     ensureTextureCacheRoom(dr);
 
     bool ok = false;
-    if (txtr->blobData && txtr->blobSize > 0) {
-        ok = loadTextureBytes(dr, textureIndex, txtr->blobData, (int)txtr->blobSize, "data.win");
+    if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
+        uint8_t* blobBytes = NULL;
+        int blobByteSize = 0;
+        if (readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
+            ok = loadTextureBytes(dr, textureIndex, blobBytes, blobByteSize, "data.win");
+            if (blobBytes && blobBytes != txtr->blobData) {
+                free(blobBytes);
+            }
+        }
     } else if (txtr->present) {
         ok = loadExternalTexturePage(dr, textureIndex);
     }

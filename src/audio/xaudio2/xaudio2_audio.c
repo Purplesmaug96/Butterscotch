@@ -624,8 +624,19 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
             return NULL;
         }
         AudioEntry* entry = &audoDw->audo.entries[sound->audioFile];
-        bytes = entry->data;
-        byteCount = (int)entry->dataSize;
+        if (entry->data && entry->dataSize > 0) {
+            bytes = entry->data;
+            byteCount = (int)entry->dataSize;
+        } else if (entry->dataSize > 0 && entry->dataOffset > 0) {
+            if (!DataWin_readBytesAt(audoDw, entry->dataOffset, entry->dataSize, &bytes)) {
+                audioTrace(true, "AUD2: embedded audio read failed idx=%d name=%s offset=%u size=%u",
+                    soundIndex, sound->name ? sound->name : "?", entry->dataOffset, entry->dataSize);
+                if (cache) cache->failed = true;
+                return NULL;
+            }
+            freeBytes = true;
+            byteCount = (int)entry->dataSize;
+        }
     } else {
         char* path = resolveExternalPath(xa, sound);
         if (!path) {

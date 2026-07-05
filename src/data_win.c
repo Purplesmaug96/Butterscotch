@@ -2403,7 +2403,8 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
         }
     }
 
-    // Load blob data into owned buffers
+    // Restore the original eager TXTR loading behavior for Xbox 360 so the renderer
+    // receives the blob data immediately. The lazy-read helper stays available for debugging.
     repeat(count, i) {
         if (t->textures[i].blobOffset == 0 || t->textures[i].blobSize == 0) continue;
         t->textures[i].blobData = BinaryReader_readBytesAt(reader, t->textures[i].blobOffset, t->textures[i].blobSize);
@@ -2426,7 +2427,8 @@ static void parseAUDO(BinaryReader* reader, DataWin* dw) {
         a->entries[i].present = true;
         a->entries[i].dataSize = BinaryReader_readUint32(reader);
         a->entries[i].dataOffset = (uint32_t)BinaryReader_getPosition(reader);
-        // Load audio data into owned buffer
+        // Restore the original eager AUDO loading behavior for Xbox 360 so the audio backend
+        // receives the blob data immediately. The lazy-read helper stays available for debugging.
         if (a->entries[i].dataSize > 0) {
             a->entries[i].data = (uint8_t *)safeMalloc(a->entries[i].dataSize);
             BinaryReader_readBytes(reader, a->entries[i].data, a->entries[i].dataSize);
@@ -2692,9 +2694,15 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         }
     }
 
-    // If lazy-loading rooms, keep the file handle open for DataWin_loadRoomPayload, otherwise close it now
+    // Keep the file handle open whenever we may need on-demand payload reads, such as
+    // lazy room loading or embedded TXTR/AUDO data on the Xbox 360 build.
     dw->lazyLoadRooms = options.lazyLoadRooms;
-    if (options.lazyLoadRooms) {
+#ifdef PLATFORM_XBOX360_XDK
+    bool keepFileOpen = options.lazyLoadRooms || options.parseTxtr || options.parseAudo;
+#else
+    bool keepFileOpen = options.lazyLoadRooms;
+#endif
+    if (keepFileOpen) {
         dw->lazyLoadFile = file;
         dw->lazyLoadFilePath = safeStrdup(filePath);
         dw->fileSize = (size_t) fileSize;
@@ -2710,6 +2718,74 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
     }
 
     return dw;
+}
+
+bool DataWin_readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outData) {
+    if (!dw || !outData || count == 0) {
+        if (outData) *outData = NULL;
+        return false;
+    }
+
+    *outData = NULL;
+    if (offset > SIZE_MAX - count) {
+        return false;
+    }
+    if (dw->fileSize > 0 && offset + count > dw->fileSize) {
+        return false;
+    }
+
+    uint8_t* data = (uint8_t*)safeMalloc(count);
+    if (!data) {
+        return false;
+    }
+
+    if (dw->lazyLoadFilePath) {
+        FILE* file = fopen(dw->lazyLoadFilePath, "rb");
+        if (!file) {
+            free(data);
+            return false;
+        }
+
+        if (fseek(file, (long)offset, SEEK_SET) != 0) {
+            fclose(file);
+            free(data);
+            return false;
+        }
+
+        size_t readCount = fread(data, 1, count, file);
+        fclose(file);
+        if (readCount != count) {
+            free(data);
+            return false;
+        }
+
+        *outData = data;
+        return true;
+    }
+
+    if (dw->lazyLoadFile) {
+        long savedPos = ftell(dw->lazyLoadFile);
+        if (savedPos < 0 || fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) != 0) {
+            free(data);
+            return false;
+        }
+
+        size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
+        if (fseek(dw->lazyLoadFile, savedPos, SEEK_SET) != 0) {
+            free(data);
+            return false;
+        }
+        if (readCount != count) {
+            free(data);
+            return false;
+        }
+
+        *outData = data;
+        return true;
+    }
+
+    free(data);
+    return false;
 }
 
 // ===[ FREE ]===
