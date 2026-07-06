@@ -1691,16 +1691,13 @@ static void xdkSetMasterGain(AudioSystem* audio, float gain) {
     }
 }
 
-static void xdkSetMasterGainForListener(AudioSystem* audio, float gain, int32_t listenerId) {
+static void xdkSetMasterGainForListener(AudioSystem* audio, float gain, int32_t id) {
     XAudio2AudioSystem* xa = (XAudio2AudioSystem*)audio;
-    xa->masterGain = gain;
-    XAudio2InstanceArray* arr = Instances(xa);
-    for (int i = 0; i < XAUDIO2_MAX_SOUND_INSTANCES; i++) {
-        XAudio2SoundInstance* inst = &arr->instances[i];
-        if (inst->active && inst->pVoice) {
-            inst->pVoice->SetVolume(inst->currentGain * inst->soundVolume * xa->masterGain);
-        }
-    }
+	XAudio2InstanceArray* arr = Instances(xa);
+	XAudio2SoundInstance* inst = &arr->instances[id];
+	if (inst->active && inst->pVoice) {
+		inst->pVoice->SetVolume(inst->currentGain * inst->soundVolume * xa->masterGain);
+	}
 }
 
 static void xdkSetChannelCount(AudioSystem* audio, int32_t count) {
