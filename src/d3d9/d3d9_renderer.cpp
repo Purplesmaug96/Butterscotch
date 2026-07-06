@@ -1270,14 +1270,6 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     return ok;
 }
 
-// Legacy wrapper kept for ABI/backward compatibility.
-// Historically some older call sites referenced `_ensureTexturePageLoadedAsync`.
-// The implementation now simply forwards to the real async ensure.
-static bool _ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
-    return ensureTexturePageLoadedAsync(dr, textureIndex);
-}
-
-
 extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 	return ensureTexturePageLoaded(dr, textureIndex);
 }
