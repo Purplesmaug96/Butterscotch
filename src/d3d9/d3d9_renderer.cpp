@@ -3292,9 +3292,6 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             dFactorAlpha = dFactor;
             break;
 
-
-
-
         default: {
 
             // Factor-only modes: these are meant for gpuSetBlendModeExt().
