@@ -43,3 +43,8 @@
 #ifndef lroundf
 #define lroundf(x) ((long)floorf((x) + 0.5f))
 #endif
+
+#ifndef INFINITY
+#include <float.h>
+#define INFINITY (FLT_MAX + FLT_MAX)
+#endif
