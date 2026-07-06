@@ -3143,13 +3143,18 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 }
 
 static BlendFactors d3d9GpuGetBlendFactors(Renderer* renderer) {
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	BlendFactors factors;
-
+	factors.src = dr->sFactor;
+	factors.dst = dr->dFactor;
+	factors.srcAlpha = dr->sFactorAlpha;
+	factors.dstAlpha = dr->dFactorAlpha;
 	return factors;
 }
 
 static int32_t d3d9GpuGetBlendMode(Renderer* renderer) {
-	return 0;
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	return dr->blendMode;
 }
 
 static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
@@ -3194,6 +3199,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             d3d9SetNormalBlend(dev);
             break;
     }
+	dr->blendMode = mode;
 }
 
 static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
@@ -3204,6 +3210,11 @@ static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t 
     dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
     dev->SetRenderState(D3DRS_SRCBLEND, gmlBlendFactorToD3D(sfactor));
     dev->SetRenderState(D3DRS_DESTBLEND, gmlBlendFactorToD3D(dfactor));
+	dr->blendMode = bm_complex;
+	dr->sFactor = sfactor;
+	dr->dFactor = dfactor;
+	dr->sFactorAlpha = sfactor_alpha;
+	dr->dFactorAlpha = dfactor_alpha;
 }
 
 static void d3d9GpuSetBlendEnable(Renderer* renderer, bool enable) {
@@ -4570,6 +4581,13 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     dr->surfaceWidth = NULL;
     dr->surfaceHeight = NULL;
     dr->surfaceCount = 0;
+
+	// Intialize blend modes
+	dr->blendMode = bm_normal;
+	dr->sFactor = 0;
+	dr->dFactor = 0;
+	dr->sFactorAlpha = 0;
+	dr->dFactorAlpha = 0;
 
     return (Renderer*)dr;
 }

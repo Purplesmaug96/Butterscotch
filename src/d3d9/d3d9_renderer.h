@@ -155,6 +155,13 @@ typedef struct {
 	static
 	#endif
 	const uint8_t drawPhase = RENDER_PHASE_NONE;
+
+	// Blend mode
+	int32_t blendMode;
+	int32_t sFactor;
+	int32_t dFactor;
+	int32_t sFactorAlpha;
+	int32_t dFactorAlpha;
 } D3D9Renderer;
 
 Renderer* D3D9Renderer_create(void* pd3dDevice);
