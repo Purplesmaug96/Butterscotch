@@ -3247,8 +3247,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             break;
 
         case bm_subtract:
-            // Match GLCommon_blendModeTo*:
-            // sfactor = bm_zero, dfactor = bm_inv_src_color, equation ADD
+            // Match GLCommon_blendModeTo* (gl_common.c): ADD with (sf=ZERO, df=INV_SRC_COLOR)
             srcFactor = D3DBLEND_ZERO;
             dstFactor = D3DBLEND_INVSRCCOLOR;
             blendOp = D3DBLENDOP_ADD;
@@ -3258,9 +3257,10 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             dFactorAlpha = dFactor;
             break;
 
+
         case bm_reverse_subtract:
-            // GLCommon:
-            // sfactor = bm_src_alpha, dfactor = bm_one, equation REVERSE_SUBTRACT
+            // Match GLCommon_blendModeTo*:
+            // REVERSE_SUBTRACT with (sf=SRC_ALPHA, df=ONE)
             srcFactor = D3DBLEND_SRCALPHA;
             dstFactor = D3DBLEND_ONE;
             blendOp = D3DBLENDOP_REVSUBTRACT;
@@ -3271,8 +3271,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             break;
 
         case bm_min:
-            // GLCommon:
-            // equation MIN, sfactor = bm_one, dfactor = bm_one
+            // Match GLCommon_blendModeTo* (gl_common.c): MIN with (sf=ONE, df=ONE)
             srcFactor = D3DBLEND_ONE;
             dstFactor = D3DBLEND_ONE;
             blendOp = D3DBLENDOP_MIN;
@@ -3283,8 +3282,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             break;
 
         case bm_max:
-            // GLCommon:
-            // equation ADD, sfactor = bm_src_alpha, dfactor = bm_inv_src_color
+            // Match GLCommon_blendModeTo* (gl_common.c): ADD with (sf=SRC_ALPHA, df=INV_SRC_COLOR)
             srcFactor = D3DBLEND_SRCALPHA;
             dstFactor = D3DBLEND_INVSRCCOLOR;
             blendOp = D3DBLENDOP_ADD;
@@ -3294,7 +3292,11 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             dFactorAlpha = dFactor;
             break;
 
+
+
+
         default: {
+
             // Factor-only modes: these are meant for gpuSetBlendModeExt().
             // For completeness, approximate them as equation ADD with conventional
             // pairings (dst uses the "inverse" counterpart).
