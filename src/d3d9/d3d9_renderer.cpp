@@ -278,7 +278,6 @@ static void d3d9SetNormalBlend(IDirect3DDevice9* dev) {
 }
 
 static void resetFullBackbufferState(D3D9Renderer* dr) {
-	dr->renderStateDirty = true;
     IDirect3DDevice9* dev = Dev(dr);
     D3DVIEWPORT9 vp;
     vp.X = 0;
