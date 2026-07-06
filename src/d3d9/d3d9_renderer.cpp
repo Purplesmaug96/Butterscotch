@@ -3161,46 +3161,207 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
     flushBatch(dr);
+
+    // Mirror GL's GLCommon_blendModeTo* mapping (src/gl_common/gl_common.c)
+    //
+    // Note: GLCommon only maps the *simple* GameMaker blend modes
+    // (bm_normal/add/subtract/reverse_subtract/min/max) to GL blend equation
+    // and blend factors. The factor-like bm_* constants (zero/one/src_color/..)
+    // are meant for gpuSetBlendModeExt(), but the task requests that
+    // d3d9GpuSetBlendMode handles all bm_* defined in renderer.h.
+    //
+    // For the factor-only modes, we approximate GLCommon_blendModeTo* behavior
+    // by treating them as "normal" blend equation (ADD) with SRC/DEST factors
+    // derived from the selected factor and its conventional pairing:
+    //   - dst factor = ONE_MINUS_SRC_ALPHA where SRC_ALPHA is implied
+    //   - otherwise dst factor = ONE (so factors have an effect).
+    //
+    // If these factor-only modes are used by the game, this keeps the
+    // resulting blend state deterministic and close to how D3D interprets
+    // the factors.
+
+    // Default: GLCommon for bm_normal
+    // Cs*As + Cd*(1-As)
+    int32_t srcFactor = D3DBLEND_SRCALPHA;
+    int32_t dstFactor = D3DBLEND_INVSRCALPHA;
+    DWORD blendOp = D3DBLENDOP_ADD;
+
+    // We also must update dr->sFactor/dFactor/dstAlpha factors so
+    // d3d9GpuGetBlendFactors() is consistent with the active blend state.
+    // GL backend sets: srcAlpha = srcFactor, dstAlpha = dstFactor (same values).
+    int32_t sFactor = bm_src_alpha;
+    int32_t dFactor = bm_inv_src_alpha;
+    int32_t sFactorAlpha = sFactor;
+    int32_t dFactorAlpha = dFactor;
+
     switch (mode) {
         case bm_normal:
             d3d9SetNormalBlend(dev);
-            break;
+            dr->blendMode = mode;
+            dr->sFactor = sFactor;
+            dr->dFactor = dFactor;
+            dr->sFactorAlpha = sFactorAlpha;
+            dr->dFactorAlpha = dFactorAlpha;
+            return;
+
         case bm_add:
-            dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-            dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
-            dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-            dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            srcFactor = D3DBLEND_SRCALPHA;
+            dstFactor = D3DBLEND_ONE;
+            blendOp = D3DBLENDOP_ADD;
+            sFactor = bm_src_alpha;
+            dFactor = bm_one;
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
             break;
+
         case bm_subtract:
-            dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-            dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_REVSUBTRACT);
-            dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-            dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            // Match GLCommon_blendModeTo*:
+            // sfactor = bm_zero, dfactor = bm_inv_src_color, equation ADD
+            srcFactor = D3DBLEND_ZERO;
+            dstFactor = D3DBLEND_INVSRCCOLOR;
+            blendOp = D3DBLENDOP_ADD;
+            sFactor = bm_zero;
+            dFactor = bm_inv_src_color;
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
             break;
+
         case bm_reverse_subtract:
-            dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-            dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_SUBTRACT);
-            dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-            dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            // GLCommon:
+            // sfactor = bm_src_alpha, dfactor = bm_one, equation REVERSE_SUBTRACT
+            srcFactor = D3DBLEND_SRCALPHA;
+            dstFactor = D3DBLEND_ONE;
+            blendOp = D3DBLENDOP_REVSUBTRACT;
+            sFactor = bm_src_alpha;
+            dFactor = bm_one;
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
             break;
-        case bm_max:
-            dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-            dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_MAX);
-            dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
-            dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
-            break;
+
         case bm_min:
-            dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-            dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_MIN);
-            dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
-            dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+            // GLCommon:
+            // equation MIN, sfactor = bm_one, dfactor = bm_one
+            srcFactor = D3DBLEND_ONE;
+            dstFactor = D3DBLEND_ONE;
+            blendOp = D3DBLENDOP_MIN;
+            sFactor = bm_one;
+            dFactor = bm_one;
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
             break;
-        default:
-            d3d9SetNormalBlend(dev);
+
+        case bm_max:
+            // GLCommon:
+            // equation ADD, sfactor = bm_src_alpha, dfactor = bm_inv_src_color
+            srcFactor = D3DBLEND_SRCALPHA;
+            dstFactor = D3DBLEND_INVSRCCOLOR;
+            blendOp = D3DBLENDOP_ADD;
+            sFactor = bm_src_alpha;
+            dFactor = bm_inv_src_color;
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
             break;
+
+        default: {
+            // Factor-only modes: these are meant for gpuSetBlendModeExt().
+            // For completeness, approximate them as equation ADD with conventional
+            // pairings (dst uses the "inverse" counterpart).
+            switch (mode) {
+                case bm_zero:
+                    srcFactor = D3DBLEND_ZERO;
+                    dstFactor = D3DBLEND_INVSRCALPHA;
+                    sFactor = bm_zero;
+                    dFactor = bm_inv_src_alpha;
+                    break;
+                case bm_one:
+                    srcFactor = D3DBLEND_ONE;
+                    dstFactor = D3DBLEND_INVSRCALPHA;
+                    sFactor = bm_one;
+                    dFactor = bm_inv_src_alpha;
+                    break;
+                case bm_src_color:
+                    srcFactor = D3DBLEND_SRCCOLOR;
+                    dstFactor = D3DBLEND_INVSRCCOLOR;
+                    sFactor = bm_src_color;
+                    dFactor = bm_inv_src_color;
+                    break;
+                case bm_inv_src_color:
+                    srcFactor = D3DBLEND_INVSRCCOLOR;
+                    dstFactor = D3DBLEND_SRCCOLOR;
+                    sFactor = bm_inv_src_color;
+                    dFactor = bm_src_color;
+                    break;
+                case bm_src_alpha:
+                    srcFactor = D3DBLEND_SRCALPHA;
+                    dstFactor = D3DBLEND_INVSRCALPHA;
+                    sFactor = bm_src_alpha;
+                    dFactor = bm_inv_src_alpha;
+                    break;
+                case bm_inv_src_alpha:
+                    srcFactor = D3DBLEND_INVSRCALPHA;
+                    dstFactor = D3DBLEND_SRCALPHA;
+                    sFactor = bm_inv_src_alpha;
+                    dFactor = bm_src_alpha;
+                    break;
+                case bm_dest_alpha:
+                    srcFactor = D3DBLEND_DESTALPHA;
+                    dstFactor = D3DBLEND_INVSRCALPHA;
+                    sFactor = bm_dest_alpha;
+                    dFactor = bm_inv_src_alpha;
+                    break;
+                case bm_inv_dest_alpha:
+                    srcFactor = D3DBLEND_INVDESTALPHA;
+                    dstFactor = D3DBLEND_SRCALPHA;
+                    sFactor = bm_inv_dest_alpha;
+                    dFactor = bm_src_alpha;
+                    break;
+                case bm_dest_color:
+                    srcFactor = D3DBLEND_DESTCOLOR;
+                    dstFactor = D3DBLEND_INVSRCCOLOR;
+                    sFactor = bm_dest_color;
+                    dFactor = bm_inv_src_color;
+                    break;
+                case bm_inv_dest_color:
+                    srcFactor = D3DBLEND_INVDESTCOLOR;
+                    dstFactor = D3DBLEND_SRCCOLOR;
+                    sFactor = bm_inv_dest_color;
+                    dFactor = bm_src_color;
+                    break;
+                case bm_src_alpha_sat:
+                    srcFactor = D3DBLEND_SRCALPHASAT;
+                    dstFactor = D3DBLEND_INVSRCALPHA;
+                    sFactor = bm_src_alpha_sat;
+                    dFactor = bm_inv_src_alpha;
+                    break;
+                default:
+                    d3d9SetNormalBlend(dev);
+                    dr->blendMode = bm_normal;
+                    dr->sFactor = bm_src_alpha;
+                    dr->dFactor = bm_inv_src_alpha;
+                    dr->sFactorAlpha = bm_src_alpha;
+                    dr->dFactorAlpha = bm_inv_src_alpha;
+                    return;
+            }
+            sFactorAlpha = sFactor;
+            dFactorAlpha = dFactor;
+            blendOp = D3DBLENDOP_ADD;
+            break;
+        }
     }
-	dr->blendMode = mode;
+
+    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_BLENDOP, blendOp);
+    dev->SetRenderState(D3DRS_SRCBLEND, (DWORD)srcFactor);
+    dev->SetRenderState(D3DRS_DESTBLEND, (DWORD)dstFactor);
+
+    dr->blendMode = mode;
+    dr->sFactor = sFactor;
+    dr->dFactor = dFactor;
+    dr->sFactorAlpha = sFactorAlpha;
+    dr->dFactorAlpha = dFactorAlpha;
 }
+
+
 
 static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
