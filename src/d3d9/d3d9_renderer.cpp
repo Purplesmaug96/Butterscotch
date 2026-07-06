@@ -78,6 +78,8 @@ static int32_t* gGameH = &_gGameH;
 #endif
 #define D3DPOOL_MANAGED D3DPOOL_DEFAULT
 
+// #define D3DFMT_A8R8G8B8 D3DFMT_LIN_A8R8G8B8
+
 #endif
 
 float _offx = 0.0f;
@@ -392,12 +394,81 @@ static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float
 }
 
 // Write a pixel in D3DFMT_A8R8G8B8 format.
-// D3DCOLOR_ARGB(a,r,g,b) = (a<<24)|(r<<16)|(g<<8)|b
-// On big-endian (Xbox 360 PowerPC): byte[0]=A, byte[1]=R, byte[2]=G, byte[3]=B
-// On little-endian (desktop x86):     byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
-// D3DFMT_A8R8G8B8 expects A in the MSB, so D3DCOLOR_ARGB is correct on both.
+// On Xbox 360 the tiled texture path expects the bytes laid out as [B,G,R,A]
+// in the temporary upload buffer before the runtime swizzles it into GPU memory.
 static inline void writePixelBGRA(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+#ifdef PLATFORM_XBOX360_XDK
+    dst[0] = b;
+    dst[1] = g;
+    dst[2] = r;
+    dst[3] = a;
+#else
     *(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
+#endif
+}
+
+static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    *(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
+}
+
+static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
+                                const uint8_t* pixels, int32_t w, int32_t h) {
+    if (!dev || !dstTex || !pixels || w <= 0 || h <= 0) return false;
+
+    IDirect3DTexture9* stagingTex = NULL;
+#ifdef PLATFORM_XBOX360_XDK
+    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
+#else
+    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
+#endif
+    if (FAILED(hr) || !stagingTex) {
+        return false;
+    }
+
+    D3DLOCKED_RECT lr;
+    hr = stagingTex->LockRect(0, &lr, NULL, 0);
+    if (FAILED(hr)) {
+        stagingTex->Release();
+        return false;
+    }
+
+    for (int32_t y = 0; y < h; y++) {
+        const uint8_t* src = pixels + y * (size_t)w * 4;
+        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
+        for (int32_t x = 0; x < w; x++) {
+            uint8_t r = src[x * 4 + 0];
+            uint8_t g = src[x * 4 + 1];
+            uint8_t b = src[x * 4 + 2];
+            uint8_t a = src[x * 4 + 3];
+            if (a == 0) { r = 0; g = 0; b = 0; }
+#ifdef PLATFORM_XBOX360_XDK
+            writeLinearPixelARGB(dst + x * 4, r, g, b, a);
+#else
+            writePixelBGRA(dst + x * 4, r, g, b, a);
+#endif
+        }
+    }
+
+    stagingTex->UnlockRect(0);
+
+    IDirect3DSurface9* stagingSurf = NULL;
+    IDirect3DSurface9* dstSurf = NULL;
+    hr = stagingTex->GetSurfaceLevel(0, &stagingSurf);
+    if (SUCCEEDED(hr)) {
+        hr = dstTex->GetSurfaceLevel(0, &dstSurf);
+    }
+    if (SUCCEEDED(hr)) {
+        RECT srcRect = { 0, 0, w, h };
+        RECT dstRect = { 0, 0, w, h };
+        hr = D3DXLoadSurfaceFromSurface(dstSurf, NULL, &dstRect,
+                                         stagingSurf, NULL, &srcRect,
+                                         D3DX_FILTER_POINT, 0);
+    }
+
+    if (dstSurf) dstSurf->Release();
+    if (stagingSurf) stagingSurf->Release();
+    stagingTex->Release();
+    return SUCCEEDED(hr);
 }
 
 // ===[ Batch Flush ]===
@@ -942,7 +1013,8 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
     IDirect3DDevice9* dev = Dev(dr);
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+
+    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
         stbi_image_free(pixels);
@@ -951,30 +1023,14 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
         return false;
     }
 
-    D3DLOCKED_RECT lr;
-    hr = tex->LockRect(0, &lr, NULL, 0);
-    if (FAILED(hr)) {
-        Butterscotch_xdkDiagTrace("D3D9: async LockRect failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
+    if (!uploadRgbaToTexture(dev, tex, pixels, (int32_t)w, (int32_t)h)) {
+        Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
         tex->Release();
         stbi_image_free(pixels);
         dr->texturePendingRGBA[textureIndex] = NULL;
         dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
         return false;
     }
-
-    for (uint32_t y2 = 0; y2 < h; y2++) {
-        uint8_t* src = pixels + y2 * w * 4;
-        uint8_t* dst = (uint8_t*)lr.pBits + y2 * lr.Pitch;
-        for (uint32_t x2 = 0; x2 < w; x2++) {
-            uint8_t r = src[x2 * 4 + 0];
-            uint8_t g = src[x2 * 4 + 1];
-            uint8_t b = src[x2 * 4 + 2];
-            uint8_t a = src[x2 * 4 + 3];
-            if (a == 0) { r = 0; g = 0; b = 0; }
-            writePixelBGRA(dst + x2 * 4, r, g, b, a);
-        }
-    }
-    tex->UnlockRect(0);
 
     // Free the CPU-side decoded pixels
     stbi_image_free(pixels);
@@ -1215,34 +1271,20 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 
     IDirect3DDevice9* dev = Dev(dr);
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+
+    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
         stbi_image_free(pixels);
         return false;
     }
 
-    D3DLOCKED_RECT lr;
-    hr = tex->LockRect(0, &lr, NULL, 0);
-    if (FAILED(hr)) {
-        Butterscotch_xdkDiagTrace("D3D9: LockRect failed page=%u hr=0x%08X", index, (unsigned)hr);
+    if (!uploadRgbaToTexture(dev, tex, pixels, w, h)) {
+        Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u hr=0x%08X", index, (unsigned)hr);
         tex->Release();
         stbi_image_free(pixels);
         return false;
     }
-    for (int y2 = 0; y2 < h; y2++) {
-        uint8_t* src = pixels + y2 * w * 4;
-        uint8_t* dst = (uint8_t*)lr.pBits + y2 * lr.Pitch;
-        for (int x2 = 0; x2 < w; x2++) {
-            uint8_t r = src[x2 * 4 + 0];
-            uint8_t g = src[x2 * 4 + 1];
-            uint8_t b = src[x2 * 4 + 2];
-            uint8_t a = src[x2 * 4 + 3];
-            if (a == 0) { r = 0; g = 0; b = 0; }
-            writePixelBGRA(dst + x2 * 4, r, g, b, a);
-        }
-    }
-    tex->UnlockRect(0);
     stbi_image_free(pixels);
 
     dr->textures[index] = tex;
@@ -1757,15 +1799,13 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
     // Create 1x1 white texture for primitives
     IDirect3DTexture9* whiteTex = NULL;
-    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, NULL);
+    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, NULL);
     if (SUCCEEDED(hrTex) && whiteTex) {
-        D3DLOCKED_RECT lr;
-        // Check the HRESULT of LockRect and verify pBits is valid before writing
-        if (SUCCEEDED(whiteTex->LockRect(0, &lr, NULL, 0)) && lr.pBits != NULL) {
-            *(DWORD*)lr.pBits = 0xFFFFFFFF;
-            whiteTex->UnlockRect(0);
-        } else {
-            fprintf(stderr, "D3D9 Error: Failed to lock 1x1 white texture memory surface.\n");
+        uint8_t whitePixel[4] = { 255, 255, 255, 255 };
+        if (!uploadRgbaToTexture(dev, whiteTex, whitePixel, 1, 1)) {
+            fprintf(stderr, "D3D9 Error: Failed to fill 1x1 white texture.\n");
+            whiteTex->Release();
+            whiteTex = NULL;
         }
     } else {
         fprintf(stderr, "D3D9 Error: Failed to create white texture! HRESULT: 0x%08x\n",
@@ -2969,34 +3009,18 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     IDirect3DDevice9* dev = Dev(dr);
 
     IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     if (FAILED(hr) || !tex) {
         free(rgba);
         return -1;
     }
 
-    D3DLOCKED_RECT lr;
-    hr = tex->LockRect(0, &lr, NULL, 0);
-    if (FAILED(hr)) {
+    if (!uploadRgbaToTexture(dev, tex, rgba, srcW, srcH)) {
         tex->Release();
         free(rgba);
         return -1;
     }
 
-    for (int32_t yy = 0; yy < srcH; yy++) {
-        uint8_t* srcRow = rgba + (size_t)yy * (size_t)srcW * 4;
-        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)yy * (size_t)lr.Pitch;
-        for (int32_t xx = 0; xx < srcW; xx++) {
-            // Convert RGBA -> A8R8G8B8 in correct byte order
-            uint8_t r = srcRow[xx * 4 + 0];
-            uint8_t g = srcRow[xx * 4 + 1];
-            uint8_t b = srcRow[xx * 4 + 2];
-            uint8_t a = srcRow[xx * 4 + 3];
-            writePixelBGRA(dst + xx * 4, r, g, b, a);
-        }
-    }
-
-    tex->UnlockRect(0);
     dr->textures[pageId] = tex;
     dr->textureWidths[pageId] = srcW;
     dr->textureHeights[pageId] = srcH;
@@ -3783,7 +3807,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 
     // Create a system-memory texture to receive the copy
     IDirect3DTexture9* resolveTex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_LIN_A8R8G8B8,
+    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_A8R8G8B8,
                                      D3DPOOL_SYSTEMMEM, &resolveTex, NULL);
     if (FAILED(hr) || !resolveTex) {
         Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels CreateTexture(sysmem) failed hr=0x%08X", (unsigned)hr);
