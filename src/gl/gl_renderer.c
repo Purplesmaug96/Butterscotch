@@ -51,7 +51,7 @@ static const char* baseFragmentShader =
 // ===[ Runtime OpenGL extension checks ]===
 
 static bool hasFBO() {
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
     return (glGenFramebuffers || glGenFramebuffersEXT);
 #else
     return true;
@@ -59,7 +59,7 @@ static bool hasFBO() {
 }
 
 static bool hasVAO() {
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
     return (glGenVertexArrays || glGenVertexArraysOES);
 #else
     return true;
@@ -2230,15 +2230,50 @@ static void glDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     fprintf(stderr, "GL: Deleted sprite %d\n", spriteIndex);
 }
 
+static BlendFactors glGpuGetBlendFactors(Renderer* renderer) {
+    GLRenderer* gl = (GLRenderer*)renderer;
+    return (BlendFactors){
+        gl->currentSFactor, 
+        gl->currentDFactor, 
+        gl->currentSFactorAlpha, 
+        gl->currentDFactorAlpha
+    };
+}
+
+static int32_t glGpuGetBlendMode(Renderer* renderer) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    return gl->currentBlendMode;
+}
+
 static void glGpuSetBlendMode(Renderer* renderer, int32_t mode) {
-    flushBatch((GLRenderer*) renderer);
+    GLRenderer* gl = (GLRenderer*) renderer;
+    flushBatch(gl);
+
+    gl->currentBlendMode = mode;
+    gl->currentSFactor = GLCommon_blendModeToSFactor(mode);
+    gl->currentDFactor = GLCommon_blendModeToDFactor(mode);
+    gl->currentSFactorAlpha = gl->currentSFactor; 
+    gl->currentDFactorAlpha = gl->currentDFactor;
+
     glBlendEquation(GLCommon_blendModeToEquation(mode));
-    glBlendFunc(GLCommon_blendModeToSFactor(mode), GLCommon_blendModeToDFactor(mode));
+    glBlendFunc(gl->currentSFactor, gl->currentDFactor);
 }
 
 static void glGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
-    flushBatch((GLRenderer*) renderer);
-    glBlendFuncSeparate(GLCommon_blendFactorToGL(sfactor), GLCommon_blendFactorToGL(dfactor), GLCommon_blendFactorToGL(sfactor_alpha), GLCommon_blendFactorToGL(dfactor_alpha));
+    GLRenderer* gl = (GLRenderer*) renderer;
+    flushBatch(gl);
+    gl->currentBlendMode = bm_complex;
+    gl->currentSFactor = sfactor;
+    gl->currentDFactor = dfactor;
+    gl->currentSFactorAlpha = sfactor_alpha;
+    gl->currentDFactorAlpha = dfactor_alpha;
+
+    glBlendFuncSeparate(
+        GLCommon_blendFactorToGL(sfactor), 
+        GLCommon_blendFactorToGL(dfactor), 
+        GLCommon_blendFactorToGL(sfactor_alpha), 
+        GLCommon_blendFactorToGL(dfactor_alpha)
+    );
 }
 
 static void glGpuSetBlendEnable(Renderer* renderer, bool enable) {
@@ -2534,6 +2569,8 @@ Renderer* GLRenderer_create(void) {
     glVtable.clearScreen = glClearScreen;
     glVtable.createSpriteFromSurface = glCreateSpriteFromSurface;
     glVtable.deleteSprite = glDeleteSprite;
+    glVtable.gpuGetBlendFactors = glGpuGetBlendFactors;
+    glVtable.gpuGetBlendMode = glGpuGetBlendMode;
     glVtable.gpuSetBlendMode = glGpuSetBlendMode;
     glVtable.gpuSetBlendModeExt = glGpuSetBlendModeExt;
     glVtable.gpuSetBlendEnable = glGpuSetBlendEnable;
