@@ -56,6 +56,16 @@ typedef struct {
     int32_t currentTextureIndex;
     uint8_t* vertexData; // CPU-side staging (D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * D3D9_VERTEX_STRIDE)
 
+    // Bound texture cache (to avoid redundant SetTexture calls during flushBatch)
+    int32_t boundTextureIndex;
+    void* boundTexturePtr;
+
+    // Shared GPU render-state cache. Used to avoid needlessly repeating
+    // static sampler/render-state setup work every BeginFrame.
+    bool renderStateDirty;
+
+
+
     // Textures loaded from TXTR pages (decoded PNG -> D3D textures)
     void** textures;     // IDirect3DTexture9*[]
     int32_t* textureWidths;

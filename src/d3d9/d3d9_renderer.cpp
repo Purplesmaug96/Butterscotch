@@ -278,6 +278,7 @@ static void d3d9SetNormalBlend(IDirect3DDevice9* dev) {
 }
 
 static void resetFullBackbufferState(D3D9Renderer* dr) {
+	dr->renderStateDirty = true;
     IDirect3DDevice9* dev = Dev(dr);
     D3DVIEWPORT9 vp;
     vp.X = 0;
@@ -291,6 +292,7 @@ static void resetFullBackbufferState(D3D9Renderer* dr) {
 }
 
 static void setGameTargetTransform(D3D9Renderer* dr) {
+	dr->renderStateDirty = true;
     dr->offsetX = 0.0f;
     dr->offsetY = 0.0f;
     dr->portScaleX = dr->renderScale;
@@ -304,6 +306,7 @@ static void setWindowSurfaceTransform(D3D9Renderer* dr) {
     // within the fixed 720p backbuffer. This prevents stretching when the
     // app surface aspect differs from the screen aspect (e.g., 4:3 game
     // content or widescreen mod application surface on a 16:9 display).
+	dr->renderStateDirty = true;
     float scaleX = (dr->appSurfaceW > 0) ? ((float)dr->screenW / (float)dr->appSurfaceW) : 1.0f;
     float scaleY = (dr->appSurfaceH > 0) ? ((float)dr->screenH / (float)dr->appSurfaceH) : 1.0f;
     float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
@@ -316,6 +319,7 @@ static void setWindowSurfaceTransform(D3D9Renderer* dr) {
 }
 
 static void setApplicationSurfaceTransform(D3D9Renderer* dr) {
+	dr->renderStateDirty = true;
     dr->offsetX = _offx + 0.0f;
     dr->offsetY = 0.0f;
     dr->portScaleX = 1.0f;
@@ -383,6 +387,42 @@ static void applyPointSampling(IDirect3DDevice9* dev) {
         dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
         dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     }
+}
+
+static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
+    if (!dr || !dr->pd3dDevice) return;
+    if (!dr->renderStateDirty) return;
+
+    IDirect3DDevice9* dev = Dev(dr);
+
+    // Set shared render state that should only be applied once per frame
+    // (unless something else dirties it).
+    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+
+    // Set the uHalfRes uniform for the default vertex shader
+    float halfRes[2] = { (float)dr->gameW * 0.5f, (float)dr->gameH * 0.5f };
+    dev->SetVertexShaderConstantF(0, halfRes, 1);
+
+    // Alpha blending
+    d3d9SetNormalBlend(dev);
+    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    dev->SetRenderState(D3DRS_COLORWRITEENABLE,
+        D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
+        D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_ALPHA);
+
+    // No depth testing for 2D
+    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
+    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+
+    // Disable viewport transform — we use pre-transformed screen-space vertices
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+
+    // Point filtering
+    applyPointSampling(dev);
+
+    dr->renderStateDirty = false;
 }
 
 // Convert Butterscotch BGR color + alpha to float RGBA
@@ -519,11 +559,17 @@ static void flushBatch(D3D9Renderer* dr) {
         dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
     }
 
-    // Bind texture
+    // Bind texture (skip redundant SetTexture calls)
+    void* desiredTex = NULL;
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount && dr->textures[dr->currentTextureIndex]) {
-        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
+        desiredTex = dr->textures[dr->currentTextureIndex];
     } else {
-        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
+        desiredTex = dr->whiteTexture;
+    }
+    if (dr->currentTextureIndex != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
+        dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
+        dr->boundTextureIndex = dr->currentTextureIndex;
+        dr->boundTexturePtr = desiredTex;
     }
 
     // Draw using DrawPrimitiveUP — simpler than managing a vertex buffer for 2D
@@ -548,7 +594,6 @@ static void flushBatch(D3D9Renderer* dr) {
     // Bind declaration
     dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
-
     // Determine which shaders to use based on current GML shader state
     Renderer* renderer = (Renderer*)dr;
     if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
@@ -565,21 +610,18 @@ static void flushBatch(D3D9Renderer* dr) {
         dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
     }
 
-    // Bind texture - re-validate pointer because the texture may have been
-    // evicted from the cache between when the quads were added and now.
-    // DXVK caches texture references internally, so binding a dangling pointer
-    // will crash when DrawPrimitiveUP tries to use it.
+    // Bind texture (skip redundant SetTexture calls)
+    void* desiredTex = NULL;
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
-        void* tex = dr->textures[dr->currentTextureIndex];
-        if (tex != NULL) {
-            dev->SetTexture(0, (IDirect3DBaseTexture9*)tex);
-        } else {
-            dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
-        }
-    } else {
-        dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
+        desiredTex = dr->textures[dr->currentTextureIndex];
     }
+    if (!desiredTex) desiredTex = dr->whiteTexture;
 
+    if (dr->currentTextureIndex != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
+        dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
+        dr->boundTextureIndex = dr->currentTextureIndex;
+        dr->boundTexturePtr = desiredTex;
+    }
 
     // Loop through each quad and draw it as a 2-triangle list.
     // 4 vertices per quad -> 6 vertices consumed if using TRIANGLELIST, so
@@ -1888,7 +1930,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     // Initialize GML shader support — compile lazily on first use
     dr->gmlShaders = (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader));
     dr->gmlShaderCount = dataWin->shdr.count;
-    fprintf(stderr, "D3D9: %u Shaders Found (will compile on demand)\n", dataWin->shdr.count);
+    fprintf(stderr, "D3D9: %u Shaders found (will compile on demand)\n", dataWin->shdr.count);
 
     // Initialize dynamic surface arrays (empty)
     dr->surfaces = NULL;
@@ -2042,35 +2084,14 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
         dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     }
 
-    // Set shared render state
-    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
-    dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+    // Apply shared GPU render state once per BeginFrame.
+    // Mark dirty and let the cache function early-out if it's already clean.
+    // Only apply shared render state when it's marked dirty.
+    // Callers which change shaders/rendering setup must set dr->renderStateDirty = true.
+    d3d9EnsureSharedRenderState(dr);
 
-    // Set the uHalfRes uniform for the default vertex shader
-    // This transforms screen-space pixel coords to clip space without hardcoded dimensions
-    float halfRes[2] = { (float)gameW * 0.5f, (float)gameH * 0.5f };
-    dev->SetVertexShaderConstantF(0, halfRes, 1);
 
-    // Alpha blending
-    d3d9SetNormalBlend(dev);
-    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-    dev->SetRenderState(D3DRS_COLORWRITEENABLE,
-        D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
-        D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_ALPHA);
 
-    // No depth testing for 2D
-    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
-    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-
-    // Disable viewport transform — we use pre-transformed screen-space vertices
-    // On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE means the GPU uses positions directly as pixels.
-    // On desktop, this define is a dummy that maps to (D3DRENDERSTATETYPE)255 and is harmless.
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
-
-    // Point filtering — pixel-perfect for 2D sprite games like Undertale.
-    // Force every sampler each frame because GML shader state can be sticky.
-    applyPointSampling(dev);
 }
 
 static void d3d9EndFrame(Renderer* renderer) {
@@ -3167,6 +3188,8 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     // Avoid redundant state updates when mode hasn't changed.
     if (dr->blendMode == mode) return;
 
+	dr->renderStateDirty = true;
+
     IDirect3DDevice9* dev = Dev(dr);
     flushBatch(dr);
 
@@ -3374,6 +3397,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 
 static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	dr->renderStateDirty = true;
     IDirect3DDevice9* dev = Dev(dr);
     flushBatch(dr);
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
@@ -3389,12 +3413,14 @@ static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t 
 
 static void d3d9GpuSetBlendEnable(Renderer* renderer, bool enable) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	dr->renderStateDirty = true;
     flushBatch(dr);
     Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, enable ? TRUE : FALSE);
 }
 
 static void d3d9GpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	dr->renderStateDirty = true;
     flushBatch(dr);
     Dev(dr)->SetRenderState(D3DRS_ALPHATESTENABLE, enable ? TRUE : FALSE);
     Dev(dr)->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
@@ -3402,12 +3428,14 @@ static void d3d9GpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
 
 static void d3d9GpuSetAlphaTestRef(Renderer* renderer, uint8_t ref) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	dr->renderStateDirty = true;
     flushBatch(dr);
     Dev(dr)->SetRenderState(D3DRS_ALPHAREF, (DWORD)ref);
 }
 
 static void d3d9GpuSetColorWriteEnable(Renderer* renderer, bool red, bool green, bool blue, bool alpha) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	dr->renderStateDirty = true;
     DWORD mask = 0;
     flushBatch(dr);
     if (red) mask |= D3DCOLORWRITEENABLE_RED;
@@ -3490,6 +3518,8 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     IDirect3DDevice9* dev = Dev(dr);
     static int logged = 0;
+
+	dr->renderStateDirty = true;
 
     if (surfaceID == APPLICATION_SURFACE_ID) {
         if (implicitApplicationSurface && dr->savedViewStateValid) {
@@ -4189,6 +4219,8 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
         return;
     }
 
+	dr->renderStateDirty = true;
+
     // Compile on first use
     ensureShaderCompiled(dr, shaderIndex);
 
@@ -4233,10 +4265,7 @@ static void d3d9GpuResetShader(Renderer* renderer) {
     dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
     dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 
-    // Restore viewport disable for the default pass-through shader
-    #ifdef PLATFORM_XBOX360_XDK
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
-    #endif
+    dr->renderStateDirty = true;
 
     renderer->currentShader = -1;
 }
@@ -4288,6 +4317,8 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
     D3D9ShaderUniform* u = &shader->uniforms[uniformIdx];
     if (u->isSampler) return;
 
+	dr->renderStateDirty = true;
+
     IDirect3DDevice9* dev = Dev(dr);
     float values[4] = { value1, value2, value3, value4 };
     // Set each register for the count
@@ -4310,6 +4341,8 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
     if (uniformIdx >= shader->uniformCount) return;
     D3D9ShaderUniform* u = &shader->uniforms[uniformIdx];
     if (u->isSampler) return;
+
+	dr->renderStateDirty = true;
 
     IDirect3DDevice9* dev = Dev(dr);
     int32_t values[4] = { value1, value2, value3, value4 };
@@ -4469,6 +4502,8 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 
     IDirect3DDevice9* dev = Dev(dr);
 
+	dr->renderStateDirty = true;
+
     // 0 => no texture
     if (texID == 0) {
         dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
@@ -4520,29 +4555,6 @@ static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) {
     return dr->gmlShaders[shader].compiled;
 }
 static bool d3d9ShadersSupported() { return true; }
-
-// ===[ Vtable ]===
-
-static RendererVtable d3d9RendererVtable = {};
-#if 0
-    d3d9Init,
-    d3d9Destroy,
-    d3d9BeginFrame,
-    d3d9EndFrame,
-    d3d9BeginView,
-    d3d9EndView,
-    d3d9DrawSprite,
-    d3d9DrawSpritePart,
-    d3d9DrawRectangle,
-    d3d9DrawLine,
-    d3d9DrawLineColor,
-    d3d9DrawText,
-    d3d9Flush,
-    d3d9CreateSpriteFromSurface,
-    d3d9DeleteSprite,
-    NULL, // drawTile — use default path
-};
-#endif
 
 uint32_t d3d9SurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -4712,6 +4724,8 @@ void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_
     dr->portScaleY = uniformScale;
     dr->portOffsetX = (float)portW * 0.0f + offsetX;
     dr->portOffsetY = (float)portH * 0.0f + offsetY;
+
+	dr->renderStateDirty = true;
 }
 
 
@@ -4720,6 +4734,8 @@ void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_
 
 Renderer* D3D9Renderer_create(void* pd3dDevice) {
     D3D9Renderer* dr = (D3D9Renderer*)safeCalloc(1, sizeof(D3D9Renderer));
+	static RendererVtable d3d9RendererVtable;
+	ZERO_STRUCT(d3d9RendererVtable);
     d3d9RendererVtable.init = d3d9Init;
     d3d9RendererVtable.destroy = d3d9Destroy;
     d3d9RendererVtable.beginFrame = d3d9BeginFrame;
@@ -4796,8 +4812,13 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     // dr->drawPhase = RENDER_PHASE_NONE;
     dr->pd3dDevice = pd3dDevice;
     dr->currentTextureIndex = -1;
+    dr->boundTextureIndex = -2;
+    dr->boundTexturePtr = NULL;
+
+    dr->renderStateDirty = true;
 
     // Initialize surface arrays to empty
+
     dr->surfaces = NULL;
     dr->surfaceTexture = NULL;
     dr->surfaceWidth = NULL;
