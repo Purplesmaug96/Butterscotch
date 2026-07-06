@@ -3142,7 +3142,15 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     spr->textureCount = 0;
 }
 
+static BlendFactors d3d9GpuGetBlendFactors(Renderer* renderer) {
+	BlendFactors factors;
 
+	return factors;
+}
+
+static int32_t d3d9GpuGetBlendMode(Renderer* renderer) {
+	return 0;
+}
 
 static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -4504,6 +4512,8 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     d3d9RendererVtable.clearScreen = d3d9ClearScreen;
     d3d9RendererVtable.createSpriteFromSurface = d3d9CreateSpriteFromSurface;
     d3d9RendererVtable.deleteSprite = d3d9DeleteSprite;
+	d3d9RendererVtable.gpuGetBlendFactors = d3d9GpuGetBlendFactors;
+	d3d9RendererVtable.gpuGetBlendMode = d3d9GpuGetBlendMode;
     d3d9RendererVtable.gpuSetBlendMode = d3d9GpuSetBlendMode;
     d3d9RendererVtable.gpuSetBlendModeExt = d3d9GpuSetBlendModeExt;
     d3d9RendererVtable.gpuSetBlendEnable = d3d9GpuSetBlendEnable;
