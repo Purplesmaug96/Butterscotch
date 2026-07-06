@@ -253,18 +253,11 @@ static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
     Butterscotch_xdkDiagTrace("%s", line);
 }
 
-// Diagnostic macro for repetitive "static counter + d3d9DiagLimited" callsites.
-// Generates a unique per-callsite static counter using __COUNTER__.
-// Behavior is identical to manually writing `static int X=0; d3d9DiagLimited(&X, ...)`.
-// Important: __COUNTER__ must be expanded only once per macro call.
-#define _D3D9_DIAG_LIMITED_IMPL(limit, fmt, counter_id, ...) \
-    d3d9DiagLimited(&counter_id, (limit), (fmt), ##__VA_ARGS__)
-
 #define D3D9_DIAG_LIMITED(limit, fmt, ...) \
     do { \
-        static int _d3d9_diag_limited_counter = 0; \
-        (void)_d3d9_diag_limited_counter; \
-        _D3D9_DIAG_LIMITED_IMPL((limit), (fmt), _d3d9_diag_limited_counter, ##__VA_ARGS__); \
+        static int _d3d9_diag_limited_counter_line_##__LINE__ = 0; \
+        (void)_d3d9_diag_limited_counter_line_##__LINE__; \
+        d3d9DiagLimited(&_d3d9_diag_limited_counter_line_##__LINE__, (limit), (fmt), ##__VA_ARGS__); \
     } while (0)
 
 static DWORD gmlBlendFactorToD3D(int32_t factor) {
