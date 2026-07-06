@@ -1276,7 +1276,6 @@ extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex
 
 static void ensureTexture(D3D9Renderer* dr, int32_t textureIndex) {
     // Only flush when the bound texture changes.
-    // This keeps the QUADLIST batching intact and avoids excessive flushes.
     if (dr->currentTextureIndex == textureIndex) return;
     flushBatch(dr);
     dr->currentTextureIndex = textureIndex;
