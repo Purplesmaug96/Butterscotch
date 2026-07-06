@@ -393,6 +393,21 @@ static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float
     *outA = alpha;
 }
 
+#ifdef PLATFORM_XBOX360_XDK
+// Xbox 360 tiled texture tile sizes.
+// D3DFMT_A8R8G8B8 uses 32-byte pitch tiles with 16 rows = 512 bytes per tile.
+// At 4 bytes/pixel, this corresponds to 32x16 pixels per tile.
+// Textures uploaded to the tiled GPU format should be allocated on these
+// boundaries to avoid partial-tile corruption.
+#define X360_TILE_W 32
+#define X360_TILE_H 16
+#define X360_TILE_BYTES 512
+
+static inline uint32_t alignToTile(uint32_t val, uint32_t tileSize) {
+    return (val + tileSize - 1) & ~(tileSize - 1);
+}
+#endif
+
 // Write a pixel in D3DFMT_A8R8G8B8 format.
 // On Xbox 360 the tiled texture path expects the bytes laid out as [B,G,R,A]
 // in the temporary upload buffer before the runtime swizzles it into GPU memory.
@@ -415,13 +430,17 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
                                 const uint8_t* pixels, int32_t w, int32_t h) {
     if (!dev || !dstTex || !pixels || w <= 0 || h <= 0) return false;
 
+    D3DSURFACE_DESC desc;
+    HRESULT hr = dstTex->GetLevelDesc(0, &desc);
+    if (FAILED(hr)) return false;
+
     IDirect3DTexture9* stagingTex = NULL;
 #ifdef PLATFORM_XBOX360_XDK
-    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
+    HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
 #else
-    HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
+    HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
 #endif
-    if (FAILED(hr) || !stagingTex) {
+    if (FAILED(hrCreate) || !stagingTex) {
         return false;
     }
 
@@ -432,6 +451,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
         return false;
     }
 
+    memset(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
     for (int32_t y = 0; y < h; y++) {
         const uint8_t* src = pixels + y * (size_t)w * 4;
         uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
