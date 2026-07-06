@@ -78,7 +78,7 @@ static int32_t* gGameH = &_gGameH;
 #endif
 #define D3DPOOL_MANAGED D3DPOOL_DEFAULT
 
-// #define D3DFMT_A8R8G8B8 D3DFMT_LIN_A8R8G8B8
+// #define D3DFMT_A8R8G3608B8 D3DFMT_LIN_A8R8G8B8
 
 #endif
 
@@ -520,7 +520,7 @@ static void flushBatch(D3D9Renderer* dr) {
     }
 
     // Bind texture
-    if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
+    if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount && dr->textures[dr->currentTextureIndex]) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->textures[dr->currentTextureIndex]);
     } else {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
@@ -594,6 +594,8 @@ static void flushBatch(D3D9Renderer* dr) {
 
     dr->quadCount = 0;
 }
+
+
 #endif
 
 static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* bytes, int byteSize, const char* label);
@@ -1229,10 +1231,11 @@ extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex
 }
 
 static void ensureTexture(D3D9Renderer* dr, int32_t textureIndex) {
-    if (dr->currentTextureIndex != textureIndex) {
-        flushBatch(dr);
-        dr->currentTextureIndex = textureIndex;
-    }
+    // Only flush when the bound texture changes.
+    // This keeps the QUADLIST batching intact and avoids excessive flushes.
+    if (dr->currentTextureIndex == textureIndex) return;
+    flushBatch(dr);
+    dr->currentTextureIndex = textureIndex;
 }
 
 static SpriteVertex* allocQuad(D3D9Renderer* dr) {
@@ -3159,6 +3162,11 @@ static int32_t d3d9GpuGetBlendMode(Renderer* renderer) {
 
 static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (!dr) return;
+
+    // Avoid redundant state updates when mode hasn't changed.
+    if (dr->blendMode == mode) return;
+
     IDirect3DDevice9* dev = Dev(dr);
     flushBatch(dr);
 
@@ -3169,6 +3177,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     // and blend factors. The factor-like bm_* constants (zero/one/src_color/..)
     // are meant for gpuSetBlendModeExt(), but the task requests that
     // d3d9GpuSetBlendMode handles all bm_* defined in renderer.h.
+
     //
     // For the factor-only modes, we approximate GLCommon_blendModeTo* behavior
     // by treating them as "normal" blend equation (ADD) with SRC/DEST factors
@@ -4311,7 +4320,21 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
         dev->SetPixelShaderConstantF(u->registerIndex + i, fvalues, 1);
     }
 }
-static uint32_t d3d9SpriteGetTexture(Renderer* renderer, int32_t tpagIndex) { (void)renderer; return (uint32_t)(tpagIndex + 1); }
+// Texture handle encoding contract (matches GL):
+// - 0 means "no texture"
+// - for sprites: texID = (tpagIndex + 1)
+// - for surfaces: texID = SURFACE_TEXTURE_FLAG | surfaceID
+// NOTE: GL uses `GL_SURFACE_TEXTURE_FLAG` in gl_renderer.c, but the shared contract
+// here is: top bit marks a surface-handle.
+static const uint32_t D3D9_SURFACE_TEXTURE_FLAG = 0x80000000u;
+
+
+static uint32_t d3d9SpriteGetTexture(Renderer* renderer, int32_t tpagIndex) {
+    (void)renderer;
+    return (uint32_t)(tpagIndex + 1);
+}
+
+
 
 static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -4319,7 +4342,16 @@ static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
     // 0 means "no texture".
     if (texID == 0) return 1.0f;
 
-    // For sprites, d3d9SpriteGetTexture returns (tpagIndex + 1).
+    // Surface handles: texID = D3D9_SURFACE_TEXTURE_FLAG | surfaceID
+    if ((texID & D3D9_SURFACE_TEXTURE_FLAG) != 0) {
+        uint32_t sid = (texID & ~D3D9_SURFACE_TEXTURE_FLAG);
+        if (!dr || sid >= dr->surfaceCount) return 1.0f;
+        float w = d3d9GetSurfaceWidth(renderer, (int32_t)sid);
+        if (w > 0.0f) return 1.0f / w;
+        return 1.0f;
+    }
+
+    // Sprite handles: texID = (tpagIndex + 1)
     uint32_t tpagIndexPlus1 = texID;
     DataWin* dw = dr ? dr->base.dataWin : NULL;
     if (dw && dw->tpag.count > 0 && tpagIndexPlus1 > 0) {
@@ -4340,10 +4372,20 @@ static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
     return 1.0f;
 }
 
+
 static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
     if (texID == 0) return 1.0f;
+
+    // Surface handles: texID = D3D9_SURFACE_TEXTURE_FLAG | surfaceID
+    if ((texID & D3D9_SURFACE_TEXTURE_FLAG) != 0) {
+        uint32_t sid = (texID & ~D3D9_SURFACE_TEXTURE_FLAG);
+        if (!dr || sid >= dr->surfaceCount) return 1.0f;
+        float h = d3d9GetSurfaceHeight(renderer, (int32_t)sid);
+        if (h > 0.0f) return 1.0f / h;
+        return 1.0f;
+    }
 
     uint32_t tpagIndexPlus1 = texID;
     DataWin* dw = dr ? dr->base.dataWin : NULL;
@@ -4365,6 +4407,7 @@ static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
     return 1.0f;
 }
 
+
 static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs) {
     if (!outUVs) return false;
 
@@ -4377,6 +4420,12 @@ static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs)
     if (texID == 0) return false;
 
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    // Surface handles cover the whole surface (no sub-region) => full UVs.
+    if ((texID & D3D9_SURFACE_TEXTURE_FLAG) != 0) {
+        return true;
+    }
+
     DataWin* dw = dr ? dr->base.dataWin : NULL;
     if (!dw) return false;
 
@@ -4411,29 +4460,47 @@ static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs)
     return true;
 }
 
+
 static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     if (!dr) return;
 
     if (slot < 0 || slot >= 8) return;
 
-    // This backend is fixed-function-like for 2D; shader code isn't implemented.
-    // Stage binding is still used by some code paths.
     IDirect3DDevice9* dev = Dev(dr);
 
+    // 0 => no texture
     if (texID == 0) {
         dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
         return;
     }
 
-    // For sprites, texID is (tpagIndex + 1). Map to the decoded TXTR page.
-    uint32_t tpagIndexPlus1 = texID;
-    uint32_t tpagIndex = tpagIndexPlus1 - 1;
+    // Surface handle: texID = D3D9_SURFACE_TEXTURE_FLAG | surfaceID
+    if ((texID & D3D9_SURFACE_TEXTURE_FLAG) != 0) {
+        uint32_t sid = (texID & ~D3D9_SURFACE_TEXTURE_FLAG);
+        IDirect3DTexture9* surfaceTex = NULL;
+        if (sid == (uint32_t)APPLICATION_SURFACE_ID) {
+            surfaceTex = (IDirect3DTexture9*)dr->appSurfaceTexture;
+        } else if (sid < dr->surfaceCount && dr->surfaceTexture[sid]) {
+            surfaceTex = (IDirect3DTexture9*)dr->surfaceTexture[sid];
+        }
 
+        dev->SetTexture((DWORD)slot,
+                        (IDirect3DBaseTexture9*)(surfaceTex ? surfaceTex : (IDirect3DTexture9*)dr->whiteTexture));
+        return;
+    }
+
+    // Sprite handle: texID = (tpagIndex + 1)
+    uint32_t tpagIndexPlus1 = texID;
+    if (tpagIndexPlus1 == 0) {
+        dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
+        return;
+    }
+
+    uint32_t tpagIndex = tpagIndexPlus1 - 1;
     DataWin* dw = dr ? dr->base.dataWin : NULL;
     if (dw && tpagIndex < dw->tpag.count) {
         TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
-
         int32_t texPageId = tpag->texturePageId;
         if (texPageId >= 0 && (uint32_t)texPageId < dr->textureCount) {
             ensureTexturePageLoaded(dr, (uint32_t)texPageId);
@@ -4446,6 +4513,7 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 
     dev->SetTexture((DWORD)slot, (IDirect3DBaseTexture9*)dr->whiteTexture);
 }
+
 static bool d3d9ShaderIsCompiled(Renderer* renderer, int32_t shader) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     if (shader < 0 || (uint32_t)shader >= dr->gmlShaderCount) return false;
@@ -4479,26 +4547,19 @@ static RendererVtable d3d9RendererVtable = {};
 uint32_t d3d9SurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
+    // Contract (matches GL renderer):
+    // - 0 means "no texture"
+    // - surface handle uses top-bit flag + surfaceID
+    if (!dr) return 0;
+
     if (surfaceID == APPLICATION_SURFACE_ID) {
-        // Return the application_surface's resolved texture
-        if (dr->appSurfaceTexture) {
-            return (uint32_t)(uintptr_t)dr->appSurfaceTexture;
-        }
-        return 0;
+        return dr->appSurfaceTexture ? (D3D9_SURFACE_TEXTURE_FLAG | (uint32_t)APPLICATION_SURFACE_ID) : 0;
     }
 
-    // For dynamic surfaces, return the texture handle (opaque pointer cast to uint32_t)
-    // The caller uses this with texture_get_texel_width/height/uvs, which are stubbed anyway.
-    if (surfaceID >= 0 && (uint32_t)surfaceID < dr->surfaceCount && dr->surfaceTexture[surfaceID]) {
-        static int logged = 0;
-        d3d9DiagLimited(&logged, 64, "D3D9: surfaceGetTexture surfaceID=%d (dynamic surface)", surfaceID);
-        return (uint32_t)(uintptr_t)dr->surfaceTexture[surfaceID];
-    }
-
-    static int logged = 0;
-    d3d9DiagLimited(&logged, 64, "D3D9: surfaceGetTexture stub surfaceID=%d", surfaceID);
-    return 0;
+    if (surfaceID < 0 || (uint32_t)surfaceID >= dr->surfaceCount) return 0;
+    return dr->surfaceTexture[surfaceID] ? (D3D9_SURFACE_TEXTURE_FLAG | (uint32_t)surfaceID) : 0;
 }
+
 
 void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY) {
     // Draw the tile using the standard shared helper in renderer.h.
