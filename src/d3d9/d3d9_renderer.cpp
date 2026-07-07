@@ -480,16 +480,95 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
                                 const uint8_t* pixels, int32_t w, int32_t h) {
     if (!dev || !dstTex || !pixels || w <= 0 || h <= 0) return false;
 
+    // Xbox 360 performance: avoid allocating a new systemmem staging texture
+    // per upload. Instead, reuse a single staging texture owned by the
+    // renderer/device for the most recently seen size.
+#ifdef PLATFORM_XBOX360_XDK
+    // NOTE: This renderer function is called on the render thread only.
+    // It is therefore safe to cache/reuse a single staging allocation.
+    static IDirect3DTexture9* sStagingTex = NULL;
+    static int32_t sStagingW = 0;
+    static int32_t sStagingH = 0;
+
+    D3DSURFACE_DESC dstDesc;
+    HRESULT hr = dstTex->GetLevelDesc(0, &dstDesc);
+    if (FAILED(hr)) return false;
+
+    int32_t targetW = (int32_t)dstDesc.Width;
+    int32_t targetH = (int32_t)dstDesc.Height;
+
+    if (targetW <= 0 || targetH <= 0) return false;
+
+    if (!sStagingTex || sStagingW != targetW || sStagingH != targetH) {
+        if (sStagingTex) {
+            sStagingTex->Release();
+            sStagingTex = NULL;
+        }
+
+        HRESULT hrCreate = dev->CreateTexture((UINT)targetW, (UINT)targetH, 1, 0,
+                                               D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sStagingTex, NULL);
+        if (FAILED(hrCreate) || !sStagingTex) return false;
+        sStagingW = targetW;
+        sStagingH = targetH;
+    }
+
+    // Fill the cached staging texture.
+    D3DLOCKED_RECT lr;
+    hr = sStagingTex->LockRect(0, &lr, NULL, 0);
+    if (FAILED(hr)) return false;
+
+    // Clear full staging pitch/height once.
+    memset(lr.pBits, 0, (size_t)lr.Pitch * (size_t)sStagingH);
+
+    for (int32_t y = 0; y < h; y++) {
+        const uint8_t* src = pixels + y * (size_t)w * 4;
+        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
+        for (int32_t x = 0; x < w; x++) {
+            uint8_t r = src[x * 4 + 0];
+            uint8_t g = src[x * 4 + 1];
+            uint8_t b = src[x * 4 + 2];
+            uint8_t a = src[x * 4 + 3];
+            if (a == 0) { r = 0; g = 0; b = 0; }
+            // On Xbox 360, upload buffer expects [B,G,R,A] (runtime swizzle),
+            // but our staging format is LIN_A8R8G8B8, so write ARGB words.
+            writeLinearPixelARGB(dst + x * 4, r, g, b, a);
+        }
+    }
+
+    sStagingTex->UnlockRect(0);
+
+    IDirect3DSurface9* stagingSurf = NULL;
+    IDirect3DSurface9* dstSurf = NULL;
+
+    hr = sStagingTex->GetSurfaceLevel(0, &stagingSurf);
+    if (FAILED(hr) || !stagingSurf) {
+        return false;
+    }
+
+    hr = dstTex->GetSurfaceLevel(0, &dstSurf);
+    if (FAILED(hr) || !dstSurf) {
+        stagingSurf->Release();
+        return false;
+    }
+
+    RECT srcRect = { 0, 0, w, h };
+    RECT dstRect = { 0, 0, w, h };
+    hr = D3DXLoadSurfaceFromSurface(dstSurf, NULL, &dstRect,
+                                     stagingSurf, NULL, &srcRect,
+                                     D3DX_FILTER_POINT, 0);
+
+    dstSurf->Release();
+    stagingSurf->Release();
+
+    return SUCCEEDED(hr);
+#else
+    // Desktop/Windows: keep existing per-upload staging texture creation.
     D3DSURFACE_DESC desc;
     HRESULT hr = dstTex->GetLevelDesc(0, &desc);
     if (FAILED(hr)) return false;
 
     IDirect3DTexture9* stagingTex = NULL;
-#ifdef PLATFORM_XBOX360_XDK
-    HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
-#else
     HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
-#endif
     if (FAILED(hrCreate) || !stagingTex) {
         return false;
     }
@@ -511,11 +590,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
             uint8_t b = src[x * 4 + 2];
             uint8_t a = src[x * 4 + 3];
             if (a == 0) { r = 0; g = 0; b = 0; }
-#ifdef PLATFORM_XBOX360_XDK
-            writeLinearPixelARGB(dst + x * 4, r, g, b, a);
-#else
             writePixelBGRA(dst + x * 4, r, g, b, a);
-#endif
         }
     }
 
@@ -539,7 +614,9 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     if (stagingSurf) stagingSurf->Release();
     stagingTex->Release();
     return SUCCEEDED(hr);
+#endif
 }
+
 
 // ===[ Batch Flush ]===
 
