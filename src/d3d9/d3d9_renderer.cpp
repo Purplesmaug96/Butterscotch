@@ -201,9 +201,12 @@ static const char* g_psSource =
     "  MinFilter = POINT; MagFilter = POINT; MipFilter = POINT;\n"
     "  AddressU = CLAMP; AddressV = CLAMP;\n"
     "};\n"
+    "uniform float4 uFogColor : register(c0);\n"
     "struct PS_IN { float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
     "float4 main(PS_IN i) : COLOR0 {\n"
-    "  return tex2D(s0, i.Tex) * i.Col;\n"
+    "  float4 c = tex2D(s0, i.Tex) * i.Col;\n"
+    "  c.rgb = lerp(c.rgb, uFogColor.rgb, uFogColor.a);\n"
+    "  return c;\n"
     "}\n";
 
 // ===[ Helpers ]===
@@ -279,6 +282,7 @@ static DWORD gmlBlendFactorToD3D(int32_t factor) {
 
 static void d3d9SetNormalBlend(IDirect3DDevice9* dev) {
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
     dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
     dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
@@ -1929,9 +1933,15 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->quadCount = 0;
 
     // Initialize GML shader support — compile lazily on first use
+#ifndef D3D9_DISABLE_SHADERS
     dr->gmlShaders = (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader));
     dr->gmlShaderCount = dataWin->shdr.count;
     fprintf(stderr, "D3D9: %u Shaders found (will compile on demand)\n", dataWin->shdr.count);
+#else
+    dr->gmlShaders = NULL;
+    dr->gmlShaderCount = 0;
+    fprintf(stderr, "D3D9: GML shaders disabled via D3D9_DISABLE_SHADERS\n");
+#endif
 
     // Initialize dynamic surface arrays (empty)
     dr->surfaces = NULL;
@@ -2584,10 +2594,41 @@ static void d3d9DrawLineColor(Renderer* renderer, float x1, float y1, float x2, 
 static void d3d9DrawRectangleColor(Renderer* renderer, float x1, float y1, float x2, float y2,
                                    uint32_t color1, uint32_t color2, uint32_t color3, uint32_t color4,
                                    float alpha, bool outline) {
-    (void)color2;
-    (void)color3;
-    (void)color4;
-    d3d9DrawRectangle(renderer, x1, y1, x2, y2, color1, alpha, outline);
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
+    if (outline) {
+        // Draw 4 lines as thin rectangles - use per-vertex colors along edges
+        float lw = 1.0f;
+        d3d9DrawRectangleColor(renderer, x1, y1, x2, y1 + lw, color1, color2, color2, color1, alpha, false); // top
+        d3d9DrawRectangleColor(renderer, x1, y2 - lw, x2, y2, color4, color3, color3, color4, alpha, false); // bottom
+        d3d9DrawRectangleColor(renderer, x1, y1, x1 + lw, y2, color1, color1, color4, color4, alpha, false); // left
+        d3d9DrawRectangleColor(renderer, x2 - lw, y1, x2, y2, color2, color2, color3, color3, alpha, false); // right
+        return;
+    }
+
+    ensureTexture(dr, -1); // white texture
+
+    float c1r, c1g, c1b, c1a;
+    float c2r, c2g, c2b, c2a;
+    float c3r, c3g, c3b, c3a;
+    float c4r, c4g, c4b, c4a;
+    bgrToFloatColor(color1, alpha, &c1r, &c1g, &c1b, &c1a);
+    bgrToFloatColor(color2, alpha, &c2r, &c2g, &c2b, &c2a);
+    bgrToFloatColor(color3, alpha, &c3r, &c3g, &c3b, &c3a);
+    bgrToFloatColor(color4, alpha, &c4r, &c4g, &c4b, &c4a);
+
+    SpriteVertex* v = allocQuad(dr);
+
+    float sx0, sy0, sx1, sy1;
+    transformPoint(dr, x1, y1, &sx0, &sy0);
+    // GML adds +1 to width/height for filled rects (matching GL renderer behavior)
+    transformPoint(dr, x2 + 1.0f, y2 + 1.0f, &sx1, &sy1);
+
+    // Per-vertex colors: TL=color1, TR=color2, BR=color3, BL=color4
+    setVertex(&v[0], sx0, sy0, 0, 0, c1r, c1g, c1b, c1a);
+    setVertex(&v[1], sx1, sy0, 1, 0, c2r, c2g, c2b, c2a);
+    setVertex(&v[2], sx1, sy1, 1, 1, c3r, c3g, c3b, c3a);
+    setVertex(&v[3], sx0, sy1, 0, 1, c4r, c4g, c4b, c4a);
 }
 
 static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t color1, uint32_t color2, uint32_t color3, float alpha, bool outline) {
@@ -3310,6 +3351,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     }
 
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
     dev->SetRenderState(D3DRS_BLENDOP, blendOp);
     dev->SetRenderState(D3DRS_SRCBLEND, (DWORD)srcFactorD3D);
     dev->SetRenderState(D3DRS_DESTBLEND, (DWORD)dstFactorD3D);
@@ -3333,6 +3375,14 @@ static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t 
     dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
     dev->SetRenderState(D3DRS_SRCBLEND, gmlBlendFactorToD3D(sfactor));
     dev->SetRenderState(D3DRS_DESTBLEND, gmlBlendFactorToD3D(dfactor));
+    // Set separate alpha blend factors if they differ from the color factors
+    if (sfactor_alpha != sfactor || dfactor_alpha != dfactor) {
+        dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+        dev->SetRenderState(D3DRS_SRCBLENDALPHA, gmlBlendFactorToD3D(sfactor_alpha));
+        dev->SetRenderState(D3DRS_DESTBLENDALPHA, gmlBlendFactorToD3D(dfactor_alpha));
+    } else {
+        dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+    }
 	dr->blendMode = bm_complex;
 	dr->sFactor = sfactor;
 	dr->dFactor = dfactor;
@@ -3345,6 +3395,9 @@ static void d3d9GpuSetBlendEnable(Renderer* renderer, bool enable) {
 	dr->renderStateDirty = true;
     flushBatch(dr);
     Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, enable ? TRUE : FALSE);
+    if (!enable) {
+        Dev(dr)->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+    }
 }
 
 static void d3d9GpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
@@ -3374,19 +3427,43 @@ static void d3d9GpuSetColorWriteEnable(Renderer* renderer, bool red, bool green,
     Dev(dr)->SetRenderState(D3DRS_COLORWRITEENABLE, mask);
 }
 static void d3d9GpuGetColorWriteEnable(Renderer* renderer, bool* red, bool* green, bool* blue, bool* alpha) {
-    (void)renderer;
-    if (red) *red = true;
-    if (green) *green = true;
-    if (blue) *blue = true;
-    if (alpha) *alpha = true;
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    DWORD mask = 0;
+    if (dr) {
+        Dev(dr)->GetRenderState(D3DRS_COLORWRITEENABLE, &mask);
+    }
+    if (red)   *red   = (mask & D3DCOLORWRITEENABLE_RED) != 0;
+    if (green) *green = (mask & D3DCOLORWRITEENABLE_GREEN) != 0;
+    if (blue)  *blue  = (mask & D3DCOLORWRITEENABLE_BLUE) != 0;
+    if (alpha) *alpha = (mask & D3DCOLORWRITEENABLE_ALPHA) != 0;
 }
 static bool d3d9GpuGetBlendEnable(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    flushBatch(dr);
     DWORD enabled = TRUE;
     Dev(dr)->GetRenderState(D3DRS_ALPHABLENDENABLE, &enabled);
     return enabled != FALSE;
 }
-static void d3d9GpuSetFog(Renderer* renderer, bool enable, uint32_t color) { (void)renderer; (void)enable; (void)color; }
+static void d3d9GpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
+    D3D9Renderer* dr = (D3D9Renderer*)renderer;
+    if (!dr) return;
+    // Fog is implemented via the uFogColor uniform in the default pixel shader.
+    // uFogColor.rgb = fog color, uFogColor.a = 1.0 if enabled else 0.0.
+    // The pixel shader does: c.rgb = lerp(c.rgb, uFogColor.rgb, uFogColor.a).
+    // When disabled, alpha is 0 so no fog is applied.
+    dr->fogEnable = enable;
+    dr->fogColor = color;
+
+    // Apply fog uniform immediately on the render thread.
+    // The uniform is at register c0 in the PS, which is a separate register
+    // space from the VS c0 (uHalfRes), so no conflict.
+    float fogR = (float)(color & 0xFF) / 255.0f;
+    float fogG = (float)((color >> 8) & 0xFF) / 255.0f;
+    float fogB = (float)((color >> 16) & 0xFF) / 255.0f;
+    float fogA = enable ? 1.0f : 0.0f;
+    float fogValues[4] = { fogR, fogG, fogB, fogA };
+    Dev(dr)->SetPixelShaderConstantF(0, fogValues, 1);
+}
 
 // ===[ Dynamic Surface Functions ]===
 
@@ -4742,7 +4819,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     dr->base.drawFont = -1;
     dr->base.circlePrecision = 24;
     dr->base.currentShader = -1;
-    // dr->drawPhase = RENDER_PHASE_NONE;
+    dr->drawPhase = RENDER_PHASE_NONE;
     dr->pd3dDevice = pd3dDevice;
     dr->currentTextureIndex = -1;
     dr->boundTextureIndex = -2;

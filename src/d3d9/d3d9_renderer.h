@@ -161,10 +161,11 @@ typedef struct {
     // Render-thread bookkeeping
     uint32_t textureDecodedUploadCursor;
 
-	#ifdef PLATFORM_XBOX360_XDK
-	static
-	#endif
-	const uint8_t drawPhase = RENDER_PHASE_NONE;
+	uint8_t drawPhase;
+
+	// Fog state
+	bool fogEnable;
+	uint32_t fogColor;
 
 	// Blend mode
 	int32_t blendMode;
