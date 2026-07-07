@@ -935,7 +935,8 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
                 dr->texturePendingRGBA[item.textureIndex] = pixels;
                 dr->texturePendingW[item.textureIndex] = (uint32_t)w;
                 dr->texturePendingH[item.textureIndex] = (uint32_t)h;
-                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)item.blobSize;
+                // Cache budget: decoded RGBA bytes, not compressed blob size.
+                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)((uint64_t)w * (uint64_t)h * 4ull);
                 dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
             } else {
                 dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
@@ -1012,7 +1013,9 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
                 dr->texturePendingRGBA[item.textureIndex] = pixels;
                 dr->texturePendingW[item.textureIndex] = (uint32_t)w;
                 dr->texturePendingH[item.textureIndex] = (uint32_t)h;
-                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)item.blobSize;
+                // Cache budget: decoded RGBA bytes, not compressed blob size.
+                dr->texturePendingByteSize[item.textureIndex] = (uint32_t)((uint64_t)w * (uint64_t)h * 4ull);
+
                 dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
             } else {
                 dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
@@ -1156,7 +1159,10 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     uint8_t* pixels = dr->texturePendingRGBA[textureIndex];
     uint32_t w = dr->texturePendingW[textureIndex];
     uint32_t h = dr->texturePendingH[textureIndex];
+
+    // texturePendingByteSize stores decoded RGBA bytes (w*h*4) after Step 3.
     uint32_t byteSize = dr->texturePendingByteSize[textureIndex];
+
 
     if (!pixels || w == 0 || h == 0) {
         dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
@@ -1196,8 +1202,10 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
     dr->textureWidths[textureIndex] = (int32_t)w;
     dr->textureHeights[textureIndex] = (int32_t)h;
+    // Cache budget uses decoded RGBA bytes (w*h*4), not compressed blob size.
     dr->textureBlobSizes[textureIndex] = byteSize;
     dr->textureBytesUsed += byteSize;
+
     dr->loadedTexturePages++;
     dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE; // Reset to idle (loaded)
 
