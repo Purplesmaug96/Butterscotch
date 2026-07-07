@@ -3446,7 +3446,8 @@ static bool d3d9GpuGetBlendEnable(Renderer* renderer) {
 }
 static void d3d9GpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
-    if (!dr) return;
+    if (!dr || (dr->fogEnable == enable && dr->fogColor == color)) return;
+	flushBatch(dr);
     // Fog is implemented via the uFogColor uniform in the default pixel shader.
     // uFogColor.rgb = fog color, uFogColor.a = 1.0 if enabled else 0.0.
     // The pixel shader does: c.rgb = lerp(c.rgb, uFogColor.rgb, uFogColor.a).
