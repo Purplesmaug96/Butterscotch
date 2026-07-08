@@ -538,16 +538,16 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     hr = sStagingTex->LockRect(0, &lr, NULL, 0);
     if (FAILED(hr)) return false;
 
-    // Clear only the active rows (minimize cache write misses).
-    // Pixels outside [0,w)x[0,h) are never sampled due to srcRect/dstRect clamping.
-    if ((size_t)lr.Pitch > (size_t)w * 4) {
-        // If pitch > visible width, only clear the region we write to.
+    // Clear only the active rows we will write to.
+    // This avoids touching the full staging allocation when the requested
+    // texture size is smaller than the cached staging size.
+    {
+        const size_t rowBytes = (size_t)w * 4;
         for (int32_t y = 0; y < h; y++) {
-            memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, (size_t)w * 4);
+            memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, rowBytes);
         }
-    } else {
-        memset(lr.pBits, 0, (size_t)lr.Pitch * (size_t)sStagingH);
     }
+
 
 #ifdef PLATFORM_XBOX360_XDK
     // XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
@@ -573,10 +573,11 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
         for (; x + 3 < w; x += 4) {
             __vector4 v = __lvx(src, x * 4);         // Load 4 RGBA pixels
             __vector4 p = __vperm(v, v, vPerm);       // Permute RGBA -> ARGB
-            // Note: alpha-zero premultiply optimization is skipped in the SIMD path
-            // because the majority of texture pixels are opaque, and the data-dependent
-            // branch would hurt instruction pipelining more than it helps.
+            // Note: alpha==0 premultiply optimization is skipped in the SIMD path.
+            // The scalar fallback still handles exact A==0 => RGB=0 semantics.
             __stvx(p, dst, x * 4);                    // Store 4 ARGB pixels
+
+
         }
 
         // Remaining pixels (scalar fallback)
@@ -920,11 +921,7 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
 
 // Maximum number of concurrent decode worker threads. The Xbox 360 path uses
 // fewer workers to avoid extra CPU and memory pressure during gameplay.
-#ifdef PLATFORM_XBOX360_XDK
-static const uint32_t kMaxDecodeWorkers = 2;
-#else
 static const uint32_t kMaxDecodeWorkers = 4;
-#endif
 
 // A decode work item
 struct DecodeWorkItem {
