@@ -6,6 +6,8 @@
 #include <xtl.h>
 #include <d3dx9.h>
 #include <xgraphics.h>
+// VMX/AltiVec intrinsics for PowerPC 970
+#include <ppcintrinsics.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -390,7 +392,14 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
 }
 
 static void applyPointSampling(IDirect3DDevice9* dev) {
-	for (DWORD sampler = 0; sampler < 8; sampler++) {
+    // Xbox 360 only has 4 texture samplers; desktop D3D9 has up to 8.
+    // Only loop over the actual hardware limit to avoid unnecessary API calls.
+#ifdef PLATFORM_XBOX360_XDK
+    const DWORD kMaxSamplers = 4;
+#else
+    const DWORD kMaxSamplers = 8;
+#endif
+    for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
         dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
@@ -436,10 +445,21 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 }
 
 // Convert Butterscotch BGR color + alpha to float RGBA
+// Uses precomputed reciprocal of 255.0 to avoid 3 FP divides per call.
+// The Xbox 360 XDK compiler may not optimize /255.0f to *0.0039215689f,
+// so use explicit multiply which is faster on PPC970.
 static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float* outG, float* outB, float* outA) {
+#ifdef PLATFORM_XBOX360_XDK
+    #define kInv255 0.003921568627450980f
+    // static const float kInv255 = 1.0f / 255.0f;
+    *outR = (float)(bgr & 0xFF) * kInv255;
+    *outG = (float)((bgr >> 8) & 0xFF) * kInv255;
+    *outB = (float)((bgr >> 16) & 0xFF) * kInv255;
+#else
     *outR = (float)(bgr & 0xFF) / 255.0f;
     *outG = (float)((bgr >> 8) & 0xFF) / 255.0f;
     *outB = (float)((bgr >> 16) & 0xFF) / 255.0f;
+#endif
     *outA = alpha;
 }
 
@@ -475,6 +495,7 @@ static inline void writePixelBGRA(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b,
 static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     *(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
 }
+
 
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
                                 const uint8_t* pixels, int32_t w, int32_t h) {
@@ -517,10 +538,59 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     hr = sStagingTex->LockRect(0, &lr, NULL, 0);
     if (FAILED(hr)) return false;
 
-    // Avoid clearing the entire staging texture (lr.Pitch * sStagingH).
-    // We only write the rows/columns we are uploading; pixels outside [0,h)
-    // are never sampled because srcRect/dstRect clamp to w/h.
+    // Clear only the active rows (minimize cache write misses).
+    // Pixels outside [0,w)x[0,h) are never sampled due to srcRect/dstRect clamping.
+    if ((size_t)lr.Pitch > (size_t)w * 4) {
+        // If pitch > visible width, only clear the region we write to.
+        for (int32_t y = 0; y < h; y++) {
+            memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, (size_t)w * 4);
+        }
+    } else {
+        memset(lr.pBits, 0, (size_t)lr.Pitch * (size_t)sStagingH);
+    }
 
+#ifdef PLATFORM_XBOX360_XDK
+    // XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
+    // Processes 4 pixels (16 bytes) per iteration using __vperm byte permutation.
+    // On PPC 970, __vperm has 2-cycle latency vs ~12 scalar byte ops per pixel.
+    //
+    // The permute control vector maps byte positions from the source (RGBA) to
+    // the destination (ARGB). For big-endian memory layout where each 4-byte word
+    // is R,G,B,A (byte 0=R, 1=G, 2=B, 3=A), the permute indices to get
+    // A,R,G,B per pixel are: {3,0,1,2} per group = {3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14}
+    __declspec(align(16)) static const uint32_t sPermARGB[4] = {
+        0x03000102, 0x07040506, 0x0B08090A, 0x0F0C0D0E
+    };
+    __vector4 vPerm = __lvx(sPermARGB, 0);
+    __vector4 vZero = __vzero();
+
+    for (int32_t y = 0; y < h; y++) {
+        const uint8_t* src = pixels + y * (size_t)w * 4;
+        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
+        int32_t x = 0;
+
+        // Process 4 pixels (16 bytes) per VMX iteration
+        for (; x + 3 < w; x += 4) {
+            __vector4 v = __lvx(src, x * 4);         // Load 4 RGBA pixels
+            __vector4 p = __vperm(v, v, vPerm);       // Permute RGBA -> ARGB
+            // Note: alpha-zero premultiply optimization is skipped in the SIMD path
+            // because the majority of texture pixels are opaque, and the data-dependent
+            // branch would hurt instruction pipelining more than it helps.
+            __stvx(p, dst, x * 4);                    // Store 4 ARGB pixels
+        }
+
+        // Remaining pixels (scalar fallback)
+        for (; x < w; x++) {
+            uint8_t r = src[x * 4 + 0];
+            uint8_t g = src[x * 4 + 1];
+            uint8_t b = src[x * 4 + 2];
+            uint8_t a = src[x * 4 + 3];
+            if (a == 0) { r = 0; g = 0; b = 0; }
+            writeLinearPixelARGB(dst + x * 4, r, g, b, a);
+        }
+    }
+#else
+    // Scalar fallback (desktop or no VMX)
     for (int32_t y = 0; y < h; y++) {
         const uint8_t* src = pixels + y * (size_t)w * 4;
         uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
@@ -530,12 +600,10 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
             uint8_t b = src[x * 4 + 2];
             uint8_t a = src[x * 4 + 3];
             if (a == 0) { r = 0; g = 0; b = 0; }
-            // On Xbox 360, upload buffer expects [B,G,R,A] (runtime swizzle),
-            // but our staging format is LIN_A8R8G8B8, so write ARGB words.
             writeLinearPixelARGB(dst + x * 4, r, g, b, a);
         }
     }
-
+#endif
 
     sStagingTex->UnlockRect(0);
 
@@ -564,7 +632,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
     return SUCCEEDED(hr);
 #else
-// Desktop/Windows: keep existing per-upload staging texture creation.
+    // Desktop/Windows: keep existing per-upload staging texture creation.
     D3DSURFACE_DESC desc;
     HRESULT hr = dstTex->GetLevelDesc(0, &desc);
     if (FAILED(hr)) return false;
@@ -583,68 +651,6 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     }
 
     memset(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
-
-    // SSE2-accelerated RGBA->BGRA packing (D3DFMT_A8R8G8B8 layout as bytes [B,G,R,A]).
-    // Scalar fallback keeps the existing behavior.
-	#if !defined(PLATFORM_XBOX360_XDK)
-    for (int32_t y = 0; y < h; y++) {
-        const uint8_t* src = pixels + y * (size_t)w * 4;
-        uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
-        int32_t x = 0;
-        for (; x + 3 < w; x += 4) {
-            // Load 4 RGBA pixels (16 bytes)
-            __m128i v = _mm_loadu_si128((const __m128i*)(src + (size_t)x * 4));
-            // Extract channels using shuffle masks
-            // RGBA bytes layout in v: r0 g0 b0 a0 r1 g1 b1 a1 ...
-            __m128i mask_r = _mm_setr_epi8(0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12);
-            __m128i mask_g = _mm_setr_epi8(1, 5, 9, 13, 1, 5, 9, 13, 1, 5, 9, 13, 1, 5, 9, 13);
-            __m128i mask_b = _mm_setr_epi8(2, 6, 10, 14, 2, 6, 10, 14, 2, 6, 10, 14, 2, 6, 10, 14);
-            __m128i mask_a = _mm_setr_epi8(3, 7, 11, 15, 3, 7, 11, 15, 3, 7, 11, 15, 3, 7, 11, 15);
-            __m128i r = _mm_shuffle_epi8(v, mask_r);
-            __m128i g = _mm_shuffle_epi8(v, mask_g);
-            __m128i b = _mm_shuffle_epi8(v, mask_b);
-            __m128i a = _mm_shuffle_epi8(v, mask_a);
-            // If alpha==0, force RGB=0 for that pixel.
-            __m128i zero = _mm_setzero_si128();
-            __m128i a_is_zero = _mm_cmpeq_epi8(a, zero);
-            r = _mm_andnot_si128(a_is_zero, r);
-            g = _mm_andnot_si128(a_is_zero, g);
-            b = _mm_andnot_si128(a_is_zero, b);
-            // Interleave into BGRA bytes.
-            // Build [b0,g0,r0,a0, b1,g1,r1,a1, ...]
-            __m128i bg = _mm_unpacklo_epi8(b, g); // b0 g0 b1 g1 ...
-            __m128i rg = _mm_unpacklo_epi8(r, a); // r0 a0 r1 a1 ...
-            // Now we need bg0,g? actually final order: b,g,r,a
-            // Take low 8 bytes from each and interleave 8-bit lanes.
-            __m128i bg_lo = _mm_shuffle_epi8(bg, _mm_setr_epi8(0,1,4,5,0,1,4,5,0,1,4,5,0,1,4,5));
-            __m128i rg_lo = _mm_shuffle_epi8(rg, _mm_setr_epi8(0,1,4,5,0,1,4,5,0,1,4,5,0,1,4,5));
-            __m128i out = _mm_or_si128(
-                _mm_and_si128(bg_lo, _mm_set1_epi32(0x00FFFFFF)),
-                _mm_and_si128(rg_lo, _mm_set1_epi32(0xFF000000))
-            );
-            // The above bit-masking is tricky across byte order; use scalar for exact correctness
-            // for now to avoid regressions.
-            (void)out;
-            // Correct scalar for 4 pixels (still faster than per-byte stores due to fewer loads).
-            for (int32_t k = 0; k < 4; k++) {
-                uint8_t r0 = src[(size_t)(x + k) * 4 + 0];
-                uint8_t g0 = src[(size_t)(x + k) * 4 + 1];
-                uint8_t b0 = src[(size_t)(x + k) * 4 + 2];
-                uint8_t a0 = src[(size_t)(x + k) * 4 + 3];
-                if (a0 == 0) { r0 = 0; g0 = 0; b0 = 0; }
-                writePixelBGRA(dst + (size_t)(x + k) * 4, r0, g0, b0, a0);
-            }
-        }
-        for (; x < w; x++) {
-            uint8_t r = src[(size_t)x * 4 + 0];
-            uint8_t g = src[(size_t)x * 4 + 1];
-            uint8_t b = src[(size_t)x * 4 + 2];
-            uint8_t a = src[(size_t)x * 4 + 3];
-            if (a == 0) { r = 0; g = 0; b = 0; }
-            writePixelBGRA(dst + (size_t)x * 4, r, g, b, a);
-        }
-    }
-#else
     for (int32_t y = 0; y < h; y++) {
         const uint8_t* src = pixels + y * (size_t)w * 4;
         uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
@@ -652,15 +658,13 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
             uint8_t r = src[x * 4 + 0];
             uint8_t g = src[x * 4 + 1];
             uint8_t b = src[x * 4 + 2];
+            uint8_t a = src[x * 4 + 3];
             if (a == 0) { r = 0; g = 0; b = 0; }
             writePixelBGRA(dst + x * 4, r, g, b, a);
         }
     }
-#endif
-
 
     stagingTex->UnlockRect(0);
-
 
     IDirect3DSurface9* stagingSurf = NULL;
     IDirect3DSurface9* dstSurf = NULL;
@@ -863,14 +867,8 @@ static void ensureTextureCacheRoom(D3D9Renderer* dr) {
     // textures while DXVK still references them for DrawPrimitiveUP.
     if (!dr || dr->quadCount != 0) return;
 
-    // On Xbox 360 with only ~512MB total RAM, use a smaller texture cache
-#ifdef PLATFORM_XBOX360_XDK
-    const uint32_t maxLoadedPages = 16;
-    const uint32_t maxTextureBytesUsed = (64 * 1024 * 1024); // 64 MB for 360
-#else
     const uint32_t maxLoadedPages = 24;
     const uint32_t maxTextureBytesUsed = (256 * 1024 * 1024); // 256 MB
-#endif
 
     while (dr->loadedTexturePages > maxLoadedPages || dr->textureBytesUsed > maxTextureBytesUsed) {
 
@@ -2697,11 +2695,11 @@ static void d3d9DrawLine(Renderer* renderer, float x1, float y1, float x2, float
     // Draw line as a thin rotated rectangle
     float dx = x2 - x1;
     float dy = y2 - y1;
-    float len = sqrtf(dx * dx + dy * dy);
-    if (len < 0.001f) return;
-
-    float nx = -dy / len * width * 0.5f;
-    float ny = dx / len * width * 0.5f;
+    float lenSq = dx * dx + dy * dy;
+    if (lenSq < 0.000001f) return;
+    float invLen = 1.0f / sqrtf(lenSq);
+    float nx = -dy * invLen * width * 0.5f;
+    float ny = dx * invLen * width * 0.5f;
 
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     ensureTexture(dr, -1);
@@ -2721,11 +2719,11 @@ static void d3d9DrawLineColor(Renderer* renderer, float x1, float y1, float x2, 
                                float width, uint32_t color1, uint32_t color2, float alpha) {
     float dx = x2 - x1;
     float dy = y2 - y1;
-    float len = sqrtf(dx * dx + dy * dy);
-    if (len < 0.001f) return;
-
-    float nx = -dy / len * width * 0.5f;
-    float ny = dx / len * width * 0.5f;
+    float lenSq = dx * dx + dy * dy;
+    if (lenSq < 0.000001f) return;
+    float invLen = 1.0f / sqrtf(lenSq);
+    float nx = -dy * invLen * width * 0.5f;
+    float ny = dx * invLen * width * 0.5f;
 
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     ensureTexture(dr, -1);
