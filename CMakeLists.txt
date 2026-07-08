@@ -147,9 +147,15 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	target_sources(butterscotch PRIVATE ${ALL_XENON_SOURCES})
 	target_include_directories(butterscotch PRIVATE vendor/bzip2 src/${PLATFORM}/Atg)
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
-	string(REPLACE "/LTCG" "" CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
-	string(REPLACE "/LTCG" "" CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}")
-	string(REPLACE "/LTCG" "" CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
+
+	# Optional LTO toggle for Xenon/xbox360-xdk.
+	# Default: ON (do not strip /LTCG), so toolchain can apply link-time optimization.
+	option(XENON_ENABLE_LTO "Enable link-time optimization (/LTCG) for Xbox 360 Xenon builds" ON)
+	if(NOT XENON_ENABLE_LTO)
+		string(REPLACE "/LTCG" "" CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
+		string(REPLACE "/LTCG" "" CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}")
+		string(REPLACE "/LTCG" "" CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
+	endif()
 endif()
 
 if(PLATFORM STREQUAL "android")
