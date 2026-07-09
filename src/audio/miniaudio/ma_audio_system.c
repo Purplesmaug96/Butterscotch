@@ -6,7 +6,18 @@
 
 // Include stb_vorbis BEFORE miniaudio so that STB_VORBIS_INCLUDE_STB_VORBIS_H is defined,
 // which enables miniaudio's built-in OGG Vorbis decoding support.
+
+#ifdef PLATFORM_XBOX360_XDK
+#pragma warning(push)
+#pragma warning(disable: 4244)  // conversion, possible loss of data
+#pragma warning(disable: 4701)
+#endif
+
 #include "stb_vorbis.c"
+
+#ifdef PLATFORM_XBOX360_XDK
+#pragma warning(pop)
+#endif
 
 #define MINIAUDIO_IMPLEMENTATION
 #if defined(__GNUC__) || defined(__clang__)

@@ -11249,7 +11249,7 @@ struct ma_sound
     float* pProcessingCache;            /* Will be null if pDataSource is null. */
     ma_uint32 processingCacheFramesRemaining;
     ma_uint32 processingCacheCap;
-    ma_bool8 ownsDataSource;    
+    ma_bool8 ownsDataSource;
 
     /*
     We're declaring a resource manager data source object here to save us a malloc when loading a
@@ -11596,7 +11596,7 @@ IMPLEMENTATION
 
     #include <sys/time.h>   /* select() (used for ma_sleep()). */
     #include <time.h>       /* For nanosleep() */
-    #include <unistd.h> 
+    #include <unistd.h>
 #endif
 
 /* For fstat(), etc. */
@@ -14336,6 +14336,102 @@ typedef int ma_atomic_memory_order;
         return (ma_uint32)_InterlockedCompareExchange((volatile long*)dst, 0, 0);
     }
 #endif
+
+#ifdef PLATFORM_XBOX360_XDK
+#undef MA_ATOMIC_LEGACY_MSVC_ASM
+#define MA_ATOMIC_LEGACY_MSVC
+
+// Memory ordering constants
+#define ma_atomic_memory_order_relaxed 0
+#define ma_atomic_memory_order_acquire 1
+#define ma_atomic_memory_order_release 2
+#define ma_atomic_memory_order_acq_rel 3
+#define ma_atomic_memory_order_seq_cst 4
+
+// Atomic flag type (simple volatile int on Xbox 360)
+typedef volatile long ma_atomic_flag;
+
+// Atomic flag operations using Xbox 360 XDK intrinsics
+// Xbox 360 uses PowerPC with __sync_* GCC-style builtins or MSVC equivalents
+
+static MA_INLINE int ma_atomic_flag_load_explicit(volatile ma_atomic_flag* ptr, int order)
+{
+    (void)order; // Suppress unused parameter
+    // PowerPC load with acquire if needed
+    long value = *ptr;
+    if (order == ma_atomic_memory_order_acquire || order == ma_atomic_memory_order_seq_cst) {
+        __lwsync(); // Lightweight sync for PowerPC
+    }
+    return (int)value;
+}
+
+static MA_INLINE int ma_atomic_flag_test_and_set_explicit(volatile ma_atomic_flag* ptr, int order)
+{
+    (void)order;
+    // Xbox 360: Use InterlockedCompareExchange for test-and-set
+    long old = InterlockedCompareExchange(ptr, 1, 0);
+    return (int)old;
+}
+
+static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* ptr, int order)
+{
+    (void)order;
+    // Xbox 360: Use InterlockedExchange to set to 0
+    InterlockedExchange(ptr, 0);
+}
+
+// These are already defined by your macros, but included for completeness
+#define ma_atomic_flag_test_and_set(dst) \
+    ma_atomic_flag_test_and_set_explicit(dst, ma_atomic_memory_order_acquire)
+
+#define ma_atomic_flag_clear(dst) \
+    ma_atomic_flag_clear_explicit(dst, ma_atomic_memory_order_release)
+
+
+#define HKEY_LOCAL_MACHINE ((HKEY)0x80000002)
+#define KEY_READ            0x20019
+
+typedef unsigned long REGSAM;
+
+static MA_INLINE long RegOpenKeyExW(HKEY hKey, const wchar_t* lpSubKey,
+                                     unsigned long ulOptions, REGSAM samDesired,
+                                     HKEY* phkResult)
+{
+    (void)hKey;
+    (void)lpSubKey;
+    (void)ulOptions;
+    (void)samDesired;
+    *phkResult = NULL;
+    return 2; // ERROR_FILE_NOT_FOUND - Registry not available on Xbox 360
+}
+
+static MA_INLINE long RegQueryValueExW(HKEY hKey, const wchar_t* lpValueName,
+                                        unsigned long* lpReserved, unsigned long* lpType,
+                                        unsigned char* lpData, unsigned long* lpcbData)
+{
+    (void)hKey;
+    (void)lpValueName;
+    (void)lpReserved;
+    (void)lpType;
+    (void)lpData;
+    (void)lpcbData;
+    return 2; // ERROR_FILE_NOT_FOUND
+}
+
+static MA_INLINE long RegCloseKey(HKEY hKey)
+{
+    (void)hKey;
+    return 0; // ERROR_SUCCESS
+}
+
+#include <windows.h>
+
+#define CreateFileW(...) (INVALID_HANDLE_VALUE)
+
+#pragma warning(disable: 4244) // Disable "conversion, possible loss of data" warning
+
+#endif
+
 #if defined(MA_ATOMIC_LEGACY_MSVC_ASM)
     #define ma_atomic_memory_order_relaxed  1
     #define ma_atomic_memory_order_consume  2
@@ -17622,7 +17718,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
             (void)stackSize;  /* Suppress unused parameter warning. */
         }
         #endif
-        
+
 
         if (scheduler != -1) {
             int priorityMin = sched_get_priority_min(scheduler);
@@ -23061,7 +23157,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     {
         hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    }    
+    }
     if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) { ma_CoUninitialize(pContext); }
 
     if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
@@ -29691,7 +29787,7 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        /*        
+        /*
         When data is written to the device we wait for the device to get ready to receive data with poll(). In my testing
         I have observed that poll() can sometimes block forever unless the device is started explicitly with snd_pcm_start()
         or some data is written with snd_pcm_writei().
@@ -36000,7 +36096,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             #endif
         }
 
-        
+
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
@@ -39314,7 +39410,7 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
 
     (void)error;
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d\n", error, ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream));
-    
+
     /*
     When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
     we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
@@ -39326,13 +39422,13 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     else {
         job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
         job.data.device.aaudio.reroute.pDevice = pDevice;
-    
+
         if (pStream == pDevice->aaudio.pStreamCapture) {
             job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
         } else {
             job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
         }
-    
+
         result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
         if (result != MA_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
@@ -39929,7 +40025,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
 
     /* We got disconnected! Retry a few times, until we find a connected device! */
     iAttempt = 0;
-    while (iAttempt++ < maxAttempts) {        
+    while (iAttempt++ < maxAttempts) {
         /* Device tearing down? No need to reroute! */
         if (ma_atomic_bool32_get(&pDevice->aaudio.isTearingDown)) {
             result = MA_SUCCESS; /* Caller should continue as normal. */
@@ -40027,7 +40123,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             break;
         }
     }
-    
+
     return result;
 }
 
@@ -61731,7 +61827,7 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
         /* Not implemented. Fall back to seek/tell/seek. */
         ma_int64 cursor;
         ma_int64 sizeInBytes;
-        
+
         result = ma_default_vfs_tell(pVFS, file, &cursor);
         if (result != MA_SUCCESS) {
             return result;
@@ -76964,7 +77060,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 if (pSound->processingCacheFramesRemaining > 0) {
                     MA_MOVE_MEMORY(pSound->pProcessingCache, ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, frameCountIn, dataSourceChannels), pSound->processingCacheFramesRemaining * ma_get_bytes_per_frame(ma_format_f32, dataSourceChannels));
                 }
-                
+
                 totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
 
                 if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
@@ -78466,7 +78562,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
         if (pSound->processingCacheCap == 0) {
             pSound->processingCacheCap = 512;
         }
-        
+
         pSound->pProcessingCache = (float*)ma_calloc(pSound->processingCacheCap * ma_get_bytes_per_frame(ma_format_f32, engineNodeConfig.channelsIn), &pEngine->allocationCallbacks);
         if (pSound->pProcessingCache == NULL) {
             ma_engine_node_uninit(&pSound->engineNode, &pEngine->allocationCallbacks);

@@ -27,6 +27,8 @@ extern "C" ULONG __cdecl DbgPrint(const char* format, ...);
 
 #ifdef USE_XAUDIO2_AUDIO
 #include "xaudio2_audio.h"
+#elif USE_MINIAUDIO
+#include "ma_audio_system.h"
 #else
 #include "noop_audio_system.h"
 #endif
@@ -1347,6 +1349,10 @@ VOID __cdecl main() {
 	#ifdef USE_XAUDIO2_AUDIO
     diagLog("Butterscotch: (10) creating audio");
     XAudio2AudioSystem* xdkAudio = XAudio2AudioSystem_create();
+    AudioSystem* audioSystem = (AudioSystem*)xdkAudio;
+	#elif defined(USE_MINIAUDIO)
+    diagLog("Butterscotch: (10) creating audio");
+    MaAudioSystem* xdkAudio = MaAudioSystem_create(dataWin);
     AudioSystem* audioSystem = (AudioSystem*)xdkAudio;
 	#else
 	diagLog("Butterscotch: (10) creating audio (noop)");
