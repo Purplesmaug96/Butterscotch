@@ -1275,17 +1275,18 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     return true;
 }
 
-// Process all completed async decodes on the render thread, optimized to only scan textures that need uploading
+// Process completed async decodes on the render thread.
+// Keep this scanning logic lightweight; full async "push" queues are
+// possible but higher risk due to synchronization.
 static void processCompletedDecodes(D3D9Renderer* dr) {
     if (!dr || !dr->textureLoadState) return;
 
-    // Optimization: only scan from the last upload cursor forward, wrapping around
-    // This distributes the scan evenly across frames instead of scanning all textures every frame
-    uint32_t startCursor = dr->textureDecodedUploadCursor;
+    // Only scan a small bounded number of slots per frame.
+    // This avoids worst-case O(textureCount) stalls.
     uint32_t checked = 0;
-    uint32_t maxChecks = 256; // Limit checks per frame to avoid long stalls
+    const uint32_t maxChecks = 64;
 
-    while (checked < maxChecks && checked < dr->textureCount) {
+    while (checked < maxChecks) {
         uint32_t i = dr->textureDecodedUploadCursor;
         dr->textureDecodedUploadCursor = (dr->textureDecodedUploadCursor + 1) % dr->textureCount;
         checked++;
@@ -1293,11 +1294,9 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
         if (dr->textureLoadState[i] == TEX_LOAD_DECODED) {
             uploadDecodedTexture(dr, i);
         }
-
-        // If we've wrapped all the way around, stop
-        if (dr->textureDecodedUploadCursor == startCursor) break;
     }
 }
+
 
 // Fast check: returns true only if texture is already GPU-loaded
 static inline bool isTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
@@ -2481,7 +2480,9 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
     // Build 4 corners
     float cx[4], cy[4];
     if (angleDeg != 0.0f) {
-        float rad = -angleDeg * (3.14159265f / 180.0f);
+        // Micro-opt: avoid recomputing deg->rad scale constant.
+        const float kDegToRad = (3.14159265f / 180.0f);
+        float rad = -angleDeg * kDegToRad;
         float cosA = cosf(rad);
         float sinA = sinf(rad);
 
@@ -2492,6 +2493,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
             cy[i] = lx[i] * sinA + ly[i] * cosA;
         }
     } else {
+
         cx[0] = localX0; cy[0] = localY0;
         cx[1] = localX1; cy[1] = localY0;
         cx[2] = localX1; cy[2] = localY1;
@@ -2893,13 +2895,17 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
     float fontScaleY = yscale * font->scaleY;
 
     // Build rotation transform (if needed)
+    // Micro-opt: only compute sin/cos once per draw_text call.
     float cosA = 1.0f, sinA = 0.0f;
     bool hasRotation = (angleDeg != 0.0f);
     if (hasRotation) {
-        float rad = -angleDeg * (3.14159265f / 180.0f);
+        // Precompute deg->rad scale; avoids one multiply in the trig path.
+        const float kDegToRad = (3.14159265f / 180.0f);
+        float rad = -angleDeg * kDegToRad;
         cosA = cosf(rad);
         sinA = sinf(rad);
     }
+
 
     // Iterate through lines. HTML5 subtracts ascenderOffset from per-line y offset.
     float cursorY = valignOffset - (float)font->ascenderOffset;
