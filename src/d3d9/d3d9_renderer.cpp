@@ -152,10 +152,28 @@ struct SpriteVertex {
 // Default vertex shader: transforms screen-space pixel coordinates to clip space
 // using a uniform half-resolution (uHalfRes = gameW/2, gameH/2) so it works
 // at any resolution without hardcoded dimensions.
-// This is the same shader on both Xbox 360 and desktop, outputting standard
-// clip-space coordinates with D3DRS_VIEWPORTENABLE=TRUE.
+// On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE is used instead, so the shader is a
+// simple pass-through.
+
+#ifdef PLATFORM_XBOX360_XDK
+// Vertex shader: simple pass-through for pre-transformed screen-space vertices.
+// Position is already in screen pixels with z=0, w=1.
+// With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
 static const char* g_vsSource =
-    "uniform float2 uHalfRes : register(c0);\n"
+    "struct VS_IN  { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
+    "struct VS_OUT { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
+    "VS_OUT main(VS_IN i) {\n"
+    "  VS_OUT o;\n"
+    "  o.Pos = i.Pos;\n"
+    "  o.Tex = i.Tex;\n"
+    "  o.Col = i.Col;\n"
+    "  return o;\n"
+    "}\n";
+#else
+// Transforms screen-space pixel coordinates to clip space using a uniform
+// half-resolution (uHalfRes = gameW/2, gameH/2) so it works at any resolution.
+static const char* g_vsSource =
+    "uniform float2 uHalfRes;\n"
     "struct VS_IN {\n"
     "    float4 Pos : POSITION;\n"
     "    float2 Tex : TEXCOORD0;\n"
@@ -178,6 +196,7 @@ static const char* g_vsSource =
     "    o.Col = i.Col;\n"
     "    return o;\n"
     "}\n";
+#endif
 
 static const char* g_psSource =
     "sampler2D s0 : register(s0) = sampler_state {\n"
@@ -416,10 +435,8 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
     dev->SetRenderState(D3DRS_ZENABLE, FALSE);
     dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 
-    // Enable viewport transform — the vertex shader outputs standard clip-space
-    // coordinates via uHalfRes, and the viewport transform maps them to screen pixels.
-    // On Xbox 360 this is a real render state; on desktop it's a dummy no-op define.
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
+    // Disable viewport transform — we use pre-transformed screen-space vertices
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
 
     // Point filtering
     applyPointSampling(dev);
@@ -688,13 +705,17 @@ static void flushBatch(D3D9Renderer* dr) {
         if (shader->compiled) {
             dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
             dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+            // GML shaders output clip-space coordinates, so enable viewport transform
+            dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
         } else {
             dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
             dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+            dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
         }
     } else {
         dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
         dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+        dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
     }
 
     // Bind texture (skip redundant SetTexture calls)
@@ -2383,10 +2404,8 @@ static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int3
     dr->portOffsetX = screenPortX;
     dr->portOffsetY = screenPortY;
 
-    // No projection matrix needed — the vertex shader transforms screen coords to clip space.
-    // D3DRS_VIEWPORTENABLE=TRUE (set in d3d9EnsureSharedRenderState) enables the
-    // viewport transform on Xbox 360, mapping clip-space coords to screen pixels.
-    // On desktop this is a dummy/no-op define.
+    // No projection matrix needed — vertices are pre-transformed screen coords.
+    // D3DRS_VIEWPORTENABLE=FALSE means the GPU uses positions directly as pixels.
 }
 
 static void d3d9EndView(Renderer* renderer) {
@@ -4443,6 +4462,13 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
     IDirect3DDevice9* dev = Dev(dr);
     dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
     dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+
+    // GML shaders output clip-space coordinates (-1 to 1), so we need the
+    // viewport transform enabled on Xbox 360. The default pass-through shader
+    // uses D3DRS_VIEWPORTENABLE=FALSE for direct pixel mapping.
+    #ifdef PLATFORM_XBOX360_XDK
+    dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
+    #endif
 
     // Set built-in uniforms
     D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
