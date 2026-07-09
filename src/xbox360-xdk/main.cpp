@@ -704,8 +704,11 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
 extern "C" void Butterscotch_xdkHang() {
 	while (true) {Sleep(1000);}
 	__assume(false);
+	#pragma warning(push)
+	#pragma warning(disable: 4702)
 	diagLog("Butterscotch: FATAL Somehow the end of Butterscotch_xdkHang was reached???");
 	drawFatalErrorScreen(&gLoadingScreen);
+	#pragma warning(pop)
 }
 
 extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line) {
