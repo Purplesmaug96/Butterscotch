@@ -13,11 +13,15 @@
 #include <windows.h>
 #define overlayMkdir(path) _mkdir(path)
 #define overlayRmdir(path) _rmdir(path)
+#define normalizePathReplace '/'
+#define normalizePathWith '\\'
 #else
 #include <unistd.h>
 #include <dirent.h>
 #define overlayMkdir(path) mkdir((path), 0777)
 #define overlayRmdir(path) rmdir(path)
+#define normalizePathReplace '\\'
+#define normalizePathWith '/'
 #endif
 
 #if defined(_MSC_VER) && !defined(S_ISDIR)
@@ -31,8 +35,8 @@ static inline char* normalizePath(const char* path) {
     if (path == nullptr) return nullptr;
     char* normalized = safeStrdup(path);
     for (int i = 0; normalized[i] != '\0'; i++) {
-        if (normalized[i] == '\\') {
-            normalized[i] = '/';
+        if (normalized[i] == normalizePathReplace) {
+            normalized[i] = normalizePathWith;
         }
     }
     return normalized;
@@ -55,7 +59,9 @@ static char* joinPath(const char* basePath, const char* normalizedPath) {
     memcpy(full, basePath, baseLen);
     memcpy(full + baseLen, normalizedPath, relLen);
     full[baseLen + relLen] = '\0';
-    return full;
+	char* fullNorm = normalizePath(full);
+	free(full);
+    return fullNorm;
 }
 
 static bool pathExists(const char* fullPath) {

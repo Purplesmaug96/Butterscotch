@@ -31,7 +31,7 @@ extern "C" ULONG __cdecl DbgPrint(const char* format, ...);
 #include "noop_audio_system.h"
 #endif
 
-#include "xdk_file_system.h"
+#include "overlay_file_system.h"
 #include "debug_font/debug_font.h"
 #include "stb_image.h"
 
@@ -1271,7 +1271,7 @@ VOID __cdecl main() {
     if (loadingOk) loadingDraw(&gLoadingScreen, 0.05f, "Opening data.win");
 
     DataWinParserOptions parseOpts;
-    memset(&parseOpts, 0, sizeof(parseOpts));
+    ZERO_STRUCT(parseOpts);
     parseOpts.parseGen8 = true;  parseOpts.parseOptn = true;  parseOpts.parseLang = true;
     parseOpts.parseExtn = true;  parseOpts.parseSond = true;  parseOpts.parseAgrp = true;
     parseOpts.parseSprt = true;  parseOpts.parseBgnd = true;  parseOpts.parsePath = true;
@@ -1333,8 +1333,13 @@ VOID __cdecl main() {
 
     // ===[ Create Subsystems ]===
     diagLog("Butterscotch: (08) creating subsystems");
-    XdkFileSystem* xdkFs = XdkFileSystem_create(dataWinPath);
-    FileSystem* fileSystem = (FileSystem*)xdkFs;
+	char* dataWinDir = (char*)safeStrdup(dataWinPath);
+	char* lastSlash2 = (char*)strrchr(dataWinDir, '\\');
+	*lastSlash2 = '\0';
+
+	// TODO: Second arg to OverlayFileSystem_create is save dir, should be passing proper save directory to it
+    OverlayFileSystem* overlayFs = OverlayFileSystem_create(dataWinDir, dataWinDir);
+    FileSystem* fileSystem = (FileSystem*)overlayFs;
 
     diagLog("Butterscotch: (09) creating renderer");
     renderer = D3D9Renderer_create(pd3dDevice);
@@ -1646,11 +1651,12 @@ VOID __cdecl main() {
     }
     Runner_free(runner);
     VM_free(vm);
-    XdkFileSystem_destroy(fileSystem);
+    OverlayFileSystem_destroy((OverlayFileSystem*)fileSystem);
     renderer->vtable->destroy(renderer);
     if (configRoot) JsonReader_free(configRoot);
     loadingDestroy(&gDiagOverlayScreen);
     DataWin_free(dataWin);
+	free(dataWinDir);
     pd3dDevice->Release();
     pD3D->Release();
 

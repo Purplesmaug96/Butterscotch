@@ -33,7 +33,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	endif()
 	# Unreachable code
 	add_link_options(/ignore:4702)
-	else()
+else()
     add_compile_options(-Wall -Wextra -Wvla)
     if(MSVC)
 		if(WERROR)
