@@ -92,6 +92,44 @@ enum GraphicsAPI gfx;
 const GLuint *hostFramebuffer;
 #endif
 
+#ifdef __linux__
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+static size_t get_used_memory(void) {
+#ifdef __linux__
+    int fd = open("/proc/self/smaps_rollup", O_RDONLY);
+    if (fd < 0)
+        return 0;
+
+    char buf[512];
+    int n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return 0;
+    buf[n] = '\0';
+
+    char *p = buf;
+    while (*p) {
+        if (strncmp(p, "Anonymous:", 10) == 0) {
+            p += 10;
+            while (*p == ' ' || *p == '\t')
+                p++;
+            size_t kb = 0;
+            while (*p >= '0' && *p <= '9')
+                kb = kb * 10 + (size_t)(*p++ - '0');
+            return kb * 1024;
+        }
+        while (*p && *p != '\n')
+            p++;
+        if (*p)
+            p++;
+    }
+#endif
+    return 0;
+}
+
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL) || ((defined(USE_GLFW3) || defined(USE_GLFW2)) && defined(ENABLE_SW_RENDERER))
 static int platformInitGlad(GLADloadproc load) {
     glGetString = (PFNGLGETSTRINGPROC)load("glGetString");
@@ -1030,7 +1068,10 @@ int main(int argc, char* argv[]) {
         options.parseFunc = true;
         options.parseStrg = true;
         options.parseTxtr = true;
-        options.parseAudo = true;
+#if defined(USE_MINIAUDIO) || defined(USE_OPENAL)
+        if (!args.headless)
+            options.parseAudo = true;
+#endif
         options.skipLoadingPreciseMasksForNonPreciseSprites = true;
         options.loadType = args.loadType;
         options.lazyLoadRooms = args.lazyRooms;
@@ -1845,11 +1886,19 @@ int main(int argc, char* argv[]) {
                 Runner_handlePendingRoomChange(runner);
             }
 
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)) {
+                size_t bytes_used = get_used_memory();
+                if (bytes_used == 0)
+                    fprintf(stderr, "Unable to get memory usage\n");
+                else
+                    fprintf(stderr, "Memory use right now: %zu bytes (%.1f MB)\n", bytes_used, bytes_used / 1024.0f / 1024.0f);
+            }
+
             // Limit frame rate to room speed (skip in headless mode for max speed!!)
             if (!args.headless && runner->currentRoom->speed > 0) {
                 static bool fastForwardActive = false;
                 static bool fastForwardTabPrev = false;
-                bool fastForwardTabNow = RunnerKeyboard_checkPressed(runner->keyboard, '\t');
+                bool fastForwardTabNow = RunnerKeyboard_checkPressed(runner->keyboard, VK_TAB);
                 if (args.fastForwardSpeed > 0.0 && fastForwardTabNow && !fastForwardTabPrev) {
                     fastForwardActive = !fastForwardActive;
                     lastFrameTime = nowNanos();
