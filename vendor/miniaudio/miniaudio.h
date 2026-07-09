@@ -3871,8 +3871,12 @@ typedef ma_uint16 wchar_t;
     #endif
 
     /* The original Xbox. */
-    #if defined(NXDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
+    #if defined(NXDK) || defined(PLATFORM_XBOX360_XDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
         #define MA_XBOX
+
+		#if defined(PLATFORM_XBOX360_XDK)
+			#define MA_XBOX_360
+		#endif
 
         #if defined(NXDK)
             #define MA_XBOX_NXDK
@@ -14337,7 +14341,7 @@ typedef int ma_atomic_memory_order;
     }
 #endif
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef MA_XBOX_360
 #undef MA_ATOMIC_LEGACY_MSVC_ASM
 #define MA_ATOMIC_LEGACY_MSVC
 
@@ -14387,46 +14391,48 @@ static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* ptr
 #define ma_atomic_flag_clear(dst) \
     ma_atomic_flag_clear_explicit(dst, ma_atomic_memory_order_release)
 
-
-#define HKEY_LOCAL_MACHINE ((HKEY)0x80000002)
-#define KEY_READ            0x20019
-
-typedef unsigned long REGSAM;
-
-static MA_INLINE long RegOpenKeyExW(HKEY hKey, const wchar_t* lpSubKey,
-                                     unsigned long ulOptions, REGSAM samDesired,
-                                     HKEY* phkResult)
+HANDLE CreateFileW(
+    LPCWSTR lpFileName,
+    DWORD dwDesiredAccess,
+    DWORD dwShareMode,
+    LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+    DWORD dwCreationDisposition,
+    DWORD dwFlagsAndAttributes,
+    HANDLE hTemplateFile)
 {
-    (void)hKey;
-    (void)lpSubKey;
-    (void)ulOptions;
-    (void)samDesired;
-    *phkResult = NULL;
-    return 2; // ERROR_FILE_NOT_FOUND - Registry not available on Xbox 360
+    // Calculate required buffer size for ANSI conversion
+    int size_needed = WideCharToMultiByte(CP_ACP, 0, lpFileName, -1, NULL, 0, NULL, NULL);
+
+    if (size_needed == 0) {
+        return INVALID_HANDLE_VALUE;
+    }
+
+    // Allocate buffer for ANSI string
+    char* filename_ansi = (char*)malloc(size_needed);
+    if (filename_ansi == NULL) {
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    // Convert wide string to ANSI
+    if (WideCharToMultiByte(CP_ACP, 0, lpFileName, -1, filename_ansi, size_needed, NULL, NULL) == 0) {
+        free(filename_ansi);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    // Call CreateFileA with converted string
+    HANDLE result = CreateFileA(
+        filename_ansi,
+        dwDesiredAccess,
+        dwShareMode,
+        lpSecurityAttributes,
+        dwCreationDisposition,
+        dwFlagsAndAttributes,
+        hTemplateFile);
+
+    free(filename_ansi);
+    return result;
 }
-
-static MA_INLINE long RegQueryValueExW(HKEY hKey, const wchar_t* lpValueName,
-                                        unsigned long* lpReserved, unsigned long* lpType,
-                                        unsigned char* lpData, unsigned long* lpcbData)
-{
-    (void)hKey;
-    (void)lpValueName;
-    (void)lpReserved;
-    (void)lpType;
-    (void)lpData;
-    (void)lpcbData;
-    return 2; // ERROR_FILE_NOT_FOUND
-}
-
-static MA_INLINE long RegCloseKey(HKEY hKey)
-{
-    (void)hKey;
-    return 0; // ERROR_SUCCESS
-}
-
-#include <windows.h>
-
-#define CreateFileW(...) (INVALID_HANDLE_VALUE)
 
 #pragma warning(disable: 4244) // Disable "conversion, possible loss of data" warning
 
