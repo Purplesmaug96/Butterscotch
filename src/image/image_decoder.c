@@ -1,11 +1,5 @@
 #include "image_decoder.h"
 
-#ifdef PLATFORM_XBOX360_XDK
-#include <windows.h>
-#include <xnamath.h>
-#include <d3d9.h>
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

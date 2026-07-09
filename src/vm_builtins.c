@@ -1928,11 +1928,7 @@ static RValue builtin_sign(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
 
 static RValue builtin_max(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
-	#ifdef PLATFORM_XBOX360_XDK
-	GMLReal result = -((int32_t)((uint32_t)-1));
-	#else
     GMLReal result = -INFINITY;
-    #endif
 	repeat(argCount, i) {
         GMLReal val = RValue_toReal(args[i]);
         if (val > result) result = val;
@@ -1942,11 +1938,7 @@ static RValue builtin_max(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t arg
 
 static RValue builtin_min(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
-    #ifdef PLATFORM_XBOX360_XDK
-	GMLReal result = (uint32_t)-1;
-	#else
     GMLReal result = INFINITY;
-    #endif
     repeat(argCount, i) {
         GMLReal val = RValue_toReal(args[i]);
         if (result > val) result = val;

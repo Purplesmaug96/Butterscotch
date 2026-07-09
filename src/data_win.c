@@ -2733,14 +2733,8 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         }
     }
 
-    // Keep the file handle open whenever we may need on-demand payload reads, such as
-    // lazy room loading or embedded TXTR/AUDO data on the Xbox 360 build.
     dw->lazyLoadRooms = options.lazyLoadRooms;
-#ifdef PLATFORM_XBOX360_XDK
-    bool keepFileOpen = options.lazyLoadRooms || options.parseTxtr || options.parseAudo;
-#else
     bool keepFileOpen = options.lazyLoadRooms;
-#endif
     if (keepFileOpen) {
         dw->lazyLoadFile = file;
         dw->lazyLoadFilePath = safeStrdup(filePath);
