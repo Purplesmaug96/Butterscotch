@@ -19,6 +19,9 @@
 // Maximum number of shader uniforms we track
 #define D3D9_MAX_SHADER_UNIFORMS 64
 
+// Shaders
+#define D3D9_DISABLE_SHADERS
+
 typedef struct {
     char* name; // owned
     int32_t registerIndex; // constant register index

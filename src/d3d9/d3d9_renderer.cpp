@@ -4403,13 +4403,27 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
     }
 }
 
-#define D3D9_DISABLE_SHADERS
+#ifdef D3D9_DISABLE_SHADERS
+
+// Compile a GML shader on demand (lazy compilation)
+static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {}
+
+static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {}
+
+static void d3d9GpuResetShader(Renderer* renderer) {}
+
+static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {return -1;}
+
+static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {return -1;}
+
+static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {}
+
+static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) {}
+
+#else
 
 // Compile a GML shader on demand (lazy compilation)
 static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
-	#ifdef D3D9_DISABLE_SHADERS
-	return;
-	#else
     if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) return;
     D3D9GMLShader* gmlShader = &dr->gmlShaders[shaderIndex];
     if (gmlShader->compileAttempted) return;
@@ -4437,7 +4451,6 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 
     IDirect3DDevice9* dev = Dev(dr);
     compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
-	#endif
 }
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
@@ -4581,6 +4594,9 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
         dev->SetPixelShaderConstantF(u->registerIndex + i, fvalues, 1);
     }
 }
+
+#endif
+
 // Texture handle encoding contract (matches GL):
 // - 0 means "no texture"
 // - for sprites: texID = (tpagIndex + 1)
