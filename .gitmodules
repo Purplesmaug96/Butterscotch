@@ -1,12 +1,6 @@
-[submodule "cmake-xenon-toolchain"]
-	path = cmake-xenon-toolchain
-	url = https://github.com/billynothingelse/cmake-xenon-toolchain.git
 [submodule "vendor/cmake-xenon-toolchain"]
 	path = vendor/cmake-xenon-toolchain
-	url = https://github.com/billynothingelse/cmake-xenon-toolchain.git
-[submodule "vendor/ToGL"]
-	path = vendor/ToGL
-	url = https://github.com/Purplesmaug96/ToGL.git
+	url = https://github.com/Purplesmaug96/cmake-xenon-toolchain.git
 [submodule "vendor/dxvk"]
 	path = vendor/dxvk
 	url = https://github.com/Purplesmaug96/dxvk.git
