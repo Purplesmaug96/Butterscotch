@@ -48,7 +48,6 @@
 #endif
 
 #ifdef PLATFORM_XBOX360_XDK
-	#include <__compat_math.h>
 	#define snprintf _snprintf
 	#undef ALIGN
 	#undef NOINLINE

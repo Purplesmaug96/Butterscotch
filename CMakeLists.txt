@@ -16,9 +16,6 @@ include(vendor/cmake-xenon-toolchain/cmake/compiler.cmake)
 include(vendor/cmake-xenon-toolchain/cmake/scripts/xenon-utils.cmake)
 set(ENABLE_MODERN_GL OFF)
 set(ENABLE_LEGACY_GL OFF)
-include_directories(BEFORE SYSTEM "cmake/xbox360-xdk-compat-include")
-# Because of case insentitivity conflicts on windows
-include_directories(BEFORE SYSTEM "cmake/xbox360-xdk-compat-include-alt")
 endif()
 
 set(CMAKE_C_STANDARD 99)
@@ -768,6 +765,8 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/image)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360-xdk)
+	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/xbox360)
+	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/stdbool)
 
 	# Butterscotch VM/interpreter profiler
     option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
