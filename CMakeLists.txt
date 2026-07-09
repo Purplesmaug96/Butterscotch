@@ -138,7 +138,7 @@ endif()
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c src/${PLATFORM}/*.cpp)
 
 if(PLATFORM STREQUAL "xbox360-xdk")
-	file(GLOB ATG_SOURCES src/${PLATFORM}/Atg/*.c src/${PLATFORM}/Atg/*.cpp)
+	file(GLOB ATG_SOURCES vendor/Atg/src/*.c vendor/Atg/src/*.cpp)
 	set(ALL_XENON_SOURCES
 		# ${ATG_SOURCES}
         ${SOURCES}
@@ -147,7 +147,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
     )
 	add_xenon_executable(butterscotch cmake/xex-conf.xml ${ALL_XENON_SOURCES})
 	target_sources(butterscotch PRIVATE ${ALL_XENON_SOURCES})
-	target_include_directories(butterscotch PRIVATE vendor/bzip2 src/${PLATFORM}/Atg)
+	target_include_directories(butterscotch PRIVATE vendor/bzip2 vendor/Atg/include)
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
 	# Optional LTO toggle for Xenon/xbox360-xdk.
