@@ -5,6 +5,8 @@
 #include "data_win.h"
 #include "instance.h"
 #include "runner.h"
+#include "rvalue.h"
+#include "utils.h"
 #include "vm.h"
 
 #include "math_compat.h"
@@ -35,11 +37,7 @@ static inline Sprite* Collision_getSprite(DataWin* dataWin, Instance* inst) {
 static inline InstanceBBox Collision_computeBBox(Runner* runner, Instance* inst) {
     Sprite* spr = Collision_getSprite(runner->dataWin, inst);
 	InstanceBBox returnInstanceBBox;
-	returnInstanceBBox.left = 0;
-	returnInstanceBBox.right = 0;
-	returnInstanceBBox.top = 0;
-	returnInstanceBBox.bottom = 0;
-	returnInstanceBBox.valid = false;
+	ZERO_STRUCT(returnInstanceBBox);
     if (spr == nullptr) return returnInstanceBBox;
 
     GMLReal marginL = (spr->bboxMode == 1) ? 0.0 : (GMLReal) spr->marginLeft;

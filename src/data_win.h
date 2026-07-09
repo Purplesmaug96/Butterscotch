@@ -593,7 +593,7 @@ typedef struct {
     float alpha;
 } RoomTile;
 
-typedef enum 
+typedef enum
 {
     RoomLayerType_Path = 0,
     RoomLayerType_Background = 1,
@@ -933,7 +933,6 @@ struct DataWin {
 };
 
 DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options);
-bool DataWin_readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outData);
 void DataWin_free(DataWin* dataWin);
 void DataWin_printDebugSummary(DataWin* dataWin);
 // Lazy room payload management. DataWin_loadRoomPayload is a no-op when the payload is already loaded.

@@ -2733,9 +2733,9 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         }
     }
 
+    // If lazy-loading rooms, keep the file handle open for DataWin_loadRoomPayload, otherwise close it now
     dw->lazyLoadRooms = options.lazyLoadRooms;
-    bool keepFileOpen = options.lazyLoadRooms;
-    if (keepFileOpen) {
+    if (options.lazyLoadRooms) {
         dw->lazyLoadFile = file;
         dw->lazyLoadFilePath = safeStrdup(filePath);
         dw->fileSize = (size_t) fileSize;
@@ -2751,74 +2751,6 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
     }
 
     return dw;
-}
-
-bool DataWin_readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outData) {
-    if (!dw || !outData || count == 0) {
-        if (outData) *outData = NULL;
-        return false;
-    }
-
-    *outData = NULL;
-    if (offset > SIZE_MAX - count) {
-        return false;
-    }
-    if (dw->fileSize > 0 && offset + count > dw->fileSize) {
-        return false;
-    }
-
-    uint8_t* data = (uint8_t*)safeMalloc(count);
-    if (!data) {
-        return false;
-    }
-
-    if (dw->lazyLoadFilePath) {
-        FILE* file = fopen(dw->lazyLoadFilePath, "rb");
-        if (!file) {
-            free(data);
-            return false;
-        }
-
-        if (fseek(file, (long)offset, SEEK_SET) != 0) {
-            fclose(file);
-            free(data);
-            return false;
-        }
-
-        size_t readCount = fread(data, 1, count, file);
-        fclose(file);
-        if (readCount != count) {
-            free(data);
-            return false;
-        }
-
-        *outData = data;
-        return true;
-    }
-
-    if (dw->lazyLoadFile) {
-        long savedPos = ftell(dw->lazyLoadFile);
-        if (savedPos < 0 || fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) != 0) {
-            free(data);
-            return false;
-        }
-
-        size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
-        if (fseek(dw->lazyLoadFile, savedPos, SEEK_SET) != 0) {
-            free(data);
-            return false;
-        }
-        if (readCount != count) {
-            free(data);
-            return false;
-        }
-
-        *outData = data;
-        return true;
-    }
-
-    free(data);
-    return false;
 }
 
 // ===[ FREE ]===

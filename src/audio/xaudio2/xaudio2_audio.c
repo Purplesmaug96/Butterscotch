@@ -372,18 +372,6 @@ static bool shouldStreamExternalMusic(Sound* sound) {
     return true;
 }
 
-// Check if a sound's decoded PCM data would be too large to keep in RAM.
-// On Xbox 360 with only ~512MB total RAM, we should stream any music that
-// decodes to more than 4MB of PCM data (about 30 seconds of stereo 44.1kHz).
-// This prevents the Flowery fight music (and other long tracks) from
-// exhausting available RAM and failing to play.
-static bool shouldStreamLargeEmbeddedMusic(Sound* sound, uint32_t pcmSize) {
-    if (!sound || !isMusicSoundName(sound->name)) return false;
-    // If the decoded PCM would exceed 4MB, stream it instead
-    if (pcmSize > (4u * 1024u * 1024u)) return true;
-    return false;
-}
-
 static bool readWholeFile(const char* path, uint8_t** outData, int* outSize) {
     *outData = NULL;
     *outSize = 0;
@@ -636,19 +624,8 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
             return NULL;
         }
         AudioEntry* entry = &audoDw->audo.entries[sound->audioFile];
-        if (entry->data && entry->dataSize > 0) {
-            bytes = entry->data;
-            byteCount = (int)entry->dataSize;
-        } else if (entry->dataSize > 0 && entry->dataOffset > 0) {
-            if (!DataWin_readBytesAt(audoDw, entry->dataOffset, entry->dataSize, &bytes)) {
-                audioTrace(true, "AUD2: embedded audio read failed idx=%d name=%s offset=%u size=%u",
-                    soundIndex, sound->name ? sound->name : "?", entry->dataOffset, entry->dataSize);
-                if (cache) cache->failed = true;
-                return NULL;
-            }
-            freeBytes = true;
-            byteCount = (int)entry->dataSize;
-        }
+        bytes = entry->data;
+        byteCount = (int)entry->dataSize;
     } else {
         char* path = resolveExternalPath(xa, sound);
         if (!path) {
@@ -1237,76 +1214,6 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
             return -1;
         }
         return inst->instanceId;
-    }
-
-    // For large embedded music (e.g., Flowery fight music), check if the decoded
-    // PCM would be too large to fit in RAM. If so, write the OGG data to a temp
-    // file and stream it instead of decoding to RAM.
-    if (isMusic && soundUsesAudo(sound)) {
-        // Peek at the audio data size to decide if we should stream
-        DataWin* audoDw = (sound->audioGroup == 0) ? dw : getLoadedAudioGroup(xa, sound->audioGroup);
-        if (audoDw && sound->audioFile >= 0 && (uint32_t)sound->audioFile < audoDw->audo.count) {
-            AudioEntry* entry = &audoDw->audo.entries[sound->audioFile];
-            // Estimate PCM size: OGG at ~160kbps -> ~20KB/s, so 4MB PCM ~= 200 seconds
-            // If the compressed data is > 512KB, it's likely a long track
-            if (entry->dataSize > (512u * 1024u)) {
-                uint8_t* oggBytes = NULL;
-                int oggSize = 0;
-                bool freeOgg = false;
-                if (entry->data && entry->dataSize > 0) {
-                    oggBytes = entry->data;
-                    oggSize = (int)entry->dataSize;
-                } else if (entry->dataSize > 0 && entry->dataOffset > 0) {
-                    if (DataWin_readBytesAt(audoDw, entry->dataOffset, entry->dataSize, &oggBytes)) {
-                        freeOgg = true;
-                        oggSize = (int)entry->dataSize;
-                    }
-                }
-                if (oggBytes && oggSize > 0) {
-                    // Write OGG data to a temp file and stream it
-                    char tempPath[MAX_PATH];
-                    _snprintf(tempPath, sizeof(tempPath) - 1, "game:\\temp_mus_%d.ogg", soundIndex);
-                    tempPath[sizeof(tempPath) - 1] = '\0';
-                    FILE* f = fopen(tempPath, "wb");
-                    if (f) {
-                        fwrite(oggBytes, 1, (size_t)oggSize, f);
-                        fclose(f);
-                        audioTrace(true, "AUD2: streaming large embedded music idx=%d name=%s size=%d temp=%s",
-                            soundIndex, sound->name ? sound->name : "?", oggSize, tempPath);
-
-                        XAudio2SoundInstance* inst = findFreeSlot(xa);
-                        if (inst) {
-                            memset(inst, 0, sizeof(XAudio2SoundInstance));
-                            int32_t slotIndex2 = (int32_t)(inst - Instances(xa)->instances);
-                            inst->active = true;
-                            inst->soundIndex = soundIndex;
-                            inst->instanceId = XAUDIO2_SOUND_INSTANCE_ID_BASE + slotIndex2;
-                            inst->priority = priority;
-                            inst->loop = loop;
-                            inst->music = isMusic;
-                            inst->streaming = true;
-                            inst->startedTick = nowMs();
-                            inst->currentGain = sound->volume >= 0.0f ? sound->volume : 1.0f;
-                            inst->targetGain = inst->currentGain;
-                            inst->startGain = inst->currentGain;
-                            inst->pitch = 1.0f;
-                            inst->soundVolume = 1.0f;
-                            inst->soundPitch = sound->pitch > 0.0f ? sound->pitch : 1.0f;
-                            xa->nextInstanceCounter++;
-
-                            bool ok = createStreamingVoiceForInstance(xa, inst, tempPath, traceThisSound);
-                            if (freeOgg) free(oggBytes);
-                            if (ok) return inst->instanceId;
-                            destroyInstance(inst);
-                        }
-                        if (freeOgg) free(oggBytes);
-                        // Fall through to normal decode if streaming fails
-                    } else {
-                        if (freeOgg) free(oggBytes);
-                    }
-                }
-            }
-        }
     }
 
     bool ownsDecoded = false;

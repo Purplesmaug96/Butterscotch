@@ -170,7 +170,7 @@ static inline double GetFreeMemMB() {
 #define fprintf fdiagLog
 
 #ifndef __cplusplus
-#error Things must be compiled as C++ for xbox 360 xdk to avoid C89
+#error Things must be compiled as C++ for xbox 360 xdk
 #endif
 
 extern "C" void Butterscotch_xdkExit(int errcode, const char* file, int line);

@@ -11,9 +11,6 @@
 #include <glad/glad.h>
 #endif
 #include <GLFW/glfw3.h>
-#ifdef _WIN32
-#include <GLFW/glfw3native.h>
-#endif
 
 #include "common.h"
 #include "input_recording.h"
@@ -32,23 +29,15 @@ static void framebufferToLogical(float xs, float ys, int fbW, int fbH, int* outW
 }
 
 static GLFWwindow *tryOpenWindow(int reqW, int reqH, const char* title) {
-#ifdef ENABLE_D3D9
-    if (gfx == D3D9) {
-        glfwDefaultWindowHints();
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-        return glfwCreateWindow(reqW, reqH, title, NULL, NULL);
-    }
-#endif
     if (gfx == SOFTWARE || gfx == LEGACY_GL) {
         glfwDefaultWindowHints();
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 1);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, (gfx == SOFTWARE) ? 0 : 1);
-        
+
 #ifndef NDEBUG
         glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 #endif
-        
+
         return glfwCreateWindow(reqW, reqH, title, NULL, NULL);
     }
 
@@ -273,13 +262,7 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
         return false;
     }
 
-#ifdef ENABLE_D3D9
-    if (gfx != D3D9) {
-        glfwMakeContextCurrent(window);
-    }
-#else
     glfwMakeContextCurrent(window);
-#endif
     glfwSwapInterval(0); // Disable v-sync, we control timing ourselves
 
     // If we don't do this, the window will be larger than it should be if you are using Wayland fractional scaling
@@ -363,9 +346,7 @@ void platformSwapBuffers(void) {
         nextFb = NULL;
     }
 #endif
-#ifndef ENABLE_D3D9
     glfwSwapBuffers(window);
-#endif
 }
 
 void *platformGetProcAddress(const char *name) {

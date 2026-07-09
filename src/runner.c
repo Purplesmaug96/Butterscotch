@@ -2821,10 +2821,6 @@ static void fireLocalMouseSubtype(Runner* runner, int32_t subtype, int32_t slot,
     }
 }
 
-#ifdef PLATFORM_XBOX360_XDK
-#include <malloc.h>
-#endif
-
 static void dispatchMouseEvents(Runner* runner) {
     RunnerMouseState* mouse = runner->mouse;
     DataWin* dataWin = runner->dataWin;
