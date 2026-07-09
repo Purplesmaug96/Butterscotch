@@ -985,6 +985,11 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
                 break;
             }
 
+			DataWin* dw = dr->base.dataWin;
+			if (!dw) return;
+
+			DataWin_loadTxtrIfNeeded(dw, item.textureIndex);
+
             int w = 0, h = 0;
             uint8_t* pixels = ImageDecoder_decodeToRgba(item.blobData, (size_t)item.blobSize, item.gm2022_5, &w, &h);
 
@@ -1462,6 +1467,8 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     // Fall back to synchronous decode for external textures
     DataWin* dw = dr->base.dataWin;
     if (!dw || textureIndex >= dw->txtr.count) return false;
+
+	DataWin_loadTxtrIfNeeded(dw, textureIndex);
 
     Texture* txtr = &dw->txtr.textures[textureIndex];
     ensureTextureCacheRoom(dr);
