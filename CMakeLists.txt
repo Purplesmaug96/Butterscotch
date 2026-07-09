@@ -31,6 +31,8 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	if(WERROR)
 		add_compile_options(/WX)
 	endif()
+	# Unreachable code
+	add_link_options(/wd707)
 else()
     add_compile_options(-Wall -Wextra -Wvla)
     if(MSVC)
