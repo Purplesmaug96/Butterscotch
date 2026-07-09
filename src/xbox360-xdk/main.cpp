@@ -721,6 +721,13 @@ extern "C" void Butterscotch_xdkAbort(const char* file, int line) {
     Butterscotch_xdkHang();
 }
 
+extern "C" void Butterscotch_xdkHandleException(const char* msg) {
+	diagOpenLog();
+	diagLog("Butterscotch: FATAL exception thrown: %s", msg);
+	drawFatalErrorScreen(&gLoadingScreen);
+	Butterscotch_xdkHang();
+}
+
 extern "C" void Butterscotch_xdkDataWinTrace(const char* fmt, ...) {
     char line[1024];
     va_list args;
@@ -1109,7 +1116,9 @@ int32_t* gGameH = NULL;
 // main()).  Must be file-scope static so recursive calls to main() share it.
 static char gNextDataWinPath[512] = "";
 VOID __cdecl main() {
-    diagOpenLog();
+	try{
+
+	diagOpenLog();
 
     diagLog("Butterscotch: Built at %s: %s", __DATE__, __TIME__);
 
@@ -1722,4 +1731,9 @@ VOID __cdecl main() {
         CloseHandle(gDiagLog);
         gDiagLog = INVALID_HANDLE_VALUE;
     }
+
+	}
+	catch (const char* msg) {
+		Butterscotch_xdkHandleException(msg);
+	}
 }

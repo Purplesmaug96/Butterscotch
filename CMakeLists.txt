@@ -24,7 +24,7 @@ endif()
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 if(PLATFORM STREQUAL "xbox360-xdk")
-    add_compile_options(/nologo /W4 /wd4127 /TP /Zc:wchar_t)
+    add_compile_options(/nologo /W4 /wd4127 /TP /Zc:wchar_t /EHsc)
 	# Unused warnings should be fixed on desktop already anyways and i cant get MAYBE_UNUSED to work on MSVC
 	add_compile_options(/wd4100 /wd4101 /wd4505 /wd4189)
 	# add_compile_options(/wd9025)
