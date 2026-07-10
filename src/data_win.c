@@ -2459,7 +2459,7 @@ void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId) {
     if (tex->blobData != nullptr) return;
 
     if (!dw->lazyLoadFile) {
-        fprintf(stderr, "DataWin_loadTxtrIfNeeded: called without a lazy load file.\n");
+        fprintf(stderr, "loadTxtrIfNeeded: called without a lazy load file.\n");
         return;
     }
 
@@ -2472,7 +2472,7 @@ void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId) {
     fseek(dw->lazyLoadFile, old_seek, SEEK_SET);
 
     if (read != tex->blobSize) {
-        fprintf(stderr, "DataWin_loadTxtrIfNeeded: couldn't read %u bytes to load a texture.\n", tex->blobSize);
+        fprintf(stderr, "loadTxtrIfNeeded: couldn't read %u bytes to load a texture.\n", tex->blobSize);
     }
 }
 

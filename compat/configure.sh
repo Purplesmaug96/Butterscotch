@@ -97,6 +97,8 @@ if $CC /nologo tmp/test.c /Fe:tmp/a.out >> tmp/config.log 2>&1; then
     compile_obj='/c'
     output_obj='/Fo:'
     output_exe='/Fe:'
+    config "OUTPUT_OBJ := $output_obj"
+    config "OUTPUT_EXE := $output_exe"
     config 'MSVC := 1'
     config 'OBJ_EXT := obj'
     config "_CC := \$(CC) /nologo"
@@ -108,8 +110,10 @@ elif $CC tmp/test.c -o tmp/a.out >> tmp/config.log 2>&1; then
     syntax=gcc
     lm='-lm'
     compile_obj='-c'
-    output_obj='-o'
-    output_exe='-o'
+    output_obj='-o '
+    output_exe='-o '
+    config "OUTPUT_OBJ := -o\$(space)"
+    config "OUTPUT_EXE := -o\$(space)"
     config 'OBJ_EXT := o'
     config "_CC := \$(CC)"
     config 'CFLAGS := -O2 -DNDEBUG'
@@ -122,8 +126,6 @@ else
     exit 1
 fi
 config "COMPILE_OBJ := $compile_obj"
-config "OUTPUT_OBJ := $output_obj"
-config "OUTPUT_EXE := $output_exe"
 
 configlog 'checking if we are cross compiling'
 chmod +x tmp/a.out

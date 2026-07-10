@@ -3,6 +3,9 @@
 
 CC := cc
 
+empty :=
+space := $(empty) $(empty)
+
 ifeq ($(filter clean distclean,$(MAKECMDGOALS)),)
 
 -include compat/config.mk
