@@ -142,6 +142,11 @@ static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem)
     }
 
     fprintf(stderr, "Audio: miniaudio engine initialized\n");
+
+
+    if (ma->device.pContext->backend == ma_backend_null) {
+        fprintf(stderr, "Audio: MA Backend is Null, sound won't work\n");
+    }
 }
 
 static void maDestroy(AudioSystem* audio) {

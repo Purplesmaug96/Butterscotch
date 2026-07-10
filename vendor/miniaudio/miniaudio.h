@@ -14345,6 +14345,8 @@ typedef int ma_atomic_memory_order;
 #undef MA_ATOMIC_LEGACY_MSVC_ASM
 #define MA_ATOMIC_LEGACY_MSVC
 
+#define MA_BIG_ENDIAN
+
 // Memory ordering constants
 #define ma_atomic_memory_order_relaxed 0
 #define ma_atomic_memory_order_acquire 1
@@ -19177,6 +19179,7 @@ MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConf
     pQueue->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
+    }
     pQueue->flags    = pConfig->flags;
     pQueue->capacity = pConfig->capacity;
     pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
