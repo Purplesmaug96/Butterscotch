@@ -1,7 +1,7 @@
 build*/
-undertale*
-deltarune*
-survey_program*
+undertale
+deltarune
+survey_program
 _android-project
 vendor/nxdk
 butterscotch_d3d9.log
