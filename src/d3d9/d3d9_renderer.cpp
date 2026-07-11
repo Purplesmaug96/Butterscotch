@@ -1969,7 +1969,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     size_t vsBytecodeSize = 0;
     HRESULT hr = compileShader(vertexShaderSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
     if (FAILED(hr) || !vsBytecode) {
-        fprintf(stderr, "D3D9: Failed to compile vertex shader %s\nSource:\n%s\n", name ? name : "unknown", vertexShaderSource ? vertexShaderSource : "(null)");
+        fprintf(stderr, "D3D9: Failed to compile vertex shader %s\nSource:\n%s\n\n", name ? name : "unknown", vertexShaderSource ? vertexShaderSource : "(null)");
         return false;
     }
 
@@ -1986,7 +1986,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     size_t psBytecodeSize = 0;
     hr = compileShader(fragmentShaderSource, "ps_2_0", &psBytecode, &psBytecodeSize);
     if (FAILED(hr) || !psBytecode) {
-        fprintf(stderr, "D3D9: Failed to compile pixel shader %s\nSource:\n%s\n", name ? name : "unknown", fragmentShaderSource ? fragmentShaderSource : "(null)");
+        fprintf(stderr, "D3D9: Failed to compile pixel shader %s\nSource:\n%s\n\n", name ? name : "unknown", fragmentShaderSource ? fragmentShaderSource : "(null)");
         vs->Release();
         return false;
     }
@@ -4450,11 +4450,12 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
     fprintf(stderr, "D3D9: Compiling %s (lazy)\n", shdr->name);
 
     // Try native HLSL9 source first
+	// (Dont because deltarune has stubbed hlsl9 shaders)
     const char* vertexShaderSource = shdr->hlsl9_Vertex;
     const char* fragmentShaderSource = shdr->hlsl9_Fragment;
 
     // If no native HLSL9 source, try the shader loader (translated from GLSL ES by preprocessor)
-    if (!vertexShaderSource || !fragmentShaderSource) {
+    if (true/*!vertexShaderSource || !fragmentShaderSource*/) {
         if (ShaderLoader_hasData()) {
             vertexShaderSource = ShaderLoader_getVertexSource((uint32_t)shaderIndex);
             fragmentShaderSource = ShaderLoader_getFragmentSource((uint32_t)shaderIndex);

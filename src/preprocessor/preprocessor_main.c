@@ -215,10 +215,12 @@ int main(int argc, char** argv) {
             continue;
         }
 		if (strcmp(a, "--no-music") == 0) {
+			fprintf(stderr, "Music will not be processed\n");
             gDisableMusic = true;
             continue;
         }
         if (strcmp(a, "--force-translate-glsl-to-hlsl9") == 0) {
+			fprintf(stderr, "Shaders will always be translated to hlsl9 even if there is an already-existing hlsl9 shader in the data.win\n");
             gForceTranslateGLSLESToHLSL9 = true;
             continue;
         }
