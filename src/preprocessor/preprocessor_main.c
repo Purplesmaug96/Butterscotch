@@ -273,6 +273,7 @@ int main(int argc, char** argv) {
     WRITE_BIN("ATLAS.BIN",    result.atlasBin,    result.atlasSize);
     WRITE_BIN("SOUNDBNK.BIN", result.soundBnkBin, result.soundBnkSize);
     WRITE_BIN("SOUNDS.BIN",   result.soundsBin,   result.soundsSize);
+    WRITE_BIN("SHADERS.BIN",  result.shadersBin,  result.shadersSize);
     #undef WRITE_BIN
 
     printf("\nAll files written to %s\n", outputDir);

@@ -6,6 +6,7 @@
 #include "data_win.h"
 #include "image_decoder.h"
 #include "pixel_image.h"
+#include "shader_processor.h"
 #include "utils.h"
 
 #include "stb_ds.h"
@@ -510,6 +511,7 @@ void ProcessingResult_free(ProcessingResult* result) {
     free(result->atlasBin);
     free(result->soundBnkBin);
     free(result->soundsBin);
+    free(result->shadersBin);
     memset(result, 0, sizeof(*result));
 }
 
@@ -518,7 +520,7 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
     DataWinParserOptions parseOpts = {
         .parseGen8 = true, .parseSond = true, .parseSprt = true, .parseBgnd = true,
         .parseFont = true, .parseRoom = true, .parseTpag = true, .parseStrg = true,
-        .parseTxtr = true, .parseAudo = true,
+        .parseTxtr = true, .parseAudo = true, .parseShdr = true,
         .skipLoadingPreciseMasksForNonPreciseSprites = true,
     };
     DataWin* dw = DataWin_parse(options->dataWinPath, parseOpts);
@@ -1034,6 +1036,21 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
     free(musSizes);
     free(sondIdxToAudoIndex);
 
+    // Step 9: Process shaders (translate GLSL ES to HLSL9 for D3D9 platforms)
+    printf("Processing shaders...\n");
+    size_t shadersSize = 0;
+    uint8_t* shadersBin = NULL;
+    if (dw->shdr.count > 0) {
+        shadersBin = ShaderProcessor_processShaders(dw->shdr.shaders, dw->shdr.count, &shadersSize);
+        if (shadersBin) {
+            printf("  SHADERS.BIN: %zu bytes (%u shaders)\n", shadersSize, dw->shdr.count);
+        } else {
+            printf("  No shaders to process\n");
+        }
+    } else {
+        printf("  No shaders found in data.win\n");
+    }
+
     // Build the result
     ProcessingResult result = {0};
     const char* gameName = dw->gen8.displayName ? dw->gen8.displayName : (dw->gen8.name ? dw->gen8.name : "GAME");
@@ -1050,6 +1067,8 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
     result.soundBnkSize = soundBnkSize;
     result.soundsBin = soundsBin;
     result.soundsSize = soundsSize;
+    result.shadersBin = shadersBin;
+    result.shadersSize = shadersSize;
 
     printf("Done!\n");
 

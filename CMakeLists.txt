@@ -256,17 +256,6 @@ if(ENABLE_VM_EXCEPTIONS_LOGS)
     add_compile_definitions(ENABLE_VM_EXCEPTIONS_LOGS)
 endif()
 
-option(ENABLE_ANGLE "Enable angle for shader translation for d3d9" OFF)
-if(ENABLE_ANGLE AND PLATFORM STREQUAL "xbox360-xdk")
-	# We only want it for preprocessor
-	set(ENABLE_ANGLE OFF)
-	message(WARNING "Forced off angle support for xbox 360")
-endif()
-if(ENABLE_ANGLE)
-	add_compile_definitions(ENABLE_ANGLE)
-	add_subdirectory(vendor/angle)
-endif()
-
 if(PLATFORM STREQUAL "desktop")
     if(NOT ENABLE_LEGACY_GL AND NOT ENABLE_MODERN_GL AND NOT ENABLE_D3D9)
         message(FATAL_ERROR "You must enable at least one renderer!")
@@ -852,6 +841,16 @@ else()
 endif()
 endif() # BUILD_RUNNER
 
+option(ENABLE_SHADER_TRANSLATOR "Enable GLES->HLSL9 shader translation in preprocessor" OFF)
+
+# The shader translator uses ANGLE's compiler to translate GLSL ES to HLSL9.
+# It is used by the preprocessor to generate HLSL9 shaders for D3D9 platforms
+# (Xbox 360) from the GLSL ES source that is always present in GameMaker games.
+if(ENABLE_SHADER_TRANSLATOR)
+	add_compile_definitions(ENABLE_SHADER_TRANSLATOR)
+	add_subdirectory(vendor/angle)
+endif()
+
 # ===[ butterscotch-preprocessor: data.win -> .BIN preprocessor ]===
 if(BUILD_PREPROCESSOR)
     file(GLOB PREPROCESSOR_SOURCES src/preprocessor/*.c)
@@ -869,6 +868,11 @@ if(BUILD_PREPROCESSOR)
         ${CMAKE_SOURCE_DIR}/vendor/stb/image
         ${CMAKE_SOURCE_DIR}/vendor/stb/vorbis
     )
+    if(ENABLE_SHADER_TRANSLATOR)
+        target_sources(butterscotch-preprocessor PRIVATE src/shader_translator/shader_translator.cpp)
+        target_include_directories(butterscotch-preprocessor PRIVATE ${CMAKE_SOURCE_DIR}/src/shader_translator)
+        target_link_libraries(butterscotch-preprocessor )
+    endif()
     if(MINGW)
         target_link_libraries(butterscotch-preprocessor m bz2)
         target_link_options(butterscotch-preprocessor PRIVATE -static)

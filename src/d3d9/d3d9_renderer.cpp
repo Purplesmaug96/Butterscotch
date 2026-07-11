@@ -40,6 +40,7 @@ extern "C" {
 #endif
 
 #include "d3d9_renderer.h"
+#include "shader_loader.h"
 
 #if !defined(PLATFORM_XBOX360_XDK)
 
@@ -4448,11 +4449,23 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 
     fprintf(stderr, "D3D9: Compiling %s (lazy)\n", shdr->name);
 
+    // Try native HLSL9 source first
     const char* vertexShaderSource = shdr->hlsl9_Vertex;
     const char* fragmentShaderSource = shdr->hlsl9_Fragment;
 
+    // If no native HLSL9 source, try the shader loader (translated from GLSL ES by preprocessor)
     if (!vertexShaderSource || !fragmentShaderSource) {
-        fprintf(stderr, "D3D9: Shader %s has no HLSL9 source, skipping\n", shdr->name);
+        if (ShaderLoader_hasData()) {
+            vertexShaderSource = ShaderLoader_getVertexSource((uint32_t)shaderIndex);
+            fragmentShaderSource = ShaderLoader_getFragmentSource((uint32_t)shaderIndex);
+            if (vertexShaderSource && fragmentShaderSource) {
+                fprintf(stderr, "D3D9: Using translated HLSL9 for shader %s\n", shdr->name);
+            }
+        }
+    }
+
+    if (!vertexShaderSource || !fragmentShaderSource) {
+        fprintf(stderr, "D3D9: Shader %s has no HLSL9 source and no translated source available, skipping\n", shdr->name);
         return;
     }
 

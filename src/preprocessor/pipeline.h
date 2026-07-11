@@ -25,6 +25,8 @@ typedef struct {
     size_t soundBnkSize;
     uint8_t* soundsBin;
     size_t soundsSize;
+    uint8_t* shadersBin;
+    size_t shadersSize;
 } ProcessingResult;
 
 typedef struct {
