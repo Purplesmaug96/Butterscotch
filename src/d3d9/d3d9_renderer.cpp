@@ -1969,7 +1969,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     size_t vsBytecodeSize = 0;
     HRESULT hr = compileShader(vertexShaderSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
     if (FAILED(hr) || !vsBytecode) {
-        fprintf(stderr, "D3D9: Failed to compile vertex shader %s\n", name ? name : "unknown");
+        fprintf(stderr, "D3D9: Failed to compile vertex shader %s\nSource:\n%s\n", name ? name : "unknown", vertexShaderSource ? vertexShaderSource : "(null)");
         return false;
     }
 
@@ -1986,7 +1986,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     size_t psBytecodeSize = 0;
     hr = compileShader(fragmentShaderSource, "ps_2_0", &psBytecode, &psBytecodeSize);
     if (FAILED(hr) || !psBytecode) {
-        fprintf(stderr, "D3D9: Failed to compile pixel shader %s\n", name ? name : "unknown");
+        fprintf(stderr, "D3D9: Failed to compile pixel shader %s\nSource:\n%s\n", name ? name : "unknown", fragmentShaderSource ? fragmentShaderSource : "(null)");
         vs->Release();
         return false;
     }
