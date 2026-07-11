@@ -7,3 +7,7 @@
 [submodule "vendor/Atg"]
 	path = vendor/Atg
 	url = https://github.com/Purplesmaug96/Atg.git
+[submodule "vendor/angle"]
+	path = vendor/angle
+	url = https://github.com/Purplesmaug96/angle.git
+	branch = d3d9
