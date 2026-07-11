@@ -47,6 +47,9 @@ set(PLATFORM "desktop" CACHE STRING "Platform backend")
 set(DESKTOP_BACKEND "" CACHE STRING "Desktop platform backend")
 set(AUDIO_BACKEND "" CACHE STRING "Audio backend")
 
+option(BUILD_RUNNER "Build the Butterscotch runtime executable" ON)
+option(BUILD_PREPROCESSOR "Build the data.win preprocessor tool" OFF)
+
 # Build metadata
 set(BUTTERSCOTCH_COMMIT_HASH "unknown" CACHE STRING "Git commit hash")
 set(BUTTERSCOTCH_COMMIT_DATE "unknown" CACHE STRING "Git commit date")
@@ -121,6 +124,9 @@ endif()
 if(ENABLE_DXVK)
 	add_compile_definitions(ENABLE_DXVK)
 endif()
+
+# Global if
+if(BUILD_RUNNER)
 
 if(PLATFORM STREQUAL "web-meta")
     # Metadata-only build: just the data.win parser and its direct deps. No VM, no runner, no I/O subsystems.
@@ -839,4 +845,30 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_link_options(butterscotch PRIVATE)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
+endif()
+endif() # BUILD_RUNNER
+
+# ===[ butterscotch-preprocessor: data.win -> .BIN preprocessor ]===
+if(BUILD_PREPROCESSOR)
+    file(GLOB PREPROCESSOR_SOURCES src/preprocessor/*.c)
+    add_executable(butterscotch-preprocessor
+        ${PREPROCESSOR_SOURCES}
+        src/data_win.c
+        src/binary_reader.c
+        src/image/image_decoder.c
+    )
+    target_include_directories(butterscotch-preprocessor PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/image
+        ${CMAKE_SOURCE_DIR}/src/preprocessor
+        ${CMAKE_SOURCE_DIR}/vendor/stb/ds
+        ${CMAKE_SOURCE_DIR}/vendor/stb/image
+        ${CMAKE_SOURCE_DIR}/vendor/stb/vorbis
+    )
+    if(MINGW)
+        target_link_libraries(butterscotch-preprocessor m bz2)
+        target_link_options(butterscotch-preprocessor PRIVATE -static)
+    else()
+        target_link_libraries(butterscotch-preprocessor m bz2)
+    endif()
 endif()
