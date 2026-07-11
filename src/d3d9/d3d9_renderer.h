@@ -20,7 +20,7 @@
 #define D3D9_MAX_SHADER_UNIFORMS 64
 
 // Shaders
-#define D3D9_DISABLE_SHADERS
+// #define D3D9_DISABLE_SHADERS
 
 typedef struct {
     char* name; // owned
@@ -66,8 +66,6 @@ typedef struct {
     // Shared GPU render-state cache. Used to avoid needlessly repeating
     // static sampler/render-state setup work every BeginFrame.
     bool renderStateDirty;
-
-
 
     // Textures loaded from TXTR pages (decoded PNG -> D3D textures)
     void** textures;     // IDirect3DTexture9*[]

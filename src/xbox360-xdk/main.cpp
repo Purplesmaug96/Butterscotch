@@ -1376,14 +1376,14 @@ VOID __cdecl main() {
                     size_t readSize = fread(shadersData, 1, (size_t)shadersSize, shadersFile);
                     if (readSize == (size_t)shadersSize) {
                         ShaderLoader_init(shadersData, (size_t)shadersSize);
-                        diagLog("Butterscotch: Loaded SHADERS.BIN (%zu bytes)", (size_t)shadersSize);
+                        diagLog("Butterscotch: Loaded SHADERS.BIN (%d bytes)", (int)shadersSize);
                     } else {
-                        diagLog("Butterscotch: Failed to read SHADERS.BIN (read %zu/%ld)", readSize, shadersSize);
+                        diagLog("Butterscotch: Failed to read SHADERS.BIN (read %d/%d)", (int)readSize, (int)shadersSize);
                         free(shadersData);
                     }
                 }
             } else {
-                diagLog("Butterscotch: SHADERS.BIN size invalid (%ld bytes)", shadersSize);
+                diagLog("Butterscotch: SHADERS.BIN size invalid (%dd bytes)", (int)shadersSize);
             }
             fclose(shadersFile);
         } else {

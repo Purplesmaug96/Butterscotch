@@ -1,1 +1,1 @@
-cmake -DPLATFORM=xbox360-xdk -DAUDIO_BACKEND=xaudio2 -DENABLE_ANGLE=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_TOOLCHAIN_FILE="vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake" -B build-x360-xdk
+cmake -DPLATFORM=xbox360-xdk -DAUDIO_BACKEND=xaudio2 -DCMAKE_BUILD_TYPE=Release -B build-x360-xdk
