@@ -247,6 +247,11 @@ if(ENABLE_VM_EXCEPTIONS_LOGS)
 endif()
 
 option(ENABLE_ANGLE "Enable angle for shader translation for d3d9" OFF)
+if(ENABLE_ANGLE AND PLATFORM STREQUAL "xbox360-xdk")
+	# We only want it for preprocessor
+	set(ENABLE_ANGLE OFF)
+	message(WARNING "Forced off angle support for xbox 360")
+endif()
 if(ENABLE_ANGLE)
 	add_compile_definitions(ENABLE_ANGLE)
 	add_subdirectory(vendor/angle)
