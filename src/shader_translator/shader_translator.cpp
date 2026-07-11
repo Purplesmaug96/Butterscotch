@@ -31,6 +31,8 @@
 // Simple wrapper to prevent including C++ headers in the C header
 // We use a static initializer approach.
 
+extern "C" {
+
 static bool g_translatorInitialized = false;
 
 void ShaderTranslator_init(void) {
@@ -174,3 +176,5 @@ bool ShaderTranslator_translateGLES2HLSL11(
     if (outLen) *outLen = 0;
     return false;
 }
+
+} // extern "C"

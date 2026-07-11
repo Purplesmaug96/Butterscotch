@@ -3,6 +3,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Translates GLSL ES shader source code to HLSL9 (shader model 2.0/3.0).
 // Returns true on success, with outHlsl pointing to allocated hlsl source (caller must free).
 // isVertex: true for vertex shader, false for pixel shader.
@@ -18,3 +22,7 @@ void ShaderTranslator_init(void);
 
 // Shutdown the shader translator (calls sh::Finalize()).
 void ShaderTranslator_shutdown(void);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

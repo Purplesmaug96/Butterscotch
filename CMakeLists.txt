@@ -848,6 +848,10 @@ option(ENABLE_SHADER_TRANSLATOR "Enable GLES->HLSL9 shader translation in prepro
 # (Xbox 360) from the GLSL ES source that is always present in GameMaker games.
 if(ENABLE_SHADER_TRANSLATOR)
 	add_compile_definitions(ENABLE_SHADER_TRANSLATOR)
+	# ANGLE requires one of its platform macros to be defined at compile time.
+	# For the preprocessor build (host tool), force a Linux platform selection.
+	# This avoids ANGLE's compile-time error: "No default ANGLE platform type".
+	add_compile_definitions(ANGLE_ENABLE_NULL)
 	add_subdirectory(vendor/angle)
 endif()
 
@@ -871,7 +875,12 @@ if(BUILD_PREPROCESSOR)
     if(ENABLE_SHADER_TRANSLATOR)
         target_sources(butterscotch-preprocessor PRIVATE src/shader_translator/shader_translator.cpp)
         target_include_directories(butterscotch-preprocessor PRIVATE ${CMAKE_SOURCE_DIR}/src/shader_translator)
-        target_link_libraries(butterscotch-preprocessor )
+
+        target_include_directories(butterscotch-preprocessor PRIVATE
+            ${CMAKE_SOURCE_DIR}/vendor/angle/include
+        )
+        # libANGLE is the top-level ANGLE library target that pulls in the full compiler/translators.
+        target_link_libraries(butterscotch-preprocessor angle::libANGLE)
     endif()
     if(MINGW)
         target_link_libraries(butterscotch-preprocessor m bz2)
