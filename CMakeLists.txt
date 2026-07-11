@@ -5,7 +5,7 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/ppu.cmake)
 endif()
 
 if(PLATFORM STREQUAL "xbox360-xdk")
-set(CMAKE_TOOLCHAIN_FILE vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake)
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_SOURCE_DIR}/vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake")
 endif()
 
 project(butterscotch C CXX)
@@ -244,6 +244,12 @@ endif()
 option(ENABLE_VM_EXCEPTIONS_LOGS "Enable VM Exceptions logs" OFF)
 if(ENABLE_VM_EXCEPTIONS_LOGS)
     add_compile_definitions(ENABLE_VM_EXCEPTIONS_LOGS)
+endif()
+
+option(ENABLE_ANGLE "Enable angle for shader translation for d3d9" OFF)
+if(ENABLE_ANGLE)
+	add_compile_definitions(ENABLE_ANGLE)
+	add_subdirectory(vendor/angle)
 endif()
 
 if(PLATFORM STREQUAL "desktop")
