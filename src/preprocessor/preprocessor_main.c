@@ -183,9 +183,12 @@ static void usage(const char* prog) {
         "Options:\n"
         "  -o, --output <dir>      Output directory (default: output)\n"
         "  --force-4bpp <regex>    Force images matching this POSIX regex to 4bpp. Repeatable.\n"
+        "  --force-translate-glsl-to-hlsl9  Force translation of GLSL ES shaders to HLSL9.\n"
         "  -h, --help              Show this help.\n",
         prog);
 }
+
+bool gForceTranslateGLSLESToHLSL9 = false; // global override for testing shader translation
 
 int main(int argc, char** argv) {
     const char* outputDir = "output";
@@ -206,6 +209,10 @@ int main(int argc, char** argv) {
         if (strcmp(a, "--force-4bpp") == 0) {
             if (i + 1 >= argc) { usage(argv[0]); return 1; }
             arrput(force4bppPatterns, argv[++i]);
+            continue;
+        }
+        if (strcmp(a, "--force-translate-glsl-to-hlsl9") == 0) {
+            gForceTranslateGLSLESToHLSL9 = true;
             continue;
         }
         if (a[0] == '-') {

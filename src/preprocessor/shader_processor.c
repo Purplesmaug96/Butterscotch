@@ -43,6 +43,8 @@ static void writeShaderEntry(ByteWriter* w, const char* name, bool isVertex, con
     }
 }
 
+extern bool gForceTranslateGLSLESToHLSL9; // global override for testing shader translation
+
 // Process all shaders from the DataWin SHDR chunk:
 // For each shader that has GLSL ES source but no HLSL9 source,
 // translate the GLSL ES source to HLSL9 using ANGLE.
@@ -92,7 +94,7 @@ uint8_t* ShaderProcessor_processShaders(
         const char* name = shdr->name ? shdr->name : "unnamed";
 
         // Process vertex shader
-        if (shdr->hlsl9_Vertex && shdr->hlsl9_Vertex[0]) {
+        if (!gForceTranslateGLSLESToHLSL9 && shdr->hlsl9_Vertex && shdr->hlsl9_Vertex[0]) {
             // Already has HLSL9 source, keep it
             writeShaderEntry(&w, name, true, shdr->hlsl9_Vertex);
             keptCount++;
@@ -137,7 +139,7 @@ uint8_t* ShaderProcessor_processShaders(
         }
 
         // Process fragment shader
-        if (shdr->hlsl9_Fragment && shdr->hlsl9_Fragment[0]) {
+        if (!gForceTranslateGLSLESToHLSL9 && shdr->hlsl9_Fragment && shdr->hlsl9_Fragment[0]) {
             writeShaderEntry(&w, name, false, shdr->hlsl9_Fragment);
             keptCount++;
         } else if (shdr->glslES_Fragment && shdr->glslES_Fragment[0]) {
