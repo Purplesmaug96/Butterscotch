@@ -181,14 +181,17 @@ static void usage(const char* prog) {
     fprintf(stderr,
         "Usage: %s [options] <data.win path>\n"
         "Options:\n"
-        "  -o, --output <dir>      Output directory (default: output)\n"
-        "  --force-4bpp <regex>    Force images matching this POSIX regex to 4bpp. Repeatable.\n"
+        "  -o, --output <dir>               Output directory (default: output)\n"
+        "  --force-4bpp <regex>             Force images matching this POSIX regex to 4bpp. Repeatable.\n"
+		"  --no-music                       Disable preprocessing of music."
         "  --force-translate-glsl-to-hlsl9  Force translation of GLSL ES shaders to HLSL9.\n"
-        "  -h, --help              Show this help.\n",
+        "  -h, --help                       Show this help.\n",
         prog);
 }
 
 bool gForceTranslateGLSLESToHLSL9 = false; // global override for testing shader translation
+bool gDisableMusic = false;
+
 
 int main(int argc, char** argv) {
     const char* outputDir = "output";
@@ -209,6 +212,10 @@ int main(int argc, char** argv) {
         if (strcmp(a, "--force-4bpp") == 0) {
             if (i + 1 >= argc) { usage(argv[0]); return 1; }
             arrput(force4bppPatterns, argv[++i]);
+            continue;
+        }
+		if (strcmp(a, "--no-music") == 0) {
+            gDisableMusic = true;
             continue;
         }
         if (strcmp(a, "--force-translate-glsl-to-hlsl9") == 0) {
@@ -253,7 +260,9 @@ int main(int argc, char** argv) {
 
     ExternalFile* musFiles = nullptr;
     size_t musFileCount = 0;
-    loadMusFiles(dataDir, &musFiles, &musFileCount);
+	if (!gDisableMusic) {
+    	loadMusFiles(dataDir, &musFiles, &musFileCount);
+	}
 
     ProcessingOptions opts = {
         .dataWinPath = dataWinPath,
