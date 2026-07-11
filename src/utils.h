@@ -21,7 +21,8 @@
 #endif
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 202311L)
-    #define TYPEOF(x) typeof(x)
+    // typeof_unqual explicitly strips const/volatile
+    #define TYPEOF(x) typeof_unqual(x)
 #elif defined(_MSC_VER) && defined(__cplusplus) && __cplusplus >= 201103L
     #define TYPEOF(x) std::remove_reference<decltype(x)>::type
 #elif defined(__GNUC__) || defined(__clang__) || \
