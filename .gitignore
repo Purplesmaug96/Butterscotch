@@ -13,3 +13,4 @@ CMakeUserPresets.json
 .devcontainer/
 compat/config.mk
 /.vs
+.vscode/
