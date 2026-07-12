@@ -16,9 +16,6 @@
 // This helper provides the same *data* services as ps3_textures.c
 // but in a way compatible with the D3D9 pipeline.
 
-// For now, we just decode TEXTURES.BIN pages to RGBA bytes (streaming from disk)
-// and expose them so the D3D9 renderer can upload.
-
 #define PAGE_HEADER_SIZE 12  // u16 w, u16 h, u32 pixelOffset, u32 pixelDataSize
 
 typedef struct {
@@ -38,15 +35,16 @@ static bool      gInitialized;
 static uint32_t  gTpagCount;
 
 static inline uint16_t readU16BE(const uint8_t* p) {
-    return (uint16_t) ((p[0] << 8) | p[1]);
+    return (uint16_t)((p[0] << 8) | p[1]);
 }
 
 static inline uint32_t readU32BE(const uint8_t* p) {
-    return ((uint32_t) p[0] << 24) |
-           ((uint32_t) p[1] << 16) |
-           ((uint32_t) p[2] << 8)  |
-            (uint32_t) p[3];
+    return ((uint32_t)p[0] << 24) |
+           ((uint32_t)p[1] << 16) |
+           ((uint32_t)p[2] << 8)  |
+           (uint32_t)p[3];
 }
+
 
 // Public API expected by the temporary integration code.
 // The D3D9 renderer will call these.

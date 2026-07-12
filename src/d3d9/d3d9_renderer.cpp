@@ -696,48 +696,65 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
 #ifdef PLATFORM_XBOX360_XDK
 static void flushBatch(D3D9Renderer* dr) {
-
-    if (dr->quadCount == 0) return;
+    // Cache quadCount locally to avoid multiple structure dereferences
+    const uint32_t quadCount = dr->quadCount;
+    if (quadCount == 0) return;
 
     IDirect3DDevice9* dev = Dev(dr);
-
-    // Determine which shaders to use based on current GML shader state
     Renderer* renderer = (Renderer*)dr;
-    if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
-        D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
+
+    // --- 1. Flatten Shader & Viewport State Selection ---
+    // Default to the base shaders to eliminate nested if/else branching
+    void* targetVS = dr->pVertexShader;
+    void* targetPS = dr->pPixelShader;
+    BOOL targetViewport = FALSE;
+
+    const int32_t currentShader = renderer->currentShader;
+    if (currentShader >= 0 && (uint32_t)currentShader < dr->gmlShaderCount) {
+        D3D9GMLShader* shader = &dr->gmlShaders[currentShader];
         if (shader->compiled) {
-            dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
-            dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
-            // GML shaders output clip-space coordinates, so enable viewport transform
-            dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
-        } else {
-            dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-            dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
-            dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
+            targetVS = shader->pVertexShader;
+            targetPS = shader->pPixelShader;
+            targetViewport = TRUE;
         }
-    } else {
-        dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-        dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
-        dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
     }
 
-    // Bind texture (skip redundant SetTexture calls)
-    void* desiredTex = NULL;
-    if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount && dr->textures[dr->currentTextureIndex]) {
-        desiredTex = dr->textures[dr->currentTextureIndex];
-    } else {
-        desiredTex = dr->whiteTexture;
+    // --- 2. Redundant State Elimination (Crucial for Xenon CPU) ---
+    // Note: Requires adding boundVertexShader, boundPixelShader, and
+    // boundViewportEnable to your D3D9Renderer struct tracking.
+    if (targetVS != dr->boundVertexShader) {
+        dev->SetVertexShader((IDirect3DVertexShader9*)targetVS);
+        dr->boundVertexShader = targetVS;
     }
-    if (dr->currentTextureIndex != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
+    if (targetPS != dr->boundPixelShader) {
+        dev->SetPixelShader((IDirect3DPixelShader9*)targetPS);
+        dr->boundPixelShader = targetPS;
+    }
+    if (targetViewport != dr->boundViewportEnable) {
+        dev->SetRenderState(D3DRS_VIEWPORTENABLE, targetViewport);
+        dr->boundViewportEnable = targetViewport;
+    }
+
+    // --- 3. Optimized Texture Resolution ---
+    void* desiredTex = dr->whiteTexture;
+    const int32_t currentTexIdx = dr->currentTextureIndex;
+
+    if (currentTexIdx >= 0 && (uint32_t)currentTexIdx < dr->textureCount) {
+        void* tex = dr->textures[currentTexIdx];
+        if (tex) {
+            desiredTex = tex;
+        }
+    }
+
+    if (currentTexIdx != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
         dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
-        dr->boundTextureIndex = dr->currentTextureIndex;
+        dr->boundTextureIndex = currentTexIdx;
         dr->boundTexturePtr = desiredTex;
     }
 
-    // Draw using DrawPrimitiveUP — simpler than managing a vertex buffer for 2D
-    // We use QUADLIST (Xbox 360 extension) — 4 verts per quad, no index buffer needed
-    dev->DrawPrimitiveUP(D3DPT_QUADLIST, dr->quadCount,
-                         dr->vertexData, sizeof(SpriteVertex));
+    // --- 4. Draw Call ---
+    // D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
+    dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
 
     dr->quadCount = 0;
 }
@@ -5128,7 +5145,6 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     dr->renderStateDirty = true;
 
     // Initialize surface arrays to empty
-
     dr->surfaces = NULL;
     dr->surfaceTexture = NULL;
     dr->surfaceWidth = NULL;
@@ -5141,6 +5157,13 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->dFactor = 0;
 	dr->sFactorAlpha = 0;
 	dr->dFactorAlpha = 0;
+
+	// Init ptrs to null
+	dr->boundVertexShader = NULL;
+	dr->boundPixelShader = NULL;
+
+	// -1 to init on first flushBatch
+	dr->boundViewportEnable = -1;
 
     return (Renderer*)dr;
 }

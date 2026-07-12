@@ -49,6 +49,14 @@ typedef struct {
     void* pPixelShader;
     void* pVertexDecl;
 
+	// Currently bound shaders
+	void* boundVertexShader;
+	void* boundPixelShader;
+
+	// Yes, it has to be an int.
+	// Gets set to -1 at startup so flushBatch flushes it on first call
+	int boundViewportEnable;
+
     // GML shader support
     D3D9GMLShader* defaultShaderProgram;
     D3D9GMLShader* gmlShaders;
