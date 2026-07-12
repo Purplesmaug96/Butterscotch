@@ -17,6 +17,8 @@
 #include <limits.h>
 #include <algorithm>
 
+#include <textures.h>
+
 // Threading strategy:
 // - Desktop/Windows: use std::thread/std::mutex/std::condition_variable
 // - Xbox 360 XDK: use Win32 API (where available in headers) and/or XTL/xtl threading primitives.
@@ -1452,6 +1454,38 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     if (ensureTexturePageLoadedAsync(dr, textureIndex)) {
         return true;
     }
+
+#ifdef PLATFORM_XBOX360_XDK
+    // Temporary TEXTURES.BIN fallback: if embedded TXTR payloads are missing,
+    // try streaming an uncompressed page from the Xbox360Textures backend.
+    // Only attempt for static pages (not dynamic renderer-created pages).
+    if ((uint32_t)textureIndex < dr->originalTexturePageCount) {
+        uint8_t* rgba = NULL;
+        int w = 0, h = 0;
+        if (Xbox360Textures_loadPage(textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
+            ensureTextureCacheRoom(dr);
+            IDirect3DDevice9* dev = Dev(dr);
+            IDirect3DTexture9* tex = NULL;
+            HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+            if (SUCCEEDED(hr) && tex) {
+                if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
+                    dr->textures[textureIndex] = tex;
+                    dr->textureWidths[textureIndex] = w;
+                    dr->textureHeights[textureIndex] = h;
+                    dr->textureBlobSizes[textureIndex] = (uint32_t)((uint64_t)w * (uint64_t)h * 4ull);
+                    dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
+                    dr->loadedTexturePages++;
+                    if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+                    stbi_image_free(rgba); // rgba comes from our backend via malloc; use free? -> stbi_image_free fallback
+                    return true;
+                }
+                tex->Release();
+            }
+            stbi_image_free(rgba);
+        }
+    }
+#endif
+
 
     // If async is in progress, process completed decodes (may upload our texture)
     if (dr->textureLoadState[textureIndex] == TEX_LOAD_QUEUED ||

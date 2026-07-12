@@ -26,6 +26,8 @@ extern "C" ULONG __cdecl DbgPrint(const char* format, ...);
 #include "d3d9_renderer.h"
 #include "shader_loader.h"
 
+#include <textures.h>
+
 #ifdef USE_XAUDIO2_AUDIO
 #include "xaudio2_audio.h"
 #elif USE_MINIAUDIO
@@ -1336,7 +1338,37 @@ VOID __cdecl main() {
 
     // ===[ Create Subsystems ]===
     diagLog("Butterscotch: (08) creating subsystems");
+
+
+	// Xbox 360 temporary D3D9-compatible texture streaming backend.
+	// Uses TEXTURES.BIN directly (separate from data.win) for TXTR/CLUT streaming.
+	// Transitional until the independent texture system is factored out.
+	{
+		char texturesBinPath[512];
+		const char* lastSlash = strrchr(dataWinPath, '\\');
+		if (!lastSlash) lastSlash = strrchr(dataWinPath, '/');
+		if (lastSlash) {
+			size_t dirLen = (size_t)(lastSlash - dataWinPath + 1);
+			if (dirLen < sizeof(texturesBinPath) - 16) {
+				memcpy(texturesBinPath, dataWinPath, dirLen);
+				strcpy(texturesBinPath + dirLen, "TEXTURES.BIN");
+			} else {
+				strcpy(texturesBinPath, "butterscotch:\\TEXTURES.BIN");
+			}
+		} else {
+			strcpy(texturesBinPath, "butterscotch:\\TEXTURES.BIN");
+		}
+
+		bool texturesOk = Xbox360Textures_init(texturesBinPath);
+		if (!texturesOk) {
+			diagLog("Butterscotch: WARNING: Xbox360Textures_init failed for %s", texturesBinPath);
+		} else {
+			diagLog("Butterscotch: Xbox360Textures_init ok (%s)", texturesBinPath);
+		}
+	}
+
 	char* dataWinDir = (char*)safeStrdup(dataWinPath);
+
 	char* lastSlash2 = (char*)strrchr(dataWinDir, '\\');
 	*lastSlash2 = '\0';
 
@@ -1700,6 +1732,9 @@ VOID __cdecl main() {
 
     // ===[ Cleanup ]===
     // Free subsystems in reverse creation order.
+    // Temporary streaming texture backend cleanup.
+    Xbox360Textures_free();
+
     // Destroy audio before Runner_free since runner owns the audioSystem pointer reference.
     if (runner->audioSystem) {
         runner->audioSystem->vtable->destroy(runner->audioSystem);
