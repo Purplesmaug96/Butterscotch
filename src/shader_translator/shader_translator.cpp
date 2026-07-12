@@ -9,27 +9,21 @@
 // the Xbox 360 (and potentially other D3D9/D3D11 platforms) by translating
 // the GLSL ES source that is always present in GameMaker games.
 //
-// Usage (preprocessor side):
-//   1. Extract glslES_Vertex / glslES_Fragment from the SHDR chunk
-//   2. Call ShaderTranslator_translateGLES2HLSL9() to get HLSL9 source
-//   3. Store the HLSL9 source with the shader data
-//
-// Usage (runtime side):
-//   On Xbox 360, the HLSL9 source is compiled with D3DXCompileShader
-//   just like native HLSL9 shaders.
+// ANGLE's standalone HLSL translator outputs placeholder markers like
+// "@@ VERTEX ATTRIBUTES @@" that are normally filled in by libANGLE's
+// D3D9 renderer. We post-process the output to replace these with
+// proper HLSL declarations suitable for GameMaker shaders.
 //
 
 #include "shader_translator.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
 // ANGLE includes
 #include "GLSLANG/ShaderLang.h"
 #include "angle_gl.h"
-
-// Simple wrapper to prevent including C++ headers in the C header
-// We use a static initializer approach.
 
 extern "C" {
 
@@ -47,6 +41,129 @@ void ShaderTranslator_shutdown(void) {
         sh::Finalize();
         g_translatorInitialized = false;
     }
+}
+
+// Post-process the translated HLSL source to replace ANGLE's placeholder
+// markers with proper HLSL declarations.
+//
+// ANGLE's standalone HLSL translator outputs:
+//   @@ VERTEX ATTRIBUTES @@  -> should be VS_INPUT struct
+//   @@ VERTEX OUTPUT @@      -> should be VS_OUTPUT or PS_INPUT struct
+//   @@ MAIN PROLOGUE @@      -> should copy input members to static variables
+//
+// For GameMaker shaders, the expected attributes/varyings are:
+//   in_Position (float3), in_Colour (float4), in_TextureCoord (float2)
+//   v_vTexcoord (float2), v_vColour (float4)
+static std::string postProcessHLSL(const std::string& code, bool isVertex) {
+    std::string result = code;
+
+    // Replace @@ VERTEX ATTRIBUTES @@ with VS_INPUT struct definition
+    // The static variables declared above tell us what attributes are used.
+    size_t pos = result.find("@@ VERTEX ATTRIBUTES @@");
+    if (pos != std::string::npos) {
+        // Build the VS_INPUT struct based on what static attributes are declared
+        std::string vertexAttrs =
+            "struct VS_INPUT\n"
+            "{\n";
+        
+        // Check which attributes are used by looking at the static declarations
+        if (result.find("_in_Position") != std::string::npos) {
+            vertexAttrs += "    float3 in_Position : POSITION;\n";
+        }
+        if (result.find("_in_Colour") != std::string::npos) {
+            vertexAttrs += "    float4 in_Colour : COLOR;\n";
+        }
+        if (result.find("_in_TextureCoord") != std::string::npos) {
+            vertexAttrs += "    float2 in_TextureCoord : TEXCOORD0;\n";
+        }
+        vertexAttrs += "};\n\n";
+        
+        result.replace(pos, strlen("@@ VERTEX ATTRIBUTES @@"), vertexAttrs);
+    }
+
+    // Replace @@ VERTEX OUTPUT @@ with output struct definition
+    pos = result.find("@@ VERTEX OUTPUT @@");
+    if (pos != std::string::npos) {
+        std::string vertexOutput;
+        if (isVertex) {
+            vertexOutput =
+                "struct VS_OUTPUT\n"
+                "{\n"
+                "    float4 gl_Position : POSITION;\n";
+            if (result.find("_v_vTexcoord") != std::string::npos) {
+                vertexOutput += "    float2 v_vTexcoord : TEXCOORD0;\n";
+            }
+            if (result.find("_v_vColour") != std::string::npos) {
+                vertexOutput += "    float4 v_vColour : TEXCOORD1;\n";
+            }
+            vertexOutput += "};\n\n";
+        } else {
+            vertexOutput =
+                "struct PS_INPUT\n"
+                "{\n";
+            if (result.find("_v_vTexcoord") != std::string::npos) {
+                vertexOutput += "    float2 v_vTexcoord : TEXCOORD0;\n";
+            }
+            if (result.find("_v_vColour") != std::string::npos) {
+                vertexOutput += "    float4 v_vColour : TEXCOORD1;\n";
+            }
+            vertexOutput += "};\n\n";
+        }
+        result.replace(pos, strlen("@@ VERTEX OUTPUT @@"), vertexOutput);
+    }
+
+    // Replace @@ MAIN PROLOGUE @@ with code that copies input to static variables
+    pos = result.find("@@ MAIN PROLOGUE @@");
+    if (pos != std::string::npos) {
+        std::string prologue;
+        if (isVertex) {
+            prologue = "    _in_Position = input.in_Position;\n"
+                       "    _in_Colour = input.in_Colour;\n"
+                       "    _in_TextureCoord = input.in_TextureCoord;\n";
+        } else {
+            prologue = "    _v_vTexcoord = input.v_vTexcoord;\n"
+                       "    _v_vColour = input.v_vColour;\n";
+        }
+        result.replace(pos, strlen("@@ MAIN PROLOGUE @@"), prologue);
+    }
+
+    // Fix the main function signature for vertex shaders
+    if (isVertex) {
+        // Replace "VS_OUTPUT main(VS_INPUT input)" if it was partially formed
+        pos = result.find("main(");
+        if (pos != std::string::npos) {
+            // Find the opening brace of main
+            size_t bracePos = result.find('{', pos);
+            if (bracePos != std::string::npos) {
+                // Replace the signature line
+                size_t lineStart = result.rfind('\n', pos);
+                if (lineStart == std::string::npos) lineStart = 0;
+                std::string before = result.substr(0, lineStart);
+                std::string after = result.substr(bracePos);
+                result = before + "\nVS_OUTPUT main(VS_INPUT input)\n" + after;
+            }
+        }
+    } else {
+        // Fix the main function signature for fragment shaders
+        pos = result.find("main(");
+        if (pos != std::string::npos) {
+            size_t bracePos = result.find('{', pos);
+            if (bracePos != std::string::npos) {
+                size_t lineStart = result.rfind('\n', pos);
+                if (lineStart == std::string::npos) lineStart = 0;
+                std::string before = result.substr(0, lineStart);
+                std::string after = result.substr(bracePos);
+                result = before + "\nfloat4 main(PS_INPUT input) : COLOR0\n" + after;
+            }
+        }
+    }
+
+    // Remove the static variable declarations since they're now in the struct
+    // But keep them if they're used as local variables in main
+    // Actually, the static variables are used by the translated code, so we need
+    // to keep them. The prologue copies from input to these statics.
+
+    return result;
 }
 
 // Translates GLSL ES source to the specified output format.
@@ -119,7 +236,9 @@ static char* translateGLES(
     if (compiled) {
         const std::string& code = sh::GetObjectCode(compiler);
         if (!code.empty()) {
-            result = strdup(code.c_str());
+            // Post-process to replace ANGLE placeholder markers
+            std::string processed = postProcessHLSL(code, isVertex);
+            result = strdup(processed.c_str());
         }
     }
 
@@ -151,9 +270,6 @@ bool ShaderTranslator_translateGLES2HLSL9(
         return true;
     }
 
-    // If HLSL 3.0 failed, try without some optimizations that may cause issues
-    // with complex shaders - re-init compiler with simpler options
-    // Actually, let's just return the failure
     if (outLen) *outLen = 0;
     return false;
 }
