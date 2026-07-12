@@ -329,7 +329,27 @@ static IDirect3DTexture9* loadingLoadPng(IDirect3DDevice9* dev, const char* path
     int w = 0;
     int h = 0;
     int channels = 0;
-    uint8_t* pixels = stbi_load(path, &w, &h, &channels, 4);
+	FILE* file = fopen(path, "rb");
+	uint8_t* pixels = nullptr;
+
+	if (file) {
+		fseek(file, 0, SEEK_END);
+		long buffer_size = ftell(file);
+		fseek(file, 0, SEEK_SET);
+
+		uint8_t* file_buffer = (uint8_t*)malloc(buffer_size);
+		if (file_buffer) {
+			size_t bytes_read = fread(file_buffer, 1, buffer_size, file);
+
+			if (bytes_read == (size_t)buffer_size) {
+				pixels = stbi_load_from_memory(file_buffer, (int)buffer_size, &w, &h, &channels, 4);
+			}
+
+			free(file_buffer);
+		}
+
+		fclose(file);
+	}
     if (!pixels) return NULL;
     IDirect3DTexture9* tex = loadingCreateTextureFromRgba(dev, pixels, w, h);
     stbi_image_free(pixels);
