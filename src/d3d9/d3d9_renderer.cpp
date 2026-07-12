@@ -1456,10 +1456,15 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     }
 
 #ifdef PLATFORM_XBOX360_XDK
-    // Temporary TEXTURES.BIN fallback: if embedded TXTR payloads are missing,
-    // try streaming an uncompressed page from the Xbox360Textures backend.
-    // Only attempt for static pages (not dynamic renderer-created pages).
-    if ((uint32_t)textureIndex < dr->originalTexturePageCount) {
+    // TEXTURES.BIN fallback for Xbox 360.
+    // IMPORTANT priority rule requested: TXTR/preprocessed/embedded content
+    // must take precedence. So we only attempt streaming from TEXTURES.BIN
+    // when the TXTR page has *not* produced a loaded GPU texture.
+    //
+    // This block is intentionally placed before the synchronous TXTR decode
+    // below, but is guarded by `dr->textures[textureIndex]` being NULL.
+    // (That is, we never override an already-resolved TXTR/processed texture.)
+    if ((uint32_t)textureIndex < dr->originalTexturePageCount && dr->textures[textureIndex] == NULL) {
         uint8_t* rgba = NULL;
         int w = 0, h = 0;
         if (Xbox360Textures_loadPage(textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
@@ -1476,15 +1481,17 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
                     dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
                     dr->loadedTexturePages++;
                     if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-                    stbi_image_free(rgba); // rgba comes from our backend via malloc; use free? -> stbi_image_free fallback
+                    free(rgba);
                     return true;
                 }
                 tex->Release();
             }
-            stbi_image_free(rgba);
+            free(rgba);
         }
     }
 #endif
+
+
 
 
     // If async is in progress, process completed decodes (may upload our texture)
