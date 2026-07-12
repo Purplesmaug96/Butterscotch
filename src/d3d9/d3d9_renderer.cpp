@@ -1467,11 +1467,6 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
         return true;
     }
 
-    // Try async first (non-blocking check)
-    if (ensureTexturePageLoadedAsync(dr, textureIndex)) {
-        return true;
-    }
-
 #ifdef PLATFORM_XBOX360_XDK
     // TEXTURES.BIN fallback for Xbox 360.
     // IMPORTANT priority rule requested: TXTR/preprocessed/embedded content
@@ -1507,9 +1502,6 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
         }
     }
 #endif
-
-
-
 
     // If async is in progress, process completed decodes (may upload our texture)
     if (dr->textureLoadState[textureIndex] == TEX_LOAD_QUEUED ||
@@ -1554,7 +1546,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     return ok;
 }
 
-extern "C" bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
+extern "C" bool D3D9Renderer_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 	return ensureTexturePageLoaded(dr, textureIndex);
 }
 

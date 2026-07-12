@@ -189,4 +189,4 @@ Renderer* D3D9Renderer_create(void* pd3dDevice);
 #ifdef __cplusplus
 extern "C"
 #endif
-bool D3D9_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex);
+bool D3D9Renderer_ensureTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex);

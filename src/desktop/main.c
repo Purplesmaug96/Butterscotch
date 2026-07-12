@@ -1505,7 +1505,7 @@ int main(int argc, char* argv[]) {
 #endif
 #ifdef ENABLE_D3D9
                 if (gfx == D3D9)
-                    D3D9_ensureTextureLoaded((D3D9Renderer*) renderer, (int32_t) i);
+                    D3D9Renderer_ensureTextureLoaded((D3D9Renderer*) renderer, (int32_t) i);
 #endif
             }
         }
