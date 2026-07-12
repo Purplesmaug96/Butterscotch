@@ -3629,6 +3629,8 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
             return;
     }
 
+    flushBatch(dr);
+
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
     dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
     dev->SetRenderState(D3DRS_BLENDOP, blendOp);
