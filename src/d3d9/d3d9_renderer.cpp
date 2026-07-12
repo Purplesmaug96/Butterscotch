@@ -1503,6 +1503,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     }
 #endif
 
+    async_loop:
     // If async is in progress, process completed decodes (may upload our texture)
     if (dr->textureLoadState[textureIndex] == TEX_LOAD_QUEUED ||
         dr->textureLoadState[textureIndex] == TEX_LOAD_DECODED ||
@@ -1512,7 +1513,8 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
             if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
             return true;
         }
-        return false;
+        goto async_loop;
+        // return false;
     }
 
     // Fall back to synchronous decode for external textures
@@ -3642,8 +3644,6 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
     dr->dFactorAlpha = dFactorAlpha;
 
 }
-
-
 
 static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
