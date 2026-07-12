@@ -20,7 +20,7 @@
 #define D3D9_MAX_SHADER_UNIFORMS 64
 
 // Shaders
-// #define D3D9_DISABLE_SHADERS
+#define D3D9_DISABLE_SHADERS
 
 typedef struct {
     char* name; // owned
