@@ -9,25 +9,25 @@
 #define XAUDIO2_AUDIO_STREAM_INDEX_BASE 300000
 
 typedef struct {
-    bool active;
-    char* filePath; // resolved file path (owned, freed on destroy)
-    float initialGain;
-    float initialPitch;
+	bool active;
+	char* filePath; // resolved file path (owned, freed on destroy)
+	float initialGain;
+	float initialPitch;
 } AudioStreamEntry;
 
 typedef struct {
-    AudioSystem base;
+	AudioSystem base;
 
-    void* pXAudio2;         // IXAudio2*
-    void* pMasterVoice;     // IXAudio2MasteringVoice*
-    float masterGain;
-    bool initialized;
+	void* pXAudio2;		// IXAudio2*
+	void* pMasterVoice; // IXAudio2MasteringVoice*
+	float masterGain;
+	bool initialized;
 
-    FileSystem* fileSystem; // for loading external audio files
+	FileSystem* fileSystem; // for loading external audio files
 
-    // Sound instance tracking (managed in C++ implementation)
-    void* instanceData;     // opaque pointer to C++ instance array
-    int nextInstanceCounter;
+	// Sound instance tracking (managed in C++ implementation)
+	void* instanceData; // opaque pointer to C++ instance array
+	int nextInstanceCounter;
 
 	AudioStreamEntry streams[XAUDIO2_MAX_AUDIO_STREAMS];
 } XAudio2AudioSystem;

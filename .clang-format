@@ -1,0 +1,60 @@
+---
+# Base LLVM style
+BasedOnStyle: LLVM
+
+# Prevent breaking of struct initializer lists
+BinPackArguments: true
+AllowAllArgumentsOnNextLine: false
+BinPackParameters: true
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# Force braces for initializer lists on their own line
+BreakBeforeBraces: Attach
+BraceWrapping:
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+
+# Force braces around control statements
+InsertBraces: true
+AllowShortIfStatementsOnASingleLine: Never
+
+# Control struct initializer formatting
+Cpp11BracedListStyle: false
+AlignAfterOpenBracket: Align
+AllowShortBlocksOnASingleLine: Empty
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+PackConstructorInitializers: NextLine
+
+# Use tabs for indentation
+UseTab: Always
+
+# Indentation and column limit
+ColumnLimit: 0
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+
+# Ptr alignment
+PointerAlignment: Left
+
+# Gaps things
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# No sorting includes
+SortIncludes: false
