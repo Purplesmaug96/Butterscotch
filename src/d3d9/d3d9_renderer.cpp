@@ -56,7 +56,6 @@ extern "C" {
 // Xbox 360 XDK Hardware Mappings
 #define D3DFMT_LIN_A8R8G8B8 D3DFMT_A8R8G8B8
 #define D3DRESOLVE_RENDERTARGET0 0
-#define D3DRS_VIEWPORTENABLE     (D3DRENDERSTATETYPE)255 // Dummy ID to bypass compiler
 
 // Legacy Windows D3DX Library Stubs
 #define D3DX_FILTER_POINT 1
@@ -67,8 +66,8 @@ struct ID3DXBuffer {
     virtual void* GetBufferPointer() = 0;
     virtual DWORD GetBufferSize() = 0;
 };
-inline HRESULT D3DXCompileShader(const char*, UINT, void*, void*, const char*, const char*, DWORD, ID3DXBuffer**, ID3DXBuffer**, void*) { return S_OK; }
-inline HRESULT D3DXLoadSurfaceFromSurface(void*, void*, void*, void*, void*, void*, DWORD, DWORD) { return S_OK; }
+inline HRESULT D3DXCompileShader(const char*, UINT, void*, void*, const char*, const char*, DWORD, ID3DXBuffer**, ID3DXBuffer**, void*) { return E_FAIL; }
+inline HRESULT D3DXLoadSurfaceFromSurface(void*, void*, void*, void*, void*, void*, DWORD, DWORD) { return E_FAIL; }
 
 static int32_t _gGameW;
 static int32_t _gGameH;
@@ -258,7 +257,7 @@ void setViewportEnable(D3D9Renderer* dr, bool enableViewport) {
 	}
 }
 #else
-static inline void setViewportEnable(MAYBE_UNUSED D3D9Renderer* dr, bool enableViewport) {}
+static inline void setViewportEnable(MAYBE_UNUSED D3D9Renderer* dr, MAYBE_UNUSED bool enableViewport) {}
 #endif
 
 static void d3d9DiagOnce(bool* flag, const char* fmt, ...) {
