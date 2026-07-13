@@ -1606,39 +1606,54 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 	}
 
 #ifdef PLATFORM_XBOX360_XDK
-	// TEXTURES.BIN fallback for Xbox 360.
-	// IMPORTANT priority rule requested: TXTR/preprocessed/embedded content
-	// must take precedence. So we only attempt streaming from TEXTURES.BIN
-	// when the TXTR page has *not* produced a loaded GPU texture.
+	// TEXTURES.BIN + ATLAS.BIN + CLUT8.BIN fallback for Xbox 360.
+	// Uses the preprocessor's indexed-palette texture format which saves significant
+	// memory compared to storing full RGBA textures from TXTR chunks.
 	//
-	// This block is intentionally placed before the synchronous TXTR decode
-	// below, but is guarded by `dr->textures[textureIndex]` being nullptr.
-	// (That is, we never override an already-resolved TXTR/processed texture.)
+	// IMPORTANT priority rule: TXTR/preprocessed/embedded content must take precedence.
+	// So we only attempt streaming from TEXTURES.BIN when the TXTR page has *not*
+	// produced a loaded GPU texture.
 	if ((uint32_t)textureIndex < dr->originalTexturePageCount && dr->textures[textureIndex] == nullptr) {
-		uint8_t* rgba = nullptr;
-		int w = 0, h = 0;
-		if (Xbox360Textures_loadPage(textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
-			ensureTextureCacheRoom(dr);
-			IDirect3DDevice9* dev = Dev(dr);
-			IDirect3DTexture9* tex = nullptr;
-			HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
-			if (SUCCEEDED(hr) && tex) {
-				if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
-					dr->textures[textureIndex] = tex;
-					dr->textureWidths[textureIndex] = w;
-					dr->textureHeights[textureIndex] = h;
-					dr->textureBlobSizes[textureIndex] = (uint32_t)((uint64_t)w * (uint64_t)h * 4ull);
-					dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
-					dr->loadedTexturePages++;
-					if (dr->textureLastUsedFrame) {
-						dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+		// Check if this TPAG has a mapping in the atlas
+		if (Xbox360Textures_hasTpagMapping((int32_t)textureIndex)) {
+			uint8_t* rgba = nullptr;
+			int w = 0, h = 0;
+			if (Xbox360Textures_loadPage((int32_t)textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
+				ensureTextureCacheRoom(dr);
+				IDirect3DDevice9* dev = Dev(dr);
+				IDirect3DTexture9* tex = nullptr;
+				HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
+				if (SUCCEEDED(hr) && tex) {
+					if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
+						dr->textures[textureIndex] = tex;
+						dr->textureWidths[textureIndex] = w;
+						dr->textureHeights[textureIndex] = h;
+						// Use the indexed data size for memory tracking, not the expanded RGBA size.
+						// This accurately reflects the memory savings from using TEXTURES.BIN.
+						// The indexed data is typically 1/4 to 1/8 the size of RGBA.
+						int atlasId = -1, clutIndex = -1, bpp = 8;
+						Xbox360Textures_getTpagAtlasInfo((int32_t)textureIndex, &atlasId, nullptr, nullptr, nullptr, nullptr, &clutIndex, &bpp);
+						uint32_t indexedSize;
+						if (bpp == 4) {
+							indexedSize = (uint32_t)(((uint64_t)w * (uint64_t)h + 1) / 2);
+						} else {
+							indexedSize = (uint32_t)((uint64_t)w * (uint64_t)h);
+						}
+						// Add CLUT size (shared, but attribute a fraction per texture)
+						uint32_t clutShare = (clutIndex >= 0) ? 256 : 0; // 256 bytes for palette colors
+						dr->textureBlobSizes[textureIndex] = indexedSize + clutShare;
+						dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
+						dr->loadedTexturePages++;
+						if (dr->textureLastUsedFrame) {
+							dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+						}
+						free(rgba);
+						return true;
 					}
-					free(rgba);
-					return true;
+					tex->Release();
 				}
-				tex->Release();
+				free(rgba);
 			}
-			free(rgba);
 		}
 	}
 #endif

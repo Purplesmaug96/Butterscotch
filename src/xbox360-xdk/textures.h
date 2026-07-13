@@ -4,25 +4,33 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Loader for the Xbox360 textures.bin bundle produced by ButterscotchPreprocessor.
+// Loader for the Xbox360 textures.bin/atlas.bin/clut bundles produced by ButterscotchPreprocessor.
+// This replaces the old TXTR-based texture loading with indexed palette-based textures,
+// saving significant memory compared to storing full RGBA textures.
 
-bool Xbox360Textures_init(const char* texturesBinPath);
+bool Xbox360Textures_init(const char* texturesBinPath, const char* atlasBinPath, const char* clut8Path);
 void Xbox360Textures_free();
 
-// Total number of texture pages from the textures.bin file.
+// Total number of texture pages from data.win (original TXTR count).
 uint32_t Xbox360Textures_getPageCount();
 
-// Reads a page's 8bpp index data from disk into a freshly allocated buffer.
-// Caller MUST free *outPixels with free() after uploading to the GPU.
+// Returns true if a TPAG index has a valid atlas entry.
+bool Xbox360Textures_hasTpagMapping(int32_t tpagIndex);
+
+// Get the atlas ID, position, and CLUT index for a given TPAG.
+bool Xbox360Textures_getTpagAtlasInfo(int32_t tpagIndex, int* outAtlasId, int* outAtlasX, int* outAtlasY,
+                                       int* outWidth, int* outHeight, int* outClutIndex, int* outBpp);
+
+// Loads an atlas page's indexed pixel data and expands it to RGBA using the CLUT.
+// The caller MUST free *outPixels with free() after uploading to the GPU.
 // Returns false if the page is missing/empty.
-bool Xbox360Textures_loadPage(uint32_t pageId, int* outW, int* outH, uint8_t** outPixels);
+bool Xbox360Textures_loadPage(int32_t tpagIndex, int* outW, int* outH, uint8_t** outPixels);
 
-// The shared CLUT atlas as a GL_RGBA texture. Bind on TEXUNIT1 when drawing.
-// Returns 0 if not initialized.
-bool Xbox360Textures_getClutTexture();
+// Load an atlas by its atlas ID (for direct atlas usage, e.g. tiles).
+// The caller MUST free *outPixels with free() after uploading to the GPU.
+bool Xbox360Textures_loadAtlasById(int atlasId, int* outW, int* outH, uint8_t** outPixels);
 
-// Pre-normalized V coordinate (row center) for the CLUT belonging to a given
-// TPAG. Returns -1.0f if the TPAG is unmapped (no pixels) or out of range.
-float Xbox360Textures_getTpagPaletteV(int32_t tpagIndex);
+// Get the number of atlas pages available.
+uint32_t Xbox360Textures_getAtlasCount();
 
 #endif /* _BS_TEXTURES_H_ */

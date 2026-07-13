@@ -1481,32 +1481,41 @@ VOID __cdecl main() {
 		// ===[ Create Subsystems ]===
 		diagLog("Butterscotch: (08) creating subsystems");
 
-		// Xbox 360 temporary D3D9-compatible texture streaming backend.
-		// Uses TEXTURES.BIN directly (separate from data.win) for TXTR/CLUT streaming.
-		// Transitional until the independent texture system is factored out.
+		// Xbox 360 texture streaming backend using preprocessor's TEXTURES.BIN / ATLAS.BIN / CLUT8.BIN format.
+		// This loads indexed-palette textures that save ~4-8x memory compared to storing full RGBA TXTR pages.
 		{
+			char texturesDir[512];
 			char texturesBinPath[512];
+			char atlasBinPath[512];
+			char clut8Path[512];
 			const char* lastSlash = strrchr(dataWinPath, '\\');
 			if (!lastSlash) {
 				lastSlash = strrchr(dataWinPath, '/');
 			}
 			if (lastSlash) {
 				size_t dirLen = (size_t)(lastSlash - dataWinPath + 1);
-				if (dirLen < sizeof(texturesBinPath) - 16) {
-					memcpy(texturesBinPath, dataWinPath, dirLen);
-					strcpy(texturesBinPath + dirLen, "TEXTURES.BIN");
+				if (dirLen < sizeof(texturesDir) - 1) {
+					memcpy(texturesDir, dataWinPath, dirLen);
 				} else {
-					strcpy(texturesBinPath, "butterscotch:\\TEXTURES.BIN");
+					strcpy(texturesDir, "butterscotch:\\");
 				}
 			} else {
-				strcpy(texturesBinPath, "butterscotch:\\TEXTURES.BIN");
+				strcpy(texturesDir, "butterscotch:\\");
 			}
+			// Ensure null terminator
+			texturesDir[sizeof(texturesDir) - 1] = '\0';
+			_snprintf(texturesBinPath, sizeof(texturesBinPath), "%sTEXTURES.BIN", texturesDir);
+			_snprintf(atlasBinPath, sizeof(atlasBinPath), "%sATLAS.BIN", texturesDir);
+			_snprintf(clut8Path, sizeof(clut8Path), "%sCLUT8.BIN", texturesDir);
+			texturesBinPath[sizeof(texturesBinPath) - 1] = '\0';
+			atlasBinPath[sizeof(atlasBinPath) - 1] = '\0';
+			clut8Path[sizeof(clut8Path) - 1] = '\0';
 
-			bool texturesOk = Xbox360Textures_init(texturesBinPath);
+			bool texturesOk = Xbox360Textures_init(texturesBinPath, atlasBinPath, clut8Path);
 			if (!texturesOk) {
-				diagLog("Butterscotch: WARNING: Xbox360Textures_init failed for %s", texturesBinPath);
+				diagLog("Butterscotch: WARNING: Xbox360Textures_init failed (TEXTURES.BIN/ATLAS.BIN/CLUT8.BIN not found)");
 			} else {
-				diagLog("Butterscotch: Xbox360Textures_init ok (%s)", texturesBinPath);
+				diagLog("Butterscotch: Xbox360Textures_init ok (TEXTURES.BIN, ATLAS.BIN, CLUT8.BIN)");
 			}
 		}
 
