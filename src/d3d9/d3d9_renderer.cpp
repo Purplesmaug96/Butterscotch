@@ -231,8 +231,21 @@ static inline float texelEnd(float pos, float size, float textureSize) {
     return (pos + size - 0.5f) / textureSize;
 }
 
-static inline IDirect3DDevice9* Dev(D3D9Renderer* r) {
-    return (IDirect3DDevice9*)r->pd3dDevice;
+static inline IDirect3DDevice9* Dev(D3D9Renderer* dr) {
+    return (IDirect3DDevice9*)dr->pd3dDevice;
+}
+
+void setShaders(D3D9Renderer* dr, void* pVertexShader, void* pPixelShader) {
+	IDirect3DDevice9* dev = Dev(dr);
+
+	if (pVertexShader != dr->boundVertexShader) {
+        dev->SetVertexShader((IDirect3DVertexShader9*)pVertexShader);
+        dr->boundVertexShader = pVertexShader;
+    }
+    if (pPixelShader != dr->boundPixelShader) {
+        dev->SetPixelShader((IDirect3DPixelShader9*)pPixelShader);
+        dr->boundPixelShader = pPixelShader;
+    }
 }
 
 static void d3d9DiagOnce(bool* flag, const char* fmt, ...) {
@@ -419,8 +432,7 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 
     // Set shared render state that should only be applied once per frame
     // (unless something else dirties it).
-    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+    setShaders(dr, dr->pVertexShader, dr->pPixelShader);
     dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
     // Set the uHalfRes uniform for the default vertex shader
@@ -691,7 +703,6 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 #endif
 }
 
-
 // ===[ Batch Flush ]===
 
 #ifdef PLATFORM_XBOX360_XDK
@@ -703,7 +714,6 @@ static void flushBatch(D3D9Renderer* dr) {
     IDirect3DDevice9* dev = Dev(dr);
     Renderer* renderer = (Renderer*)dr;
 
-    // --- 1. Flatten Shader & Viewport State Selection ---
     // Default to the base shaders to eliminate nested if/else branching
     void* targetVS = dr->pVertexShader;
     void* targetPS = dr->pPixelShader;
@@ -719,23 +729,14 @@ static void flushBatch(D3D9Renderer* dr) {
         }
     }
 
-    // --- 2. Redundant State Elimination (Crucial for Xenon CPU) ---
     // Note: Requires adding boundVertexShader, boundPixelShader, and
     // boundViewportEnable to your D3D9Renderer struct tracking.
-    if (targetVS != dr->boundVertexShader) {
-        dev->SetVertexShader((IDirect3DVertexShader9*)targetVS);
-        dr->boundVertexShader = targetVS;
-    }
-    if (targetPS != dr->boundPixelShader) {
-        dev->SetPixelShader((IDirect3DPixelShader9*)targetPS);
-        dr->boundPixelShader = targetPS;
-    }
+    setShaders(dr, targetVS, targetPS);
     if (targetViewport != dr->boundViewportEnable) {
         dev->SetRenderState(D3DRS_VIEWPORTENABLE, targetViewport);
         dr->boundViewportEnable = targetViewport;
     }
 
-    // --- 3. Optimized Texture Resolution ---
     void* desiredTex = dr->whiteTexture;
     const int32_t currentTexIdx = dr->currentTextureIndex;
 
@@ -752,7 +753,6 @@ static void flushBatch(D3D9Renderer* dr) {
         dr->boundTexturePtr = desiredTex;
     }
 
-    // --- 4. Draw Call ---
     // D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
     dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
 
@@ -4544,8 +4544,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 
     flushBatch(dr);
     IDirect3DDevice9* dev = Dev(dr);
-    dev->SetVertexShader((IDirect3DVertexShader9*)shader->pVertexShader);
-    dev->SetPixelShader((IDirect3DPixelShader9*)shader->pPixelShader);
+	setShaders(dr, shader->pVertexShader, shader->pPixelShader);
 
     // GML shaders output clip-space coordinates (-1 to 1), so we need the
     // viewport transform enabled on Xbox 360. The default pass-through shader
@@ -4573,9 +4572,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 static void d3d9GpuResetShader(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
     flushBatch(dr);
-    IDirect3DDevice9* dev = Dev(dr);
-    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+    setShaders(dr, dr->pVertexShader, dr->pPixelShader);
 
     dr->renderStateDirty = true;
 
