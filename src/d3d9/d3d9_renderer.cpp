@@ -248,6 +248,19 @@ void setShaders(D3D9Renderer* dr, void* pVertexShader, void* pPixelShader) {
     }
 }
 
+// D3DRS_VIEWPORTENABLE is a 360-only extension, so this function is simply a no-op on desktop
+#ifdef PLATFORM_XBOX360_XDK
+void setViewportEnable(D3D9Renderer* dr, bool enableViewport) {
+	IDirect3DDevice9* dev = Dev(dr);
+	if (enableViewport != dr->boundViewportEnable) {
+		dev->SetRenderState(D3DRS_VIEWPORTENABLE, enableViewport);
+		dr->boundViewportEnable = enableViewport;
+	}
+}
+#else
+static inline void setViewportEnable(MAYBE_UNUSED D3D9Renderer* dr, bool enableViewport) {}
+#endif
+
 static void d3d9DiagOnce(bool* flag, const char* fmt, ...) {
     if (*flag) return;
     *flag = true;
@@ -449,9 +462,6 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
     // No depth testing for 2D
     dev->SetRenderState(D3DRS_ZENABLE, FALSE);
     dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-
-    // Disable viewport transform — we use pre-transformed screen-space vertices
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
 
     // Point filtering
     applyPointSampling(dev);
@@ -717,7 +727,7 @@ static void flushBatch(D3D9Renderer* dr) {
     // Default to the base shaders to eliminate nested if/else branching
     void* targetVS = dr->pVertexShader;
     void* targetPS = dr->pPixelShader;
-    BOOL targetViewport = FALSE;
+    bool targetViewport = false;
 
     const int32_t currentShader = renderer->currentShader;
     if (currentShader >= 0 && (uint32_t)currentShader < dr->gmlShaderCount) {
@@ -725,17 +735,12 @@ static void flushBatch(D3D9Renderer* dr) {
         if (shader->compiled) {
             targetVS = shader->pVertexShader;
             targetPS = shader->pPixelShader;
-            targetViewport = TRUE;
+            targetViewport = true;
         }
     }
 
-    // Note: Requires adding boundVertexShader, boundPixelShader, and
-    // boundViewportEnable to your D3D9Renderer struct tracking.
     setShaders(dr, targetVS, targetPS);
-    if (targetViewport != dr->boundViewportEnable) {
-        dev->SetRenderState(D3DRS_VIEWPORTENABLE, targetViewport);
-        dr->boundViewportEnable = targetViewport;
-    }
+    setViewportEnable(dr, targetViewport);
 
     void* desiredTex = dr->whiteTexture;
     const int32_t currentTexIdx = dr->currentTextureIndex;
@@ -2118,6 +2123,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
+	// Dont use setViewportEnable here because dr->boundViewportEnable should already be set to true by D3D9Renderer_create, so it wouldnt do anything
+	dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
 
     // Allocate CPU vertex staging buffer
     dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
@@ -4549,9 +4556,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
     // GML shaders output clip-space coordinates (-1 to 1), so we need the
     // viewport transform enabled on Xbox 360. The default pass-through shader
     // uses D3DRS_VIEWPORTENABLE=FALSE for direct pixel mapping.
-    #ifdef PLATFORM_XBOX360_XDK
-    dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
-    #endif
+    setViewportEnable(true);
 
     // Set built-in uniforms
     D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
@@ -5151,8 +5156,9 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->boundVertexShader = NULL;
 	dr->boundPixelShader = NULL;
 
-	// -1 to init on first flushBatch
-	dr->boundViewportEnable = -1;
+	#ifdef PLATFORM_XBOX360_XDK
+	dr->boundViewportEnable = true;
+	#endif
 
     return (Renderer*)dr;
 }

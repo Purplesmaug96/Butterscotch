@@ -53,9 +53,10 @@ typedef struct {
 	void* boundVertexShader;
 	void* boundPixelShader;
 
-	// Yes, it has to be an int.
-	// Gets set to -1 at startup so flushBatch flushes it on first call
-	int boundViewportEnable;
+	// Only used on 360
+	#ifdef PLATFORM_XBOX360_XDK
+	bool boundViewportEnable;
+	#endif
 
     // GML shader support
     D3D9GMLShader* defaultShaderProgram;
