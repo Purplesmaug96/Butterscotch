@@ -371,15 +371,15 @@ static void setApplicationSurfaceTransform(D3D9Renderer* dr) {
 static void releaseApplicationSurface(D3D9Renderer* dr) {
     if (dr->appSurfaceLevel) {
         ((IDirect3DSurface9*)dr->appSurfaceLevel)->Release();
-        dr->appSurfaceLevel = NULL;
+        dr->appSurfaceLevel = nullptr;
     }
     if (dr->appRenderTexture) {
         ((IDirect3DTexture9*)dr->appRenderTexture)->Release();
-        dr->appRenderTexture = NULL;
+        dr->appRenderTexture = nullptr;
     }
     if (dr->appSurfaceTexture) {
         ((IDirect3DTexture9*)dr->appSurfaceTexture)->Release();
-        dr->appSurfaceTexture = NULL;
+        dr->appSurfaceTexture = nullptr;
     }
     dr->appSurfaceW = 0;
     dr->appSurfaceH = 0;
@@ -390,7 +390,7 @@ static void releaseApplicationSurface(D3D9Renderer* dr) {
 
 static bool bindBackbuffer(D3D9Renderer* dr) {
     IDirect3DDevice9* dev = Dev(dr);
-    IDirect3DSurface9* backbuffer = NULL;
+    IDirect3DSurface9* backbuffer = nullptr;
     HRESULT hr = dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
     if (FAILED(hr) || !backbuffer) {
         Butterscotch_xdkDiagTrace("D3D9: GetBackBuffer failed hr=0x%08X", (unsigned)hr);
@@ -411,9 +411,9 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
 
 	#ifdef PLATFORM_XBOX360_XDK
 	IDirect3DDevice9* dev = Dev(dr);
-    dev->Resolve(D3DRESOLVE_RENDERTARGET0, NULL,
+    dev->Resolve(D3DRESOLVE_RENDERTARGET0, nullptr,
                  (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
-                 NULL, 0, 0, NULL, 1.0f, 0, NULL);
+                 nullptr, 0, 0, nullptr, 1.0f, 0, nullptr);
 	#endif
 
     dr->appSurfaceResolved = true;
@@ -532,7 +532,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 #ifdef PLATFORM_XBOX360_XDK
     // NOTE: This renderer function is called on the render thread only.
     // It is therefore safe to cache/reuse a single staging allocation.
-    static IDirect3DTexture9* sStagingTex = NULL;
+    static IDirect3DTexture9* sStagingTex = nullptr;
     static int32_t sStagingW = 0;
     static int32_t sStagingH = 0;
 
@@ -548,11 +548,11 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     if (!sStagingTex || sStagingW != targetW || sStagingH != targetH) {
         if (sStagingTex) {
             sStagingTex->Release();
-            sStagingTex = NULL;
+            sStagingTex = nullptr;
         }
 
         HRESULT hrCreate = dev->CreateTexture((UINT)targetW, (UINT)targetH, 1, 0,
-                                               D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sStagingTex, NULL);
+                                               D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sStagingTex, nullptr);
         if (FAILED(hrCreate) || !sStagingTex) return false;
         sStagingW = targetW;
         sStagingH = targetH;
@@ -560,7 +560,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
     // Fill the cached staging texture.
     D3DLOCKED_RECT lr;
-    hr = sStagingTex->LockRect(0, &lr, NULL, 0);
+    hr = sStagingTex->LockRect(0, &lr, nullptr, 0);
     if (FAILED(hr)) return false;
 
     // Clear only the active rows we will write to.
@@ -633,8 +633,8 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
     sStagingTex->UnlockRect(0);
 
-    IDirect3DSurface9* stagingSurf = NULL;
-    IDirect3DSurface9* dstSurf = NULL;
+    IDirect3DSurface9* stagingSurf = nullptr;
+    IDirect3DSurface9* dstSurf = nullptr;
 
     hr = sStagingTex->GetSurfaceLevel(0, &stagingSurf);
     if (FAILED(hr) || !stagingSurf) {
@@ -649,8 +649,8 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
     RECT srcRect = { 0, 0, w, h };
     RECT dstRect = { 0, 0, w, h };
-    hr = D3DXLoadSurfaceFromSurface(dstSurf, NULL, &dstRect,
-                                     stagingSurf, NULL, &srcRect,
+    hr = D3DXLoadSurfaceFromSurface(dstSurf, nullptr, &dstRect,
+                                     stagingSurf, nullptr, &srcRect,
                                      D3DX_FILTER_POINT, 0);
 
     dstSurf->Release();
@@ -663,14 +663,14 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     HRESULT hr = dstTex->GetLevelDesc(0, &desc);
     if (FAILED(hr)) return false;
 
-    IDirect3DTexture9* stagingTex = NULL;
-    HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, NULL);
+    IDirect3DTexture9* stagingTex = nullptr;
+    HRESULT hrCreate = dev->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &stagingTex, nullptr);
     if (FAILED(hrCreate) || !stagingTex) {
         return false;
     }
 
     D3DLOCKED_RECT lr;
-    hr = stagingTex->LockRect(0, &lr, NULL, 0);
+    hr = stagingTex->LockRect(0, &lr, nullptr, 0);
     if (FAILED(hr)) {
         stagingTex->Release();
         return false;
@@ -692,8 +692,8 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
     stagingTex->UnlockRect(0);
 
-    IDirect3DSurface9* stagingSurf = NULL;
-    IDirect3DSurface9* dstSurf = NULL;
+    IDirect3DSurface9* stagingSurf = nullptr;
+    IDirect3DSurface9* dstSurf = nullptr;
     hr = stagingTex->GetSurfaceLevel(0, &stagingSurf);
     if (SUCCEEDED(hr)) {
         hr = dstTex->GetSurfaceLevel(0, &dstSurf);
@@ -701,8 +701,8 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
     if (SUCCEEDED(hr)) {
         RECT srcRect = { 0, 0, w, h };
         RECT dstRect = { 0, 0, w, h };
-        hr = D3DXLoadSurfaceFromSurface(dstSurf, NULL, &dstRect,
-                                         stagingSurf, NULL, &srcRect,
+        hr = D3DXLoadSurfaceFromSurface(dstSurf, nullptr, &dstRect,
+                                         stagingSurf, nullptr, &srcRect,
                                          D3DX_FILTER_POINT, 0);
     }
 
@@ -764,7 +764,7 @@ static void flushBatch(D3D9Renderer* dr) {
     dr->quadCount = 0;
 }
 #else
-IDirect3DVertexDeclaration9* g_pVertexDecl = NULL;
+IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
 static void flushBatch(D3D9Renderer* dr) {
     if (dr->quadCount == 0) return;
 
@@ -795,7 +795,7 @@ static void flushBatch(D3D9Renderer* dr) {
     }
 
     // Bind texture (skip redundant SetTexture calls)
-    void* desiredTex = NULL;
+    void* desiredTex = nullptr;
     if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
         desiredTex = dr->textures[dr->currentTextureIndex];
     }
@@ -859,7 +859,7 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
     // to texturePendingRGBA when it completes).
     if (dr->texturePendingRGBA && dr->texturePendingRGBA[index]) {
         stbi_image_free(dr->texturePendingRGBA[index]);
-        dr->texturePendingRGBA[index] = NULL;
+        dr->texturePendingRGBA[index] = nullptr;
     }
     if (dr->texturePendingW) dr->texturePendingW[index] = 0;
     if (dr->texturePendingH) dr->texturePendingH[index] = 0;
@@ -874,10 +874,10 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
         // Just invalidate the binding cache; actual DrawPrimitiveUP must
         // already have been flushed by the time releaseTexturePage runs.
         dr->currentTextureIndex = -1;
-        Dev(dr)->SetTexture(0, NULL);
+        Dev(dr)->SetTexture(0, nullptr);
     }
 
-    if (dr->textures[index] != NULL) {
+    if (dr->textures[index] != nullptr) {
         ((IDirect3DTexture9*)dr->textures[index])->Release();
     }
     dr->textureBytesUsed -= dr->textureBlobSizes[index];
@@ -1058,7 +1058,7 @@ static void maybeStartWorker(D3D9Renderer* dr) {
     LeaveCriticalSection(&pool->mutex);
 
     if (workerIndex != UINT32_MAX) {
-        HANDLE thread = CreateThread(NULL, 0, textureDecodeWorkerThreadProc, dr, 0, NULL);
+        HANDLE thread = CreateThread(nullptr, 0, textureDecodeWorkerThreadProc, dr, 0, nullptr);
         if (thread) {
             pool->workers[workerIndex] = thread;
         } else {
@@ -1134,11 +1134,11 @@ static void maybeStartWorker(D3D9Renderer* dr) {
 
 static bool readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outData) {
     if (!dw || !outData || count == 0) {
-        if (outData) *outData = NULL;
+        if (outData) *outData = nullptr;
         return false;
     }
 
-    *outData = NULL;
+    *outData = nullptr;
     if (offset > SIZE_MAX - count) {
         return false;
     }
@@ -1203,7 +1203,7 @@ static bool readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outD
 static bool readTexturePageBytes(D3D9Renderer* dr, uint32_t textureIndex, uint8_t** outBytes, int* outSize) {
     if (!dr || !outBytes || !outSize || textureIndex >= dr->textureCount) return false;
 
-    *outBytes = NULL;
+    *outBytes = nullptr;
     *outSize = 0;
 
     DataWin* dw = dr->base.dataWin;
@@ -1253,7 +1253,7 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 
     bool gm2022_5 = DataWin_isVersionAtLeast(((Renderer*)dr)->dataWin, 2022, 5, 0, 0);
 
-    uint8_t* blobBytes = NULL;
+    uint8_t* blobBytes = nullptr;
     int blobByteSize = 0;
     bool ownBlob = false;
     if (!readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
@@ -1333,13 +1333,13 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
     dr->textureLoadState[textureIndex] = TEX_LOAD_UPLOADING;
 
     IDirect3DDevice9* dev = Dev(dr);
-    IDirect3DTexture9* tex = NULL;
+    IDirect3DTexture9* tex = nullptr;
 
-    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
         stbi_image_free(pixels);
-        dr->texturePendingRGBA[textureIndex] = NULL;
+        dr->texturePendingRGBA[textureIndex] = nullptr;
         dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
         return false;
     }
@@ -1348,14 +1348,14 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
         Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
         tex->Release();
         stbi_image_free(pixels);
-        dr->texturePendingRGBA[textureIndex] = NULL;
+        dr->texturePendingRGBA[textureIndex] = nullptr;
         dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
         return false;
     }
 
     // Free the CPU-side decoded pixels
     stbi_image_free(pixels);
-    dr->texturePendingRGBA[textureIndex] = NULL;
+    dr->texturePendingRGBA[textureIndex] = nullptr;
 
     // Install the new texture (eviction must have been done at a safe point).
     dr->textures[textureIndex] = tex;
@@ -1398,7 +1398,7 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
 
 // Fast check: returns true only if texture is already GPU-loaded
 static inline bool isTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
-    return dr->textures[textureIndex] != NULL;
+    return dr->textures[textureIndex] != nullptr;
 }
 
 // Priority-ordered async ensure: processes pending uploads in order rather than
@@ -1479,16 +1479,16 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
     // when the TXTR page has *not* produced a loaded GPU texture.
     //
     // This block is intentionally placed before the synchronous TXTR decode
-    // below, but is guarded by `dr->textures[textureIndex]` being NULL.
+    // below, but is guarded by `dr->textures[textureIndex]` being nullptr.
     // (That is, we never override an already-resolved TXTR/processed texture.)
-    if ((uint32_t)textureIndex < dr->originalTexturePageCount && dr->textures[textureIndex] == NULL) {
-        uint8_t* rgba = NULL;
+    if ((uint32_t)textureIndex < dr->originalTexturePageCount && dr->textures[textureIndex] == nullptr) {
+        uint8_t* rgba = nullptr;
         int w = 0, h = 0;
         if (Xbox360Textures_loadPage(textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
             ensureTextureCacheRoom(dr);
             IDirect3DDevice9* dev = Dev(dr);
-            IDirect3DTexture9* tex = NULL;
-            HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+            IDirect3DTexture9* tex = nullptr;
+            HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
             if (SUCCEEDED(hr) && tex) {
                 if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
                     dr->textures[textureIndex] = tex;
@@ -1533,7 +1533,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 
     bool ok = false;
     if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
-        uint8_t* blobBytes = NULL;
+        uint8_t* blobBytes = nullptr;
         int blobByteSize = 0;
         if (readTexturePageBytes(dr, textureIndex, &blobBytes, &blobByteSize)) {
             ok = loadTextureBytes(dr, textureIndex, blobBytes, blobByteSize, "data.win");
@@ -1575,7 +1575,7 @@ static SpriteVertex* allocQuad(D3D9Renderer* dr) {
 
 static bool readWholeFile(const char* path, uint8_t** outData, int* outSize) {
     if (!path || !outData || !outSize) return false;
-    *outData = NULL;
+    *outData = nullptr;
     *outSize = 0;
 
     FILE* f = fopen(path, "rb");
@@ -1619,9 +1619,9 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
     }
 
     IDirect3DDevice9* dev = Dev(dr);
-    IDirect3DTexture9* tex = NULL;
+    IDirect3DTexture9* tex = nullptr;
 
-    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+    HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
         stbi_image_free(pixels);
@@ -1661,7 +1661,7 @@ static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index) {
     for (uint32_t i = 0; i < sizeof(formats) / sizeof(formats[0]); i++) {
         _snprintf(path, sizeof(path), formats[i], index);
         path[sizeof(path) - 1] = '\0';
-        uint8_t* data = NULL;
+        uint8_t* data = nullptr;
         int size = 0;
         if (!readWholeFile(path, &data, &size)) continue;
         bool ok = loadTextureBytes(dr, index, data, size, path);
@@ -1708,7 +1708,7 @@ static void d3d9SurfaceFree(Renderer* renderer, int32_t surfaceID);
 // Finds a free slot in the surface arrays, or grows them if all slots are in use.
 static uint32_t d3d9FindOrAllocateSurfaceSlot(D3D9Renderer* dr) {
     for (uint32_t i = 0; i < dr->surfaceCount; i++) {
-        if (dr->surfaces[i] == NULL) return i;
+        if (dr->surfaces[i] == nullptr) return i;
     }
     // Grow the arrays
     uint32_t newIndex = dr->surfaceCount;
@@ -1717,8 +1717,8 @@ static uint32_t d3d9FindOrAllocateSurfaceSlot(D3D9Renderer* dr) {
     dr->surfaceTexture = (void**)safeRealloc(dr->surfaceTexture, newCount * sizeof(void*));
     dr->surfaceWidth = (int32_t*)safeRealloc(dr->surfaceWidth, newCount * sizeof(int32_t));
     dr->surfaceHeight = (int32_t*)safeRealloc(dr->surfaceHeight, newCount * sizeof(int32_t));
-    dr->surfaces[newIndex] = NULL;
-    dr->surfaceTexture[newIndex] = NULL;
+    dr->surfaces[newIndex] = nullptr;
+    dr->surfaceTexture[newIndex] = nullptr;
     dr->surfaceWidth[newIndex] = 0;
     dr->surfaceHeight[newIndex] = 0;
     dr->surfaceCount = newCount;
@@ -1730,11 +1730,11 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
     if (slot >= dr->surfaceCount) return;
     if (dr->surfaces[slot]) {
         ((IDirect3DSurface9*)dr->surfaces[slot])->Release();
-        dr->surfaces[slot] = NULL;
+        dr->surfaces[slot] = nullptr;
     }
     if (dr->surfaceTexture[slot]) {
         ((IDirect3DTexture9*)dr->surfaceTexture[slot])->Release();
-        dr->surfaceTexture[slot] = NULL;
+        dr->surfaceTexture[slot] = nullptr;
     }
     dr->surfaceWidth[slot] = 0;
     dr->surfaceHeight[slot] = 0;
@@ -1774,7 +1774,7 @@ HRESULT compileShader(
 			   "/Zpr",
                // "/Xu0_deprecated",        // Force standard DX tokens instead of Xbox 360 physical microcode
                "tmp_shader.hlsl",       // Input file
-               NULL);
+               nullptr);
         exit(1); // Exit if exec fails
     }
 
@@ -1798,7 +1798,7 @@ HRESULT compileShader(
     return S_OK;
 }
 
-// IDirect3DVertexDeclaration9* g_pVertexDecl = NULL;
+// IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
 
 // Call this once during D3D9 renderer initialization:
 void InitVertexDeclaration(IDirect3DDevice9* dev) {
@@ -1820,21 +1820,21 @@ HRESULT compileShader(
     void** outBytecode,
     size_t* outSize)
 {
-	ID3DXBuffer* pErr = NULL;
+	ID3DXBuffer* pErr = nullptr;
 	HRESULT hr = D3DXCompileShader(source, (UINT)strlen(source),
-                                   NULL, NULL, "main", profile, 0, (ID3DXBuffer**)outBytecode, &pErr, NULL);
+                                   nullptr, nullptr, "main", profile, 0, (ID3DXBuffer**)outBytecode, &pErr, nullptr);
 	return hr;
 }
 
 #endif
 
 HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSource, IDirect3DVertexShader9** pVertexShader, IDirect3DPixelShader9** pPixelShader) {
-	ID3DXBuffer* pCode = NULL;
-	ID3DXBuffer* pErr = NULL;
+	ID3DXBuffer* pCode = nullptr;
+	ID3DXBuffer* pErr = nullptr;
 	#ifdef PLATFORM_XBOX360_XDK
     // Use vsSource/psSource directly since on 360 they are g_vsSource/g_psSource (pass-through shaders)
     HRESULT hr = D3DXCompileShader(vsSource, (UINT)strlen(vsSource),
-                                   NULL, NULL, "main", "vs_2_0", 0, &pCode, &pErr, NULL);
+                                   nullptr, nullptr, "main", "vs_2_0", 0, &pCode, &pErr, nullptr);
     if (FAILED(hr)) {
         Butterscotch_xdkDiagTrace("D3D9: D3DXCompileShader(VS) failed hr=0x%08X\n", (unsigned)hr);
         return E_FAIL;
@@ -1848,7 +1848,7 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
     }
 
     hr = D3DXCompileShader(psSource, (UINT)strlen(psSource),
-                           NULL, NULL, "main", "ps_2_0", 0, &pCode, &pErr, NULL);
+                           nullptr, nullptr, "main", "ps_2_0", 0, &pCode, &pErr, nullptr);
     if (FAILED(hr)) {
         Butterscotch_xdkDiagTrace("D3D9: D3DXCompileShader(PS) failed hr=0x%08X\n", (unsigned)hr);
         return E_FAIL;
@@ -1863,7 +1863,7 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
 
 	return S_OK;
 	#else
-	void* vsBytecode = NULL;
+	void* vsBytecode = nullptr;
     size_t vsBytecodeSize = 0;
     HRESULT hr = compileShader(vsSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
     if (FAILED(hr)) {
@@ -1881,7 +1881,7 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
     }
     free(vsBytecode);
 
-	void* psBytecode = NULL;
+	void* psBytecode = nullptr;
     size_t psSize = 0;
 	hr = compileShader(psSource, "ps_2_0", &psBytecode, &psSize);
     if (FAILED(hr)) {
@@ -2022,7 +2022,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     }
 
     // Compile vertex shader
-    void* vsBytecode = NULL;
+    void* vsBytecode = nullptr;
     size_t vsBytecodeSize = 0;
     HRESULT hr = compileShader(vertexShaderSource, "vs_2_0", &vsBytecode, &vsBytecodeSize);
     if (FAILED(hr) || !vsBytecode) {
@@ -2030,7 +2030,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
         return false;
     }
 
-    IDirect3DVertexShader9* vs = NULL;
+    IDirect3DVertexShader9* vs = nullptr;
     hr = dev->CreateVertexShader((const DWORD*)vsBytecode, &vs);
     free(vsBytecode);
     if (FAILED(hr) || !vs) {
@@ -2039,7 +2039,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
     }
 
     // Compile pixel shader
-    void* psBytecode = NULL;
+    void* psBytecode = nullptr;
     size_t psBytecodeSize = 0;
     hr = compileShader(fragmentShaderSource, "ps_2_0", &psBytecode, &psBytecodeSize);
     if (FAILED(hr) || !psBytecode) {
@@ -2048,7 +2048,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
         return false;
     }
 
-    IDirect3DPixelShader9* ps = NULL;
+    IDirect3DPixelShader9* ps = nullptr;
     hr = dev->CreatePixelShader((const DWORD*)psBytecode, &ps);
     free(psBytecode);
     if (FAILED(hr) || !ps) {
@@ -2072,7 +2072,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
         if (gmlShader->uniforms[i].isSampler) {
             gmlShader->uniforms[i].samplerSlot = nextSamplerSlot++;
             // For samplers, set up the device to use that slot
-            dev->SetVertexShaderConstantF(gmlShader->uniforms[i].registerIndex, NULL, 0);
+            dev->SetVertexShaderConstantF(gmlShader->uniforms[i].registerIndex, nullptr, 0);
         }
     }
 
@@ -2096,15 +2096,15 @@ static void freeD3D9GMLShader(D3D9GMLShader* shader) {
     if (!shader) return;
     if (shader->pVertexShader) {
         ((IDirect3DVertexShader9*)shader->pVertexShader)->Release();
-        shader->pVertexShader = NULL;
+        shader->pVertexShader = nullptr;
     }
     if (shader->pPixelShader) {
         ((IDirect3DPixelShader9*)shader->pPixelShader)->Release();
-        shader->pPixelShader = NULL;
+        shader->pPixelShader = nullptr;
     }
     for (uint32_t i = 0; i < shader->uniformCount; i++) {
         free(shader->uniforms[i].name);
-        shader->uniforms[i].name = NULL;
+        shader->uniforms[i].name = nullptr;
     }
     shader->uniformCount = 0;
     shader->compiled = false;
@@ -2130,8 +2130,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
 
     // // Compile shaders from source
-    // ID3DXBuffer* pCode = NULL;
-    // ID3DXBuffer* pErr = NULL;
+    // ID3DXBuffer* pCode = nullptr;
+    // ID3DXBuffer* pErr = nullptr;
 
 	HRESULT hr = useShaders(dev, g_vsSource, g_psSource, (IDirect3DVertexShader9**)&dr->pVertexShader, (IDirect3DPixelShader9**)&dr->pPixelShader);
 	if (FAILED(hr)) {
@@ -2149,14 +2149,14 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dev->CreateVertexDeclaration(decl, (IDirect3DVertexDeclaration9**)&dr->pVertexDecl);
 
     // Create 1x1 white texture for primitives
-    IDirect3DTexture9* whiteTex = NULL;
-    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, NULL);
+    IDirect3DTexture9* whiteTex = nullptr;
+    HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, nullptr);
     if (SUCCEEDED(hrTex) && whiteTex) {
         uint8_t whitePixel[4] = { 255, 255, 255, 255 };
         if (!uploadRgbaToTexture(dev, whiteTex, whitePixel, 1, 1)) {
             fprintf(stderr, "D3D9 Error: Failed to fill 1x1 white texture.\n");
             whiteTex->Release();
-            whiteTex = NULL;
+            whiteTex = nullptr;
         }
     } else {
         fprintf(stderr, "D3D9 Error: Failed to create white texture! HRESULT: 0x%08x\n",
@@ -2191,7 +2191,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 #ifdef PLATFORM_XBOX360_XDK
     InitializeCriticalSection(&pool->mutex);
-    pool->workEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    pool->workEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     pool->workQueue = new DecodeWorkItem[256];
     pool->queueHead = 0;
     pool->queueTail = 0;
@@ -2199,8 +2199,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     pool->queueCapacity = 256;
     pool->shutdown = false;
     pool->numWorkers = 0;
-    dr->textureLoadCond = NULL;
-    dr->textureGpuMutex = NULL;
+    dr->textureLoadCond = nullptr;
+    dr->textureGpuMutex = nullptr;
 #else
     dr->textureLoadCond = (void*)&pool->cv;
     dr->textureGpuMutex = (void*)new std::mutex();
@@ -2219,16 +2219,16 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
     dr->gmlShaderCount = dataWin->shdr.count;
     fprintf(stderr, "D3D9: %u Shaders found (will compile on demand)\n", dataWin->shdr.count);
 #else
-    dr->gmlShaders = NULL;
+    dr->gmlShaders = nullptr;
     dr->gmlShaderCount = 0;
     fprintf(stderr, "D3D9: GML shaders disabled via D3D9_DISABLE_SHADERS\n");
 #endif
 
     // Initialize dynamic surface arrays (empty)
-    dr->surfaces = NULL;
-    dr->surfaceTexture = NULL;
-    dr->surfaceWidth = NULL;
-    dr->surfaceHeight = NULL;
+    dr->surfaces = nullptr;
+    dr->surfaceTexture = nullptr;
+    dr->surfaceWidth = nullptr;
+    dr->surfaceHeight = nullptr;
     dr->surfaceCount = 0;
 }
 
@@ -2256,7 +2256,7 @@ static void d3d9Destroy(Renderer* renderer) {
         DeleteCriticalSection(&pool->mutex);
         delete[] pool->workQueue;
         delete pool;
-        dr->textureLoadMutex = NULL;
+        dr->textureLoadMutex = nullptr;
     }
 #else
     // Stop workers first, then release GPU cache mutex.
@@ -2270,14 +2270,14 @@ static void d3d9Destroy(Renderer* renderer) {
             if (t.joinable()) t.join();
         }
         delete pool;
-        dr->textureLoadMutex = NULL;
-        dr->textureLoadCond = NULL;
+        dr->textureLoadMutex = nullptr;
+        dr->textureLoadCond = nullptr;
     }
 
     if (dr->textureGpuMutex) {
         std::mutex* m = (std::mutex*)dr->textureGpuMutex;
         delete m;
-        dr->textureGpuMutex = NULL;
+        dr->textureGpuMutex = nullptr;
     }
 #endif
 
@@ -2288,7 +2288,7 @@ static void d3d9Destroy(Renderer* renderer) {
         for (uint32_t i = 0; i < dr->textureCount; i++) {
             if (dr->texturePendingRGBA[i]) {
                 stbi_image_free(dr->texturePendingRGBA[i]);
-                dr->texturePendingRGBA[i] = NULL;
+                dr->texturePendingRGBA[i] = nullptr;
             }
         }
     }
@@ -2367,13 +2367,13 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
     if (renderer->runner && renderer->runner->usingAppSurface && dr->appSurfaceLevel) {
         d3d9SetRenderTarget(renderer, APPLICATION_SURFACE_ID, false);
-        dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     } else {
         bindBackbuffer(dr);
         resetFullBackbufferState(dr);
         dr->renderingToApplicationSurface = false;
         setGameTargetTransform(dr);
-        dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     }
 
     // Apply shared GPU render state once per BeginFrame.
@@ -2385,10 +2385,10 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
 static void d3d9EndFrame(Renderer* renderer) {
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	// Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
+	// Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
     flushBatch(dr);
     Dev(dr)->EndScene();
-    Dev(dr)->Present(NULL, NULL, NULL, NULL);
+    Dev(dr)->Present(nullptr, nullptr, nullptr, nullptr);
 }
 
 static void d3d9EndFrameInit(Renderer* renderer) {
@@ -2400,7 +2400,7 @@ static void d3d9EndFrameInit(Renderer* renderer) {
         resetFullBackbufferState(dr);
         dr->renderingToApplicationSurface = false;
         setGameTargetTransform(dr);
-        Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+        Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
         applyPointSampling(Dev(dr));
         if (renderer->runner->appSurfaceAutoDraw) {
             d3d9DrawSurface(renderer, APPLICATION_SURFACE_ID, 0, 0, -1, -1, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
@@ -2969,10 +2969,10 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
     Font* font = &dw->font.fonts[fontIndex];
 
     // Resolve font state: supports both regular and sprite fonts (matching GL renderer)
-    TexturePageItem* fontTpag = NULL;      // single TPAG for regular fonts (NULL for sprite fonts)
+    TexturePageItem* fontTpag = nullptr;      // single TPAG for regular fonts (nullptr for sprite fonts)
     int16_t fontPageId = -1;               // texture page ID for regular fonts
     float fontTexW = 0.0f, fontTexH = 0.0f;
-    Sprite* spriteFontSprite = NULL;       // source sprite for sprite fonts (NULL for regular fonts)
+    Sprite* spriteFontSprite = nullptr;       // source sprite for sprite fonts (nullptr for regular fonts)
 
     if (!font->isSpriteFont) {
         int32_t fontTpagIndex = font->tpagIndex;
@@ -3280,7 +3280,7 @@ static void d3d9ClearScreen(Renderer* renderer, uint32_t color, float alpha) {
     uint8_t g = (uint8_t)((color >> 8) & 0xFF);
     uint8_t b = (uint8_t)((color >> 16) & 0xFF);
     uint8_t a = (uint8_t)(alpha * 255.0f);
-    Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_ARGB(a, r, g, b), 1.0f, 0);
+    Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(a, r, g, b), 1.0f, 0);
 }
 
 // Dynamic sprite creation parity with the GL backend.
@@ -3353,12 +3353,12 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     dr->textureBlobSizes = (uint32_t*)safeRealloc(dr->textureBlobSizes, (dr->textureCount + 1) * sizeof(uint32_t));
 
     dr->textureLastUsedFrame[pageId] = 0;
-    dr->textures[pageId] = NULL;
+    dr->textures[pageId] = nullptr;
     dr->textureWidths[pageId] = 0;
     dr->textureHeights[pageId] = 0;
     dr->textureBlobSizes[pageId] = 0;
     dr->textureLoadState[pageId] = TEX_LOAD_IDLE;
-    dr->texturePendingRGBA[pageId] = NULL;
+    dr->texturePendingRGBA[pageId] = nullptr;
     dr->texturePendingW[pageId] = 0;
     dr->texturePendingH[pageId] = 0;
     dr->texturePendingByteSize[pageId] = 0;
@@ -3369,8 +3369,8 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
     flushBatch(dr);
     IDirect3DDevice9* dev = Dev(dr);
 
-    IDirect3DTexture9* tex = NULL;
-    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
+    IDirect3DTexture9* tex = nullptr;
+    HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
     if (FAILED(hr) || !tex) {
         free(rgba);
         return -1;
@@ -3466,7 +3466,7 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     flushBatch(dr);
     if (dr->textures[pageId]) {
         ((IDirect3DTexture9*)dr->textures[pageId])->Release();
-        dr->textures[pageId] = NULL;
+        dr->textures[pageId] = nullptr;
         dr->textureWidths[pageId] = 0;
         dr->textureHeights[pageId] = 0;
         if (dr->textureLastUsedFrame) dr->textureLastUsedFrame[pageId] = 0;
@@ -3767,16 +3767,16 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
     // Create a render-target-capable texture. GetSurfaceLevel(0) provides the surface directly,
     // avoiding a separate CreateRenderTarget allocation (which comes from a more constrained
     // memory pool on Xbox 360 and can fail even when texture memory is available).
-    IDirect3DTexture9* tex = NULL;
+    IDirect3DTexture9* tex = nullptr;
     HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
-                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: surface_create CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         return -1;
     }
 
     // Get the surface level from the texture itself -- no separate render target allocation needed.
-    IDirect3DSurface9* surface = NULL;
+    IDirect3DSurface9* surface = nullptr;
     hr = tex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
         Butterscotch_xdkDiagTrace("D3D9: surface_create GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
@@ -3800,7 +3800,7 @@ static bool d3d9SurfaceExists(Renderer* renderer, int32_t surfaceID) {
     if (surfaceID == APPLICATION_SURFACE_ID) return true;
 
     if (surfaceID < 0 || (uint32_t)surfaceID >= dr->surfaceCount) return false;
-    return dr->surfaces[surfaceID] != NULL;
+    return dr->surfaces[surfaceID] != nullptr;
 }
 
 
@@ -3947,11 +3947,11 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 
     releaseApplicationSurface(dr);
 
-    IDirect3DTexture9* sampleTex = NULL;
+    IDirect3DTexture9* sampleTex = nullptr;
 
 	#ifdef PLATFORM_XBOX360_XDK
 	HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
-		D3DPOOL_DEFAULT, &sampleTex, NULL);
+		D3DPOOL_DEFAULT, &sampleTex, nullptr);
 	#else
     // Create a render-target-capable texture. GetSurfaceLevel(0) on this
     // texture returns a surface that can be used as a render target directly,
@@ -3959,17 +3959,17 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
     // resolve step (which fails on DXVK).
     HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
                                     D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-                                    D3DPOOL_DEFAULT, &sampleTex, NULL);
+                                    D3DPOOL_DEFAULT, &sampleTex, nullptr);
 	#endif
     if (FAILED(hr) || !sampleTex) {
         Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
         return APPLICATION_SURFACE_ID;
     }
 
-    IDirect3DSurface9* surface = NULL;
+    IDirect3DSurface9* surface = nullptr;
 	#ifdef PLATFORM_XBOX360_XDK
 	hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
-	D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+	D3DMULTISAMPLE_NONE, 0, FALSE, &surface, nullptr);
 	#else
     // Get the surface level from the render-target texture itself
     hr = sampleTex->GetSurfaceLevel(0, &surface);
@@ -3981,7 +3981,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 	#endif
 
     dr->appSurfaceTexture = sampleTex;
-    dr->appRenderTexture = NULL;
+    dr->appRenderTexture = nullptr;
     dr->appSurfaceLevel = surface;
     dr->appSurfaceW = width;
     dr->appSurfaceH = height;
@@ -4016,7 +4016,7 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
     D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
     // Resolve the texture to draw
-    IDirect3DTexture9* drawTex = NULL;
+    IDirect3DTexture9* drawTex = nullptr;
     int32_t texW = 0, texH = 0;
 
     if (surfaceID == APPLICATION_SURFACE_ID) {
@@ -4055,7 +4055,7 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
         // path the GML code handles stretching the app surface to the game frame,
         // and setGameTargetTransform correctly maps the game frame to the screen.
         setGameTargetTransform(dr);
-        Dev(dr)->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+        Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
         applyPointSampling(Dev(dr));
     }
 
@@ -4153,10 +4153,10 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
             flushBatch(dr);
             int32_t allocW = (width + 7) & ~7;
             int32_t allocH = (height + 7) & ~7;
-            IDirect3DTexture9* sampleTex = NULL;
+            IDirect3DTexture9* sampleTex = nullptr;
             #ifdef PLATFORM_XBOX360_XDK
 			HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
-				D3DPOOL_DEFAULT, &sampleTex, NULL);
+				D3DPOOL_DEFAULT, &sampleTex, nullptr);
 			#else
 			// Create a render-target-capable texture. GetSurfaceLevel(0) on this
 			// texture returns a surface that can be used as a render target directly,
@@ -4164,17 +4164,17 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			// resolve step (which fails on DXVK).
 			HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1,
 											D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-											D3DPOOL_DEFAULT, &sampleTex, NULL);
+											D3DPOOL_DEFAULT, &sampleTex, nullptr);
 			#endif
 			if (FAILED(hr) || !sampleTex) {
 				Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
 				return;
 			}
 
-			IDirect3DSurface9* surface = NULL;
+			IDirect3DSurface9* surface = nullptr;
 			#ifdef PLATFORM_XBOX360_XDK
 			hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
-			D3DMULTISAMPLE_NONE, 0, FALSE, &surface, NULL);
+			D3DMULTISAMPLE_NONE, 0, FALSE, &surface, nullptr);
 			#else
 			// Get the surface level from the render-target texture itself
 			hr = sampleTex->GetSurfaceLevel(0, &surface);
@@ -4185,7 +4185,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			}
 			#endif
 			dr->appSurfaceTexture = sampleTex;
-            dr->appRenderTexture = NULL;
+            dr->appRenderTexture = nullptr;
             dr->appSurfaceLevel = surface;
             dr->appSurfaceW = width;
             dr->appSurfaceH = height;
@@ -4212,16 +4212,16 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
     d3d9ReleaseSurfaceSlot(dr, (uint32_t)surfaceID);
 
     // Create a render-target-capable texture (same pattern as d3d9CreateSurface)
-    IDirect3DTexture9* tex = NULL;
+    IDirect3DTexture9* tex = nullptr;
     HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
-                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, NULL);
+                                     D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr);
     if (FAILED(hr) || !tex) {
         Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
         return;
     }
 
     // Get the surface level from the texture itself
-    IDirect3DSurface9* surface = NULL;
+    IDirect3DSurface9* surface = nullptr;
     hr = tex->GetSurfaceLevel(0, &surface);
     if (FAILED(hr) || !surface) {
         Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
@@ -4258,8 +4258,8 @@ static void d3d9SurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t d
     IDirect3DDevice9* dev = Dev(dr);
 
     // Resolve source and destination surfaces
-    IDirect3DSurface9* srcSurf = NULL;
-    IDirect3DSurface9* dstSurf = NULL;
+    IDirect3DSurface9* srcSurf = nullptr;
+    IDirect3DSurface9* dstSurf = nullptr;
 
     if (srcSurfaceID == APPLICATION_SURFACE_ID) {
         if (!dr->appSurfaceLevel) return;
@@ -4307,7 +4307,7 @@ static void d3d9SurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t d
         dstRect.left = destX; dstRect.top = destY;
         dstRect.right = destX + (LONG)srcDesc.Width; dstRect.bottom = destY + (LONG)srcDesc.Height;
     }
-    D3DXLoadSurfaceFromSurface(dstSurf, NULL, &dstRect, srcSurf, NULL, &srcRect, D3DX_FILTER_POINT, 0);
+    D3DXLoadSurfaceFromSurface(dstSurf, nullptr, &dstRect, srcSurf, nullptr, &srcRect, D3DX_FILTER_POINT, 0);
 }
 
 static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t* outRGBA) {
@@ -4318,7 +4318,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
     int32_t w = 0, h = 0;
 
     // Resolve source surface
-    IDirect3DSurface9* srcSurf = NULL;
+    IDirect3DSurface9* srcSurf = nullptr;
 
     if (surfaceID == APPLICATION_SURFACE_ID) {
         if (!dr->appSurfaceLevel) return false;
@@ -4337,24 +4337,24 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
     if (!srcSurf || w <= 0 || h <= 0) return false;
 
     // Create a system-memory texture to receive the copy
-    IDirect3DTexture9* resolveTex = NULL;
+    IDirect3DTexture9* resolveTex = nullptr;
     HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_A8R8G8B8,
-                                     D3DPOOL_SYSTEMMEM, &resolveTex, NULL);
+                                     D3DPOOL_SYSTEMMEM, &resolveTex, nullptr);
     if (FAILED(hr) || !resolveTex) {
         Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels CreateTexture(sysmem) failed hr=0x%08X", (unsigned)hr);
         return false;
     }
 
     // Get the system-memory texture's surface level for the copy target
-    IDirect3DSurface9* staging = NULL;
+    IDirect3DSurface9* staging = nullptr;
     resolveTex->GetSurfaceLevel(0, &staging);
 
     // Copy from the GPU render target surface to the system-memory surface
     // Xbox 360 has D3DXLoadSurfaceFromSurface but not D3DXLoadSurfaceFromTexture
     RECT srcRect = { 0, 0, w, h };
     RECT dstRect = { 0, 0, w, h };
-    hr = D3DXLoadSurfaceFromSurface(staging, NULL, &dstRect,
-                                     srcSurf, NULL, &srcRect,
+    hr = D3DXLoadSurfaceFromSurface(staging, nullptr, &dstRect,
+                                     srcSurf, nullptr, &srcRect,
                                      D3DX_FILTER_POINT, 0);
     staging->Release();
 
@@ -4366,7 +4366,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 
     // Lock and read pixels from the system memory texture
     D3DLOCKED_RECT lr;
-    hr = resolveTex->LockRect(0, &lr, NULL, D3DLOCK_READONLY);
+    hr = resolveTex->LockRect(0, &lr, nullptr, D3DLOCK_READONLY);
     if (FAILED(hr)) {
         Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels LockRect failed hr=0x%08X", (unsigned)hr);
         resolveTex->Release();
@@ -4700,7 +4700,7 @@ static float d3d9TextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
 
     // Sprite handles: texID = (tpagIndex + 1)
     uint32_t tpagIndexPlus1 = texID;
-    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    DataWin* dw = dr ? dr->base.dataWin : nullptr;
     if (dw && dw->tpag.count > 0 && tpagIndexPlus1 > 0) {
         uint32_t tpagIndex = tpagIndexPlus1 - 1;
         if (tpagIndex < dw->tpag.count) {
@@ -4739,7 +4739,7 @@ static float d3d9TextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
     }
 
     uint32_t tpagIndexPlus1 = texID;
-    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    DataWin* dw = dr ? dr->base.dataWin : nullptr;
     if (dw && dw->tpag.count > 0 && tpagIndexPlus1 > 0) {
         uint32_t tpagIndex = tpagIndexPlus1 - 1;
         if (tpagIndex < dw->tpag.count) {
@@ -4777,7 +4777,7 @@ static bool d3d9TextureGetUVs(Renderer* renderer, uint32_t texID, float* outUVs)
         return true;
     }
 
-    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    DataWin* dw = dr ? dr->base.dataWin : nullptr;
     if (!dw) return false;
 
     uint32_t tpagIndexPlus1 = texID;
@@ -4831,7 +4831,7 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
     // Surface handle: texID = D3D9_SURFACE_TEXTURE_FLAG | surfaceID
     if ((texID & D3D9_SURFACE_TEXTURE_FLAG) != 0) {
         uint32_t sid = (texID & ~D3D9_SURFACE_TEXTURE_FLAG);
-        IDirect3DTexture9* surfaceTex = NULL;
+        IDirect3DTexture9* surfaceTex = nullptr;
         if (sid == (uint32_t)APPLICATION_SURFACE_ID) {
             surfaceTex = (IDirect3DTexture9*)dr->appSurfaceTexture;
         } else if (sid < dr->surfaceCount && dr->surfaceTexture[sid]) {
@@ -4851,7 +4851,7 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
     }
 
     uint32_t tpagIndex = tpagIndexPlus1 - 1;
-    DataWin* dw = dr ? dr->base.dataWin : NULL;
+    DataWin* dw = dr ? dr->base.dataWin : nullptr;
     if (dw && tpagIndex < dw->tpag.count) {
         TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
         int32_t texPageId = tpag->texturePageId;
@@ -5131,15 +5131,15 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
     dr->pd3dDevice = pd3dDevice;
     dr->currentTextureIndex = -1;
     dr->boundTextureIndex = -2;
-    dr->boundTexturePtr = NULL;
+    dr->boundTexturePtr = nullptr;
 
     dr->renderStateDirty = true;
 
     // Initialize surface arrays to empty
-    dr->surfaces = NULL;
-    dr->surfaceTexture = NULL;
-    dr->surfaceWidth = NULL;
-    dr->surfaceHeight = NULL;
+    dr->surfaces = nullptr;
+    dr->surfaceTexture = nullptr;
+    dr->surfaceWidth = nullptr;
+    dr->surfaceHeight = nullptr;
     dr->surfaceCount = 0;
 
 	// Intialize blend modes
@@ -5150,8 +5150,8 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->dFactorAlpha = 0;
 
 	// Init ptrs to null
-	dr->boundVertexShader = NULL;
-	dr->boundPixelShader = NULL;
+	dr->boundVertexShader = nullptr;
+	dr->boundPixelShader = nullptr;
 
 	#ifdef PLATFORM_XBOX360_XDK
 	dr->boundViewportEnable = true;
