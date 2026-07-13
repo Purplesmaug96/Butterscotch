@@ -444,7 +444,8 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 
     // Set shared render state that should only be applied once per frame
     // (unless something else dirties it).
-    setShaders(dr, dr->pVertexShader, dr->pPixelShader);
+    dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+    dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
     dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
     // Set the uHalfRes uniform for the default vertex shader
@@ -2380,9 +2381,6 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
     // Only apply shared render state when it's marked dirty.
     // Callers which change shaders/rendering setup must set dr->renderStateDirty = true.
     d3d9EnsureSharedRenderState(dr);
-
-
-
 }
 
 static void d3d9EndFrame(Renderer* renderer) {
