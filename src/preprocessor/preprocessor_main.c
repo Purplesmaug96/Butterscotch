@@ -183,7 +183,7 @@ static void usage(const char* prog) {
         "Options:\n"
         "  -o, --output <dir>               Output directory (default: output)\n"
         "  --force-4bpp <regex>             Force images matching this POSIX regex to 4bpp. Repeatable.\n"
-		"  --no-music                       Disable preprocessing of music."
+		"  --no-music                       Disable preprocessing of music.\n"
         "  --force-translate-glsl-to-hlsl9  Force translation of GLSL ES shaders to HLSL9.\n"
         "  -h, --help                       Show this help.\n",
         prog);
