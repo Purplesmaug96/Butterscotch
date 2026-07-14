@@ -799,9 +799,10 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 
 #ifdef PLATFORM_XBOX360_XDK
 static void flushBatch(D3D9Renderer* dr) {
-	// Cache quadCount locally to avoid multiple structure dereferences
+	// Cache batch counts locally to avoid multiple structure dereferences
 	const uint32_t quadCount = dr->quadCount;
-	if (quadCount == 0) {
+	const uint32_t triCount = dr->triCount;
+	if (quadCount == 0 && triCount == 0) {
 		return;
 	}
 
@@ -854,14 +855,15 @@ static void flushBatch(D3D9Renderer* dr) {
 	}
 
 	// D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
-	dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
-
-	dr->quadCount = 0;
+	if (quadCount > 0) {
+		dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
+		dr->quadCount = 0;
+	}
 
 	// Submit any batched triangles (uses the area after quads in vertex buffer)
-	if (dr->triCount > 0) {
+	if (triCount > 0) {
 		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
-		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)dr->triCount,
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)triCount,
 							 (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
 							 sizeof(SpriteVertex));
 		dr->triCount = 0;
@@ -870,7 +872,9 @@ static void flushBatch(D3D9Renderer* dr) {
 #else
 IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
 static void flushBatch(D3D9Renderer* dr) {
-	if (dr->quadCount == 0) {
+	const uint32_t quadCount = (uint32_t)dr->quadCount;
+	const uint32_t triCount = (uint32_t)dr->triCount;
+	if (quadCount == 0 && triCount == 0) {
 		return;
 	}
 
@@ -926,22 +930,22 @@ static void flushBatch(D3D9Renderer* dr) {
 	//   0 TL, 1 TR, 2 BR, 3 BL
 	// TRIANGLESTRIP with 4 verts consumes 2 triangles (2 primitives).
 	// Using TRIANGLEFAN here is incorrect for our vertex winding/layout.
+	if (quadCount > 0) {
+		BYTE* vertexPtr = (BYTE*)dr->vertexData;
+		size_t vertexStride = sizeof(SpriteVertex);
 
-	BYTE* vertexPtr = (BYTE*)dr->vertexData;
-	size_t vertexStride = sizeof(SpriteVertex);
-
-	for (uint32_t i = 0; i < (uint32_t)dr->quadCount; i++) {
-		dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertexPtr, (UINT)vertexStride);
-		vertexPtr += vertexStride * 4;
+		for (uint32_t i = 0; i < quadCount; i++) {
+			dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertexPtr, (UINT)vertexStride);
+			vertexPtr += vertexStride * 4;
+		}
+		dr->quadCount = 0;
 	}
 
-	dr->quadCount = 0;
-
 	// Submit any batched triangles (uses the area after quads in vertex buffer)
-	if (dr->triCount > 0) {
+	if (triCount > 0) {
 		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
 		BYTE* triData = (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex);
-		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)dr->triCount, triData, (UINT)sizeof(SpriteVertex));
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)triCount, triData, (UINT)sizeof(SpriteVertex));
 		dr->triCount = 0;
 	}
 }
