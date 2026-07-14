@@ -857,6 +857,15 @@ static void flushBatch(D3D9Renderer* dr) {
 	dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
 
 	dr->quadCount = 0;
+
+	// Submit any batched triangles (uses the area after quads in vertex buffer)
+	if (dr->triCount > 0) {
+		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)dr->triCount,
+							 (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
+							 sizeof(SpriteVertex));
+		dr->triCount = 0;
+	}
 }
 #else
 IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
@@ -927,6 +936,14 @@ static void flushBatch(D3D9Renderer* dr) {
 	}
 
 	dr->quadCount = 0;
+
+	// Submit any batched triangles (uses the area after quads in vertex buffer)
+	if (dr->triCount > 0) {
+		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
+		BYTE* triData = (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex);
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)dr->triCount, triData, (UINT)sizeof(SpriteVertex));
+		dr->triCount = 0;
+	}
 }
 
 #endif
@@ -1782,6 +1799,19 @@ static SpriteVertex* allocQuad(D3D9Renderer* dr) {
 	return v;
 }
 
+static SpriteVertex* allocTri(D3D9Renderer* dr) {
+	if (dr->quadCount > 0) {
+		flushBatch(dr);
+	}
+	if (dr->triCount >= D3D9_MAX_TRIS) {
+		flushBatch(dr);
+	}
+	uint32_t base = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD + dr->triCount * D3D9_VERTS_PER_TRI;
+	SpriteVertex* v = (SpriteVertex*)(dr->vertexData + base * sizeof(SpriteVertex));
+	dr->triCount++;
+	return v;
+}
+
 static bool readWholeFile(const char* path, uint8_t** outData, int* outSize) {
 	if (!path || !outData || !outSize) {
 		return false;
@@ -2388,8 +2418,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	// Dont use setViewportEnable here because dr->boundViewportEnable should already be set to true by D3D9Renderer_create, so it wouldnt do anything
 	dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
 
-	// Allocate CPU vertex staging buffer
-	dr->vertexData = (uint8_t*)safeMalloc(D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * sizeof(SpriteVertex));
+	// Allocate CPU vertex staging buffer (shared between quads and triangles)
+	dr->vertexData = (uint8_t*)safeMalloc((D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD + D3D9_MAX_TRIS * D3D9_VERTS_PER_TRI) * sizeof(SpriteVertex));
 
 	// // Compile shaders from source
 	// ID3DXBuffer* pCode = nullptr;
@@ -2474,6 +2504,11 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	dr->currentTextureIndex = -1;
 	dr->quadCount = 0;
+	dr->triCount = 0;
+	dr->viewportX = 0;
+	dr->viewportY = 0;
+	dr->viewportW = 0;
+	dr->viewportH = 0;
 
 	// Initialize GML shader support — compile lazily on first use
 #ifndef D3D9_DISABLE_SHADERS
@@ -2734,6 +2769,10 @@ static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int3
 	vp.MinZ = 0.0f;
 	vp.MaxZ = 1.0f;
 	dev->SetViewport(&vp);
+	dr->viewportX = scLeft;
+	dr->viewportY = scTop;
+	dr->viewportW = (int32_t)(scRight - scLeft);
+	dr->viewportH = (int32_t)(scBottom - scTop);
 
 	// Enable scissor test to clip rendering to the port rectangle.
 	// This prevents sprites from bleeding outside their intended viewport
@@ -2765,8 +2804,9 @@ static void d3d9EndView(Renderer* renderer) {
 }
 
 static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* worldToClip) {
-	(void)renderer;
-	(void)worldToClip;
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	flushBatch(dr);
+	renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = *worldToClip;
 }
 
 static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId) {
@@ -3202,12 +3242,10 @@ static void d3d9DrawRectangleColor(Renderer* renderer, float x1, float y1, float
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
 	if (outline) {
-		// Draw 4 lines as thin rectangles - use per-vertex colors along edges
-		float lw = 1.0f;
-		d3d9DrawRectangleColor(renderer, x1, y1, x2, y1 + lw, color1, color2, color2, color1, alpha, false); // top
-		d3d9DrawRectangleColor(renderer, x1, y2 - lw, x2, y2, color4, color3, color3, color4, alpha, false); // bottom
-		d3d9DrawRectangleColor(renderer, x1, y1, x1 + lw, y2, color1, color1, color4, color4, alpha, false); // left
-		d3d9DrawRectangleColor(renderer, x2 - lw, y1, x2, y2, color2, color2, color3, color3, alpha, false); // right
+		d3d9DrawLineColor(renderer, x1, y1, x2, y1, 1.0f, color1, color2, alpha);
+		d3d9DrawLineColor(renderer, x2, y1, x2, y2, 1.0f, color2, color3, alpha);
+		d3d9DrawLineColor(renderer, x2, y2, x1, y2, 1.0f, color3, color4, alpha);
+		d3d9DrawLineColor(renderer, x1, y2, x1, y1, 1.0f, color4, color1, alpha);
 		return;
 	}
 
@@ -3238,7 +3276,6 @@ static void d3d9DrawRectangleColor(Renderer* renderer, float x1, float y1, float
 
 static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t color1, uint32_t color2, uint32_t color3, float alpha, bool outline) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-
 	if (outline) {
 		d3d9DrawLine(renderer, x1, y1, x2, y2, 1.0f, color1, alpha);
 		d3d9DrawLine(renderer, x2, y2, x3, y3, 1.0f, color2, alpha);
@@ -3246,8 +3283,7 @@ static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, f
 		return;
 	}
 
-	// Flush any batched quads first so we can issue a triangle list
-	flushBatch(dr);
+	ensureTexture(dr, -1);
 
 	float c1r, c1g, c1b, c1a;
 	float c2r, c2g, c2b, c2a;
@@ -3256,25 +3292,14 @@ static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, f
 	bgrToFloatColor(color2, alpha, &c2r, &c2g, &c2b, &c2a);
 	bgrToFloatColor(color3, alpha, &c3r, &c3g, &c3b, &c3a);
 
-	IDirect3DDevice9* dev = Dev(dr);
-	dev->SetTexture(0, (IDirect3DBaseTexture9*)dr->whiteTexture);
-
-	// Build 3 triangle vertices in screen space with per-vertex colors
-	SpriteVertex verts[3];
+	SpriteVertex* v = allocTri(dr);
 	float sx, sy;
-
 	transformPoint(dr, x1, y1, &sx, &sy);
-	setVertex(&verts[0], sx, sy, 0.0f, 0.0f, c1r, c1g, c1b, c1a);
-
+	setVertex(&v[0], sx, sy, 0.0f, 0.0f, c1r, c1g, c1b, c1a);
 	transformPoint(dr, x2, y2, &sx, &sy);
-	setVertex(&verts[1], sx, sy, 0.0f, 0.0f, c2r, c2g, c2b, c2a);
-
+	setVertex(&v[1], sx, sy, 0.0f, 0.0f, c2r, c2g, c2b, c2a);
 	transformPoint(dr, x3, y3, &sx, &sy);
-	setVertex(&verts[2], sx, sy, 0.0f, 0.0f, c3r, c3g, c3b, c3a);
-
-	dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(SpriteVertex));
-
-	dr->currentTextureIndex = -1; // ensure next flush binds white texture
+	setVertex(&v[2], sx, sy, 0.0f, 0.0f, c3r, c3g, c3b, c3a);
 }
 
 // Internal helper: renders text with per-vertex color support.
@@ -3981,7 +4006,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 
 	case bm_subtract:
 		dr->blendIsNormal = false;
-		blendOp = D3DBLENDOP_ADD;
+		blendOp = D3DBLENDOP_SUBTRACT;
 		srcFactorD3D = D3DBLEND_ZERO;		 // GLCommon: ZERO
 		dstFactorD3D = D3DBLEND_INVSRCCOLOR; // GLCommon: ONE_MINUS_SRC_COLOR
 		sFactor = bm_zero;
@@ -4512,7 +4537,9 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		return;
 	}
 
-	flushBatch(dr);
+	if (dr->quadCount > 0) {
+		flushBatch(dr);
+	}
 
 	float fTexW = (float)texW;
 	float fTexH = (float)texH;
@@ -4948,6 +4975,8 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) {}
 
+static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float* values, uint32_t count) {}
+
 #else
 
 // Compile a GML shader on demand (lazy compilation)
@@ -5025,7 +5054,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	// GML shaders output clip-space coordinates (-1 to 1), so we need the
 	// viewport transform enabled on Xbox 360. The default pass-through shader
 	// uses D3DRS_VIEWPORTENABLE=FALSE for direct pixel mapping.
-	setViewportEnable(true);
+	setViewportEnable(dr, true);
 
 	// Set built-in uniforms
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
@@ -5166,6 +5195,40 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
 		dev->SetVertexShaderConstantF(u->registerIndex, fvalues, u->registerCount);
 	} else {
 		dev->SetPixelShaderConstantF(u->registerIndex, fvalues, u->registerCount);
+	}
+}
+
+static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float* values, uint32_t count) {
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (handle <= 0) {
+		return;
+	}
+
+	int32_t shaderIndex = renderer->currentShader;
+	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
+		return;
+	}
+	D3D9GMLShader* shader = &dr->gmlShaders[shaderIndex];
+	if (!shader->compiled) {
+		return;
+	}
+
+	uint32_t uniformIdx = (uint32_t)(handle - 1);
+	if (uniformIdx >= shader->uniformCount) {
+		return;
+	}
+	D3D9ShaderUniform* u = &shader->uniforms[uniformIdx];
+	if (u->isSampler) {
+		return;
+	}
+
+	dr->renderStateDirty = true;
+
+	IDirect3DDevice9* dev = Dev(dr);
+	if (u->isVertex) {
+		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
+	} else {
+		dev->SetPixelShaderConstantF(u->registerIndex, values, u->registerCount);
 	}
 }
 
@@ -5519,6 +5582,34 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 	float endX = tileX ? roomW : x;
 	float endY = tileY ? roomH : y;
 
+	// Frustum clipping: clip tile iteration to the visible game-space area
+	// derived from the current screen-space viewport bounds.
+	if (dr->viewportW > 0 && dr->viewportH > 0) {
+		float gameLeft = ((float)dr->viewportX - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
+		float gameTop = ((float)dr->viewportY - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
+		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
+		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
+		if (tileX) {
+			if (gameLeft > startX) {
+				startX += floorf((gameLeft - startX) / sprW) * sprW;
+			}
+			if (gameRight < endX) {
+				endX = gameRight;
+			}
+		}
+		if (tileY) {
+			if (gameTop > startY) {
+				startY += floorf((gameTop - startY) / sprH) * sprH;
+			}
+			if (gameBottom < endY) {
+				endY = gameBottom;
+			}
+		}
+	}
+	if (startX >= endX || startY >= endY) {
+		return;
+	}
+
 	// If not tiling, just draw one sprite.
 	if (!tileX && !tileY) {
 		d3d9DrawSprite(renderer, tpagIndex, x, y, originX, originY, xscale, yscale, 0.0f, color, alpha);
@@ -5667,6 +5758,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	d3d9RendererVtable.shaderGetUniform = d3d9ShaderGetUniform;
 	d3d9RendererVtable.shaderGetSamplerIndex = d3d9ShaderGetSamplerIndex;
 	d3d9RendererVtable.shaderSetUniformF = d3d9ShaderSetUniformF;
+	d3d9RendererVtable.shaderSetUniformFArray = d3d9ShaderSetUniformFArray;
 	d3d9RendererVtable.shaderSetUniformI = d3d9ShaderSetUniformI;
 	d3d9RendererVtable.spriteGetTexture = d3d9SpriteGetTexture;
 	d3d9RendererVtable.surfaceGetTexture = d3d9SurfaceGetTexture;

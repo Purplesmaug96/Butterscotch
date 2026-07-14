@@ -12,6 +12,8 @@
 #define D3D9_MAX_QUADS 2048
 #define D3D9_VERTS_PER_QUAD 4
 #define D3D9_INDICES_PER_QUAD 6
+#define D3D9_MAX_TRIS 2048
+#define D3D9_VERTS_PER_TRI 3
 
 // Vertex: position(4f), texcoord(2f), color(4f)
 #define D3D9_VERTEX_STRIDE 40
@@ -69,6 +71,7 @@ typedef struct {
 
 	// Sprite batch state
 	int32_t quadCount;
+	int32_t triCount;
 	int32_t currentTextureIndex;
 	uint8_t* vertexData; // CPU-side staging (D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD * D3D9_VERTEX_STRIDE)
 
@@ -98,6 +101,9 @@ typedef struct {
 	float portScaleX, portScaleY;	// portW/viewW, portH/viewH
 	float offsetX, offsetY;			// viewX, viewY
 	float portOffsetX, portOffsetY; // portX, portY (game coords)
+
+	// Screen-space viewport bounds (set by beginView, used for frustum clipping in tiled sprites)
+	int32_t viewportX, viewportY, viewportW, viewportH;
 
 	// Frame dimensions
 	int32_t gameW, gameH;
