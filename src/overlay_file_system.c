@@ -78,6 +78,9 @@ static char* resolveForRead(OverlayFileSystem* ofs, const char* relativePath) {
     // Check if the path is already resolved
     if (strncmp(normalized, ofs->savePath, strlen(ofs->savePath)) == 0) return normalized;
     if (strncmp(normalized, ofs->bundlePath, strlen(ofs->bundlePath)) == 0) return normalized;
+	#ifdef PLATFORM_XBOX360_XDK
+    if (strchr(normalized, ':') != nullptr) return normalized;
+	#endif
 
     char* saveFull = joinPath(ofs->savePath, normalized);
     if (pathExists(saveFull)) {
@@ -99,6 +102,9 @@ static char* resolveForWrite(OverlayFileSystem* ofs, const char* relativePath) {
     // Check if the path is already resolved
     if (strncmp(normalized, ofs->savePath, strlen(ofs->savePath)) == 0) return normalized;
     if (strncmp(normalized, ofs->bundlePath, strlen(ofs->bundlePath)) == 0) return normalized;
+	#ifdef PLATFORM_XBOX360_XDK
+    if (strchr(normalized, ':') != nullptr) return normalized;
+	#endif
 
     char* full = joinPath(ofs->savePath, normalized);
     free(normalized);
@@ -136,6 +142,9 @@ static char* overlayResolvePath(FileSystem* fs, const char* relativePath) {
     // Check if the path is already resolved
     if (strncmp(normalized, ofs->savePath, strlen(ofs->savePath)) == 0) return normalized;
     if (strncmp(normalized, ofs->bundlePath, strlen(ofs->bundlePath)) == 0) return normalized;
+	#ifdef PLATFORM_XBOX360_XDK
+	if (strchr(normalized, ':') != nullptr) return normalized;
+	#endif
 
     char* full = joinPath(ofs->bundlePath, normalized);
     free(normalized);
