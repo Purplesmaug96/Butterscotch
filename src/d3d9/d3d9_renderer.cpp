@@ -317,6 +317,26 @@ static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
 		d3d9DiagLimited(&_d3d9_diag_limited_counter_line_##__LINE__, (limit), (fmt), ##__VA_ARGS__); \
 	} while (0)
 
+// Forward declaration for staging texture cleanup
+void d3d9ReleaseStagingTexture(void);
+
+// File-level staging texture cache for Xbox 360 texture uploads.
+// Defined here and released at renderer destruction via d3d9ReleaseStagingTexture().
+#ifdef PLATFORM_XBOX360_XDK
+static IDirect3DTexture9* gStagingTex = nullptr;
+static int32_t gStagingW = 0;
+static int32_t gStagingH = 0;
+
+void d3d9ReleaseStagingTexture(void) {
+	if (gStagingTex) {
+		gStagingTex->Release();
+		gStagingTex = nullptr;
+	}
+	gStagingW = 0;
+	gStagingH = 0;
+}
+#endif
+
 static DWORD gmlBlendFactorToD3D(int32_t factor) {
 	switch (factor) {
 	case bm_zero:
@@ -501,8 +521,8 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 
 	// Set shared render state that should only be applied once per frame
 	// (unless something else dirties it).
-	dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
-	dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
+	// Use setShaders() to avoid redundant SetVertexShader/SetPixelShader calls.
+	setShaders(dr, dr->pVertexShader, dr->pPixelShader);
 	dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
 	// Set the uHalfRes uniform for the default vertex shader (only if changed)
@@ -596,12 +616,6 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	// per upload. Instead, reuse a single staging texture owned by the
 	// renderer/device for the most recently seen size.
 #ifdef PLATFORM_XBOX360_XDK
-	// NOTE: This renderer function is called on the render thread only.
-	// It is therefore safe to cache/reuse a single staging allocation.
-	static IDirect3DTexture9* sStagingTex = nullptr;
-	static int32_t sStagingW = 0;
-	static int32_t sStagingH = 0;
-
 	D3DSURFACE_DESC dstDesc;
 	HRESULT hr = dstTex->GetLevelDesc(0, &dstDesc);
 	if (FAILED(hr)) {
@@ -615,24 +629,24 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		return false;
 	}
 
-	if (!sStagingTex || sStagingW != targetW || sStagingH != targetH) {
-		if (sStagingTex) {
-			sStagingTex->Release();
-			sStagingTex = nullptr;
+	if (!gStagingTex || gStagingW != targetW || gStagingH != targetH) {
+		if (gStagingTex) {
+			gStagingTex->Release();
+			gStagingTex = nullptr;
 		}
 
 		HRESULT hrCreate = dev->CreateTexture((UINT)targetW, (UINT)targetH, 1, 0,
-											  D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sStagingTex, nullptr);
-		if (FAILED(hrCreate) || !sStagingTex) {
+											  D3DFMT_LIN_A8R8G8B8, D3DPOOL_SYSTEMMEM, &gStagingTex, nullptr);
+		if (FAILED(hrCreate) || !gStagingTex) {
 			return false;
 		}
-		sStagingW = targetW;
-		sStagingH = targetH;
+		gStagingW = targetW;
+		gStagingH = targetH;
 	}
 
 	// Fill the cached staging texture.
 	D3DLOCKED_RECT lr;
-	hr = sStagingTex->LockRect(0, &lr, nullptr, 0);
+	hr = gStagingTex->LockRect(0, &lr, nullptr, 0);
 	if (FAILED(hr)) {
 		return false;
 	}
@@ -710,12 +724,12 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	}
 #endif
 
-	sStagingTex->UnlockRect(0);
+	gStagingTex->UnlockRect(0);
 
 	IDirect3DSurface9* stagingSurf = nullptr;
 	IDirect3DSurface9* dstSurf = nullptr;
 
-	hr = sStagingTex->GetSurfaceLevel(0, &stagingSurf);
+	hr = gStagingTex->GetSurfaceLevel(0, &stagingSurf);
 	if (FAILED(hr) || !stagingSurf) {
 		return false;
 	}
@@ -932,18 +946,27 @@ static void flushBatch(D3D9Renderer* dr) {
 		dr->boundTexturePtr = desiredTex;
 	}
 
-	// Submit each quad as 2 triangles using TRIANGLESTRIP.
-	// We already have exactly 4 vertices per quad in the order:
-	//   0 TL, 1 TR, 2 BR, 3 BL
-	// TRIANGLESTRIP with 4 verts consumes 2 triangles (2 primitives).
-	// Using TRIANGLEFAN here is incorrect for our vertex winding/layout.
+	// Submit all quads in a single indexed draw call instead of per-quad TRIANGLESTRIP.
+	// Generate a temporary index buffer for quad->triangle conversion.
+	// Each quad (4 vertices) maps to 2 triangles (6 indices): {0,1,2, 2,3,0}
 	if (quadCount > 0) {
-		BYTE* vertexPtr = (BYTE*)dr->vertexData;
-		size_t vertexStride = sizeof(SpriteVertex);
-
-		for (uint32_t i = 0; i < quadCount; i++) {
-			dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertexPtr, (UINT)vertexStride);
-			vertexPtr += vertexStride * 4;
+		uint32_t totalIndices = quadCount * 6;
+		uint16_t* indices = (uint16_t*)safeMalloc(totalIndices * sizeof(uint16_t));
+		if (indices) {
+			for (uint32_t i = 0; i < quadCount; i++) {
+				uint16_t base = (uint16_t)(i * 4);
+				indices[i * 6 + 0] = base + 0;
+				indices[i * 6 + 1] = base + 1;
+				indices[i * 6 + 2] = base + 2;
+				indices[i * 6 + 3] = base + 2;
+				indices[i * 6 + 4] = base + 3;
+				indices[i * 6 + 5] = base + 0;
+			}
+			uint32_t totalVerts = quadCount * 4;
+			dev->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, totalVerts, quadCount * 2,
+										indices, D3DFMT_INDEX16,
+										dr->vertexData, sizeof(SpriteVertex));
+			free(indices);
 		}
 		dr->quadCount = 0;
 	}
@@ -2632,6 +2655,7 @@ static void d3d9Destroy(Renderer* renderer) {
 	if (dr->whiteTexture) {
 		((IDirect3DTexture9*)dr->whiteTexture)->Release();
 	}
+	d3d9ReleaseStagingTexture();
 	releaseApplicationSurface(dr);
 	if (dr->pVertexShader) {
 		((IDirect3DVertexShader9*)dr->pVertexShader)->Release();
@@ -2854,6 +2878,28 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 	renderer->gmlMatrices[MATRIX_PROJECTION] = projection;
 	renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
 	renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
+
+	// GML shader matrix uniform update: if a GML shader is active, re-upload
+	// the new matrices to the GPU so shader sees the updated projection.
+	dr->cachedGmlMatricesValid = false;
+	int32_t currentShader = renderer->currentShader;
+	if (currentShader >= 0 && (uint32_t)currentShader < dr->gmlShaderCount) {
+		D3D9GMLShader* shader = &dr->gmlShaders[currentShader];
+		if (shader->compiled) {
+			D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
+			if (gmMatrices != nullptr) {
+				IDirect3DDevice9* dev = Dev(dr);
+				for (int m = 0; m < 5; m++) {
+					dev->SetVertexShaderConstantF(
+						gmMatrices->registerIndex + m * 4,
+						renderer->gmlMatrices[m].m,
+						4);
+					dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
+				}
+				dr->cachedGmlMatricesValid = true;
+			}
+		}
+	}
 }
 
 static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId) {
@@ -3347,9 +3393,9 @@ static void d3d9DrawRectangleColor(Renderer* renderer, float x1, float y1, float
 static void d3d9DrawTriangle(Renderer* renderer, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t color1, uint32_t color2, uint32_t color3, float alpha, bool outline) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	if (outline) {
-		d3d9DrawLine(renderer, x1, y1, x2, y2, 1.0f, color1, alpha);
-		d3d9DrawLine(renderer, x2, y2, x3, y3, 1.0f, color2, alpha);
-		d3d9DrawLine(renderer, x3, y3, x1, y1, 1.0f, color3, alpha);
+		d3d9DrawLineColor(renderer, x1, y1, x2, y2, 1.0f, color1, color2, alpha);
+		d3d9DrawLineColor(renderer, x2, y2, x3, y3, 1.0f, color2, color3, alpha);
+		d3d9DrawLineColor(renderer, x3, y3, x1, y1, 1.0f, color3, color1, alpha);
 		return;
 	}
 
@@ -5657,6 +5703,7 @@ void d3d9DrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offse
 
 void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
 	// Default tiled sprite: tile along X/Y in steps of the sprite's native bounding size.
+	// Batches all tile quads directly instead of per-tile d3d9DrawSprite calls.
 	DataWin* dw = renderer->dataWin;
 	if (!dw || 0 > tpagIndex || (uint32_t)tpagIndex >= dw->tpag.count) {
 		return;
@@ -5669,16 +5716,41 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 	}
 
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	ensureTexturePageLoaded(dr, (uint32_t)texPageId);
+	if (!ensureTexturePageLoadedAsync(dr, (uint32_t)texPageId)) {
+		return;
+	}
 	if (!dr->textures[texPageId]) {
 		return;
 	}
 
-	float sprW = (float)tpag->boundingWidth * xscale;
-	float sprH = (float)tpag->boundingHeight * yscale;
-	if (sprW <= 0.0f || sprH <= 0.0f) {
-		return;
-	}
+	ensureTexture(dr, texPageId);
+
+	float texW = (float)dr->textureWidths[texPageId];
+	float texH = (float)dr->textureHeights[texPageId];
+	if (texW <= 0 || texH <= 0) return;
+
+	float u0 = texelStart((float)tpag->sourceX, texW);
+	float v0 = texelStart((float)tpag->sourceY, texH);
+	float u1 = texelEnd((float)tpag->sourceX, (float)tpag->sourceWidth, texW);
+	float v1 = texelEnd((float)tpag->sourceY, (float)tpag->sourceHeight, texH);
+
+	float axScale = fabsf(xscale);
+	float ayScale = fabsf(yscale);
+
+	float sprW = (float)tpag->boundingWidth * axScale;
+	float sprH = (float)tpag->boundingHeight * ayScale;
+	if (sprW <= 0.0f || sprH <= 0.0f) return;
+
+	// Per-tile quad geometry in local space (without origin offset)
+	float localX0 = (float)tpag->targetX - originX;
+	float localY0 = (float)tpag->targetY - originY;
+	float quadOffX0 = originX * axScale + xscale * localX0;
+	float quadOffY0 = originY * ayScale + yscale * localY0;
+	float quadW = xscale * (float)tpag->targetWidth;
+	float quadH = yscale * (float)tpag->targetHeight;
+
+	float cr, cg, cb, ca;
+	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
 	// Compute starting offsets so that x/y correspond to the scroll position.
 	float startX = tileX ? fmodf(x, sprW) - sprW : x;
@@ -5686,104 +5758,141 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 	float endX = tileX ? roomW : x;
 	float endY = tileY ? roomH : y;
 
-	// Frustum clipping: clip tile iteration to the visible game-space area
-	// derived from the current screen-space viewport bounds.
+	// Frustum clipping
 	if (dr->viewportW > 0 && dr->viewportH > 0) {
 		float gameLeft = ((float)dr->viewportX - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameTop = ((float)dr->viewportY - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
 		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
 		if (tileX) {
-			if (gameLeft > startX) {
-				startX += floorf((gameLeft - startX) / sprW) * sprW;
-			}
-			if (gameRight < endX) {
-				endX = gameRight;
-			}
+			if (gameLeft > startX) startX += floorf((gameLeft - startX) / sprW) * sprW;
+			if (gameRight < endX) endX = gameRight;
 		}
 		if (tileY) {
-			if (gameTop > startY) {
-				startY += floorf((gameTop - startY) / sprH) * sprH;
-			}
-			if (gameBottom < endY) {
-				endY = gameBottom;
-			}
+			if (gameTop > startY) startY += floorf((gameTop - startY) / sprH) * sprH;
+			if (gameBottom < endY) endY = gameBottom;
 		}
 	}
-	if (startX >= endX || startY >= endY) {
-		return;
-	}
+	if (startX >= endX || startY >= endY) return;
 
-	// If not tiling, just draw one sprite.
-	if (!tileX && !tileY) {
-		d3d9DrawSprite(renderer, tpagIndex, x, y, originX, originY, xscale, yscale, 0.0f, color, alpha);
-		return;
-	}
+	int32_t tilesX = tileX ? (int32_t)((endX - startX) / sprW) + 1 : 1;
+	int32_t tilesY = tileY ? (int32_t)((endY - startY) / sprH) + 1 : 1;
+	if (tilesX <= 0 || tilesY <= 0) return;
 
-	// Draw tiled sprites
-	for (float ty = startY; ty <= endY; ty += sprH) {
-		if (!tileY && ty != startY) {
-			break;
-		}
-		for (float tx = startX; tx <= endX; tx += sprW) {
-			if (!tileX && tx != startX) {
-				break;
-			}
-			d3d9DrawSprite(renderer, tpagIndex, tx, ty, originX, originY, xscale, yscale, 0.0f, color, alpha);
+	for (int32_t iy = 0; iy < tilesY; iy++) {
+		float dy = startY + (float)iy * sprH;
+		if (dy >= endY) break;
+		for (int32_t ix = 0; ix < tilesX; ix++) {
+			float dx = startX + (float)ix * sprW;
+			if (dx >= endX) break;
+
+			float vx0 = dx + quadOffX0;
+			float vy0 = dy + quadOffY0;
+			float vx1 = vx0 + quadW;
+			float vy1 = vy0 + quadH;
+
+			SpriteVertex* v = allocQuad(dr);
+			setVertex(&v[0], vx0, vy0, u0, v0, cr, cg, cb, ca);
+			setVertex(&v[1], vx1, vy0, u1, v0, cr, cg, cb, ca);
+			setVertex(&v[2], vx1, vy1, u1, v1, cr, cg, cb, ca);
+			setVertex(&v[3], vx0, vy1, u0, v1, cr, cg, cb, ca);
 		}
 	}
 }
 
 void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float y, float xscale, float yscale, float roomW, float roomH, uint32_t color, float alpha) {
 	// Tiles the application surface (or supported surface) across the room.
-	// We rely on surface_get_dimensions via renderer->vtable.
-	float sw = renderer->vtable->getSurfaceWidth(renderer, surfaceID);
-	float sh = renderer->vtable->getSurfaceHeight(renderer, surfaceID);
-	if (sw <= 0.0f || sh <= 0.0f) {
-		return;
-	}
-
+	// Batches all tile quads directly.
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
-	float sprW = sw * xscale;
-	float sprH = sh * yscale;
-	if (sprW <= 0.0f || sprH <= 0.0f) {
+	// Resolve the surface texture
+	IDirect3DTexture9* drawTex = nullptr;
+	int32_t texW = 0, texH = 0, surfW = 0, surfH = 0;
+	if (surfaceID == APPLICATION_SURFACE_ID) {
+		// Handle application surface switching from render target mode
+		if (dr->renderingToApplicationSurface) {
+			flushBatch(dr);
+			resolveApplicationSurface(dr);
+			bindBackbuffer(dr);
+			resetFullBackbufferState(dr);
+			dr->renderingToApplicationSurface = false;
+			setGameTargetTransform(dr);
+			Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
+			dr->samplerStateApplied = false;
+			applyPointSampling(Dev(dr), dr);
+		}
+		resolveApplicationSurface(dr);
+		if (!dr->appSurfaceTexture) return;
+		drawTex = (IDirect3DTexture9*)dr->appSurfaceTexture;
+		texW = dr->appSurfaceAllocW;
+		texH = dr->appSurfaceAllocH;
+		surfW = dr->appSurfaceW;
+		surfH = dr->appSurfaceH;
+	} else if (surfaceID >= 0 && (uint32_t)surfaceID < dr->surfaceCount && dr->surfaceTexture[surfaceID]) {
+		drawTex = (IDirect3DTexture9*)dr->surfaceTexture[surfaceID];
+		texW = (dr->surfaceWidth[surfaceID] + 7) & ~7;
+		texH = (dr->surfaceHeight[surfaceID] + 7) & ~7;
+		surfW = dr->surfaceWidth[surfaceID];
+		surfH = dr->surfaceHeight[surfaceID];
+	} else {
 		return;
 	}
+	if (!drawTex || texW <= 0 || texH <= 0) return;
+
+	float sw = (float)surfW;
+	float sh = (float)surfH;
+	float sprW = sw * xscale;
+	float sprH = sh * yscale;
+	if (sprW <= 0.0f || sprH <= 0.0f) return;
+
+	// Ensure the surface texture is bound for batched drawing
+	flushBatch(dr);
+	dr->currentTextureIndex = -1;
+	dr->batchSurfaceTex = (void*)drawTex;
+
+	float cr, cg, cb, ca;
+	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
 	float startX = fmodf(x, sprW) - sprW;
 	float startY = fmodf(y, sprH) - sprH;
-
 	float endX = roomW;
 	float endY = roomH;
 
-	// Frustum clipping: clip tile iteration to the visible game-space area
+	// Frustum clipping
 	if (dr->viewportW > 0 && dr->viewportH > 0) {
 		float gameLeft = ((float)dr->viewportX - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameTop = ((float)dr->viewportY - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
 		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
-
-		if (gameLeft > startX) {
-			startX += floorf((gameLeft - startX) / sprW) * sprW;
-		}
-		if (gameRight < endX) {
-			endX = gameRight;
-		}
-		if (gameTop > startY) {
-			startY += floorf((gameTop - startY) / sprH) * sprH;
-		}
-		if (gameBottom < endY) {
-			endY = gameBottom;
-		}
+		if (gameLeft > startX) startX += floorf((gameLeft - startX) / sprW) * sprW;
+		if (gameRight < endX) endX = gameRight;
+		if (gameTop > startY) startY += floorf((gameTop - startY) / sprH) * sprH;
+		if (gameBottom < endY) endY = gameBottom;
 	}
-	if (startX >= endX || startY >= endY) {
-		return;
-	}
+	if (startX >= endX || startY >= endY) return;
 
-	for (float ty = startY; ty <= endY; ty += sprH) {
-		for (float tx = startX; tx <= endX; tx += sprW) {
-			d3d9DrawSurface(renderer, surfaceID, 0, 0, (int32_t)sw, (int32_t)sh, tx, ty, xscale, yscale, 0.0f, color, alpha);
+	int32_t tilesX = (int32_t)((endX - startX) / sprW) + 1;
+	int32_t tilesY = (int32_t)((endY - startY) / sprH) + 1;
+	if (tilesX <= 0 || tilesY <= 0) return;
+
+	float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+
+	for (int32_t iy = 0; iy < tilesY; iy++) {
+		float dy = startY + (float)iy * sprH;
+		if (dy >= endY) break;
+		float vy0 = dy;
+		float vy1 = dy + sprH;
+		for (int32_t ix = 0; ix < tilesX; ix++) {
+			float dx = startX + (float)ix * sprW;
+			if (dx >= endX) break;
+			float vx0 = dx;
+			float vx1 = dx + sprW;
+
+			SpriteVertex* v = allocQuad(dr);
+			setVertex(&v[0], vx0, vy0, u0, v0, cr, cg, cb, ca);
+			setVertex(&v[1], vx1, vy0, u1, v0, cr, cg, cb, ca);
+			setVertex(&v[2], vx1, vy1, u1, v1, cr, cg, cb, ca);
+			setVertex(&v[3], vx0, vy1, u0, v1, cr, cg, cb, ca);
 		}
 	}
 }

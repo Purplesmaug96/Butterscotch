@@ -9,7 +9,7 @@
 #define RENDER_PHASE_GUI 4
 
 // Maximum quads per batch before flushing
-#define D3D9_MAX_QUADS 2048
+#define D3D9_MAX_QUADS 4096
 #define D3D9_VERTS_PER_QUAD 4
 #define D3D9_INDICES_PER_QUAD 6
 #define D3D9_MAX_TRIS 2048
