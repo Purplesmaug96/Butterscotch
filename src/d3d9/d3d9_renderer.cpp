@@ -54,6 +54,9 @@ extern "C" {
 
 // Xbox 360 XDK Hardware Mappings
 #define D3DFMT_LIN_A8R8G8B8 D3DFMT_A8R8G8B8
+#ifdef D3D9_USE_16BIT_TEXTURES
+#define D3DFMT_LIN_A4R4G4B4 D3DFMT_A4R4G4B4
+#endif
 #define D3DRESOLVE_RENDERTARGET0 0
 
 // Legacy Windows D3DX Library Stubs
@@ -83,6 +86,18 @@ static int32_t* gGameH = &_gGameH;
 
 // #define D3DFMT_A8R8G3608B8 D3DFMT_LIN_A8R8G8B8
 
+#endif
+
+// Texture format selection for GPU memory reduction.
+// Define D3D9_USE_16BIT_TEXTURES at build time to use D3DFMT_A4R4G4B4 (16-bit)
+// instead of D3DFMT_A8R8G8B8 (32-bit), halving GPU texture memory usage.
+// Staging/system-memory allocations remain 32-bit for upload compatibility.
+#ifdef D3D9_USE_16BIT_TEXTURES
+#define D3D9_GPU_TEXTURE_FORMAT D3DFMT_A4R4G4B4
+#define D3D9_GPU_LINEAR_FORMAT D3DFMT_LIN_A4R4G4B4
+#else
+#define D3D9_GPU_TEXTURE_FORMAT D3DFMT_A8R8G8B8
+#define D3D9_GPU_LINEAR_FORMAT D3DFMT_LIN_A8R8G8B8
 #endif
 
 float _offx = 0.0f;
@@ -1453,7 +1468,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 
-	HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
+	HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
 		stbi_image_free(pixels);
@@ -1622,7 +1637,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 				ensureTextureCacheRoom(dr);
 				IDirect3DDevice9* dev = Dev(dr);
 				IDirect3DTexture9* tex = nullptr;
-				HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
+				HRESULT hr = dev->CreateTexture(w, h, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 				if (SUCCEEDED(hr) && tex) {
 					if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
 						dr->textures[textureIndex] = tex;
@@ -1785,7 +1800,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 
-	HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
+	HRESULT hr = dev->CreateTexture((int)w, (int)h, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
 		stbi_image_free(pixels);
@@ -2360,7 +2375,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	// Create 1x1 white texture for primitives
 	IDirect3DTexture9* whiteTex = nullptr;
-	HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &whiteTex, nullptr);
+	HRESULT hrTex = dev->CreateTexture(1, 1, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &whiteTex, nullptr);
 	if (SUCCEEDED(hrTex) && whiteTex) {
 		uint8_t whitePixel[4] = { 255, 255, 255, 255 };
 		if (!uploadRgbaToTexture(dev, whiteTex, whitePixel, 1, 1)) {
@@ -3685,7 +3700,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	IDirect3DDevice9* dev = Dev(dr);
 
 	IDirect3DTexture9* tex = nullptr;
-	HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr);
+	HRESULT hr = dev->CreateTexture((UINT)srcW, (UINT)srcH, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		free(rgba);
 		return -1;
