@@ -73,12 +73,12 @@ static void stackPush(VMContext* ctx, RValue val) {
     ctx->stack.slots[ctx->stack.top++] = val;
 }
 
-static void stackPushTyped(VMContext* ctx, RValue val, uint8_t gmlStackType) {
+static inline void stackPushTyped(VMContext* ctx, RValue val, uint8_t gmlStackType) {
     val.gmlStackType = gmlStackType;
     stackPush(ctx, val);
 }
 
-static RValue stackPop(VMContext* ctx) {
+static inline RValue stackPop(VMContext* ctx) {
     require(ctx->stack.top > 0);
     RValue val = ctx->stack.slots[--ctx->stack.top];
 #ifdef ENABLE_VM_TRACING
@@ -94,7 +94,7 @@ static RValue stackPop(VMContext* ctx) {
 }
 
 // Helper function that calls stackPop and returns the result as an int32_t
-static int32_t stackPopInt32(VMContext* ctx) {
+static inline int32_t stackPopInt32(VMContext* ctx) {
     RValue rvalue = stackPop(ctx);
     int32_t value = RValue_toInt32(rvalue);
     RValue_free(&rvalue);
@@ -141,18 +141,19 @@ static int32_t instrJumpOffset(uint32_t instr) {
     return ((int32_t) (instr << 9)) >> 7;
 }
 
+static const uint8_t extraDataSizeTable[16] = {
+    8, // GML_TYPE_DOUBLE   (0x0)
+    4, // GML_TYPE_FLOAT    (0x1)
+    4, // GML_TYPE_INT32    (0x2)
+    8, // GML_TYPE_INT64    (0x3)
+    4, // GML_TYPE_BOOL     (0x4)
+    4, // GML_TYPE_VARIABLE (0x5)
+    4, // GML_TYPE_STRING   (0x6)
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0  // GML_TYPE_INT16    (0xF)
+};
 static uint32_t extraDataSize(uint8_t type1) {
-    switch (type1) {
-        case GML_TYPE_DOUBLE: return 8;
-        case GML_TYPE_INT64:  return 8;
-        case GML_TYPE_FLOAT:  return 4;
-        case GML_TYPE_INT32:  return 4;
-        case GML_TYPE_BOOL:   return 4;
-        case GML_TYPE_VARIABLE: return 4;
-        case GML_TYPE_STRING: return 4;
-        case GML_TYPE_INT16:  return 0;
-        default:              return 0;
-    }
+    return extraDataSizeTable[type1 & 0xF];
 }
 
 // ===[ Reference Chain Resolution ]===
@@ -1931,9 +1932,16 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     require(ctx->dataWin->func.functionCount > funcIndex);
 
     // Pop arguments from stack (args pushed right-to-left, so first arg is on top)
+    RValue smallArgs[8];
     RValue* args = nullptr;
+    bool usingSmallArgs = false;
     if (argCount > 0) {
-        args = (RValue *)safeCalloc(argCount, sizeof(RValue));
+        if (argCount <= 8) {
+            args = smallArgs;
+            usingSmallArgs = true;
+        } else {
+            args = (RValue *)safeCalloc(argCount, sizeof(RValue));
+        }
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -1976,7 +1984,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             repeat(argCount, i) {
                 RValue_free(&args[i]);
             }
-            free(args);
+            if (!usingSmallArgs) free(args);
         }
 
 #ifdef ENABLE_VM_TRACING
@@ -2010,7 +2018,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             repeat(argCount, i) {
                 RValue_free(&args[i]);
             }
-            free(args);
+            if (!usingSmallArgs) free(args);
         }
 
         stackPushTyped(ctx, result, GML_TYPE_VARIABLE);
@@ -2038,7 +2046,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         repeat(argCount, i) {
             RValue_free(&args[i]);
         }
-        free(args);
+        if (!usingSmallArgs) free(args);
     }
 
 #ifdef ENABLE_VM_TRACING
@@ -2060,9 +2068,16 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
     RValue function = stackPop(ctx);
     RValue instance = stackPop(ctx);
 
+    RValue smallCallVArgs[8];
     RValue* args = nullptr;
+    bool usingSmallCallVArgs = false;
     if (argCount > 0) {
-        args = (RValue *)safeCalloc(argCount, sizeof(RValue));
+        if (argCount <= 8) {
+            args = smallCallVArgs;
+            usingSmallCallVArgs = true;
+        } else {
+            args = (RValue *)safeCalloc(argCount, sizeof(RValue));
+        }
         repeat(argCount, i) {
             args[i] = stackPop(ctx);
         }
@@ -2138,7 +2153,7 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
         repeat(argCount, i) {
             RValue_free(&args[i]);
         }
-        free(args);
+        if (!usingSmallCallVArgs) free(args);
     }
 
     stackPushTyped(ctx, result, GML_TYPE_VARIABLE);
@@ -2848,6 +2863,15 @@ static RValue executeLoop(VMContext* ctx) {
 
         uint8_t opcode = instrOpcode(instr);
 
+        // Prefetch next cache line of bytecode
+#if defined(PLATFORM_XBOX360_XDK)
+        __dcbt(128, (const void*)(bytecodeBase + ip));
+#elif defined(__GNUC__) || defined(__clang__)
+        __builtin_prefetch(bytecodeBase + ip + 128, 0, 3);
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+        _mm_prefetch((const char*)(bytecodeBase + ip + 128), _MM_HINT_T0);
+#endif
+
 #ifdef ENABLE_VM_OPCODE_PROFILER
         if (ctx->opcodeProfilerEnabled) {
             ctx->opcodeCounts[opcode]++;
@@ -3202,6 +3226,23 @@ static RValue executeLoop(VMContext* ctx) {
                 if (slotA->type == RVALUE_INT32 && slotB->type == RVALUE_INT32) {
                     int32_t a = slotA->int32;
                     int32_t b = slotB->int32;
+                    bool result;
+                    switch (instrCmpKind(instr)) {
+                        case CMP_LT:  result = b > a;  break;
+                        case CMP_LTE: result = b >= a; break;
+                        case CMP_EQ:  result = a == b; break;
+                        case CMP_NEQ: result = a != b; break;
+                        case CMP_GTE: result = a >= b; break;
+                        case CMP_GT:  result = a > b;  break;
+                        default:      result = false;  break;
+                    }
+                    slotA->int32 = result ? 1 : 0;
+                    slotA->type = RVALUE_BOOL;
+                    slotA->gmlStackType = GML_TYPE_BOOL;
+                    ctx->stack.top--;
+                } else if (slotA->type == RVALUE_REAL && slotB->type == RVALUE_REAL) {
+                    double a = slotA->real;
+                    double b = slotB->real;
                     bool result;
                     switch (instrCmpKind(instr)) {
                         case CMP_LT:  result = b > a;  break;

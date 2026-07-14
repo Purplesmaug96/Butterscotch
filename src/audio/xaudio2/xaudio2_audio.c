@@ -40,6 +40,7 @@ EXTERN_C void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 #define XAUDIO2_AUDIO_STREAM_BUFFER_COUNT 4
 #define XAUDIO2_AUDIO_STREAM_BUFFER_FRAMES 4096
 
+#ifdef ENABLE_XAUDIO2_TRACE
 static void audioTrace(bool fileLog, const char* fmt, ...) {
 	char line[1024];
 	va_list args;
@@ -52,6 +53,9 @@ static void audioTrace(bool fileLog, const char* fmt, ...) {
 		Butterscotch_xdkDiagTrace("%s", line);
 	}
 }
+#else
+#define audioTrace(fileLog, fmt, ...) ((void)0)
+#endif
 
 static uint16_t readLe16(const uint8_t* p) {
 	return (uint16_t)(p[0] | (p[1] << 8));
@@ -61,8 +65,11 @@ static uint32_t readLe32(const uint8_t* p) {
 	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+// Cached tick count to avoid kernel calls in per-instance loops
+static uint32_t g_cachedNowMs = 0;
+
 static uint32_t nowMs(void) {
-	return GetTickCount();
+	return g_cachedNowMs ? g_cachedNowMs : GetTickCount();
 }
 
 static bool startsWithIgnoreCase(const char* text, const char* prefix) {
@@ -1163,6 +1170,7 @@ static void xdkAudioUpdate(AudioSystem* audio, float deltaTime) {
 	if (!xa->initialized) {
 		return;
 	}
+	g_cachedNowMs = GetTickCount();
 	XAudio2InstanceArray* arr = Instances(xa);
 
 	for (int i = 0; i < XAUDIO2_MAX_SOUND_INSTANCES; i++) {
@@ -1203,6 +1211,7 @@ static void xdkAudioUpdate(AudioSystem* audio, float deltaTime) {
 			maybeResumeSuspendedRoomMusic(audio, stoppedName);
 		}
 	}
+	g_cachedNowMs = 0;
 }
 
 static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t priority, bool loop) {
