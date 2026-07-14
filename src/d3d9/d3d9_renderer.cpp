@@ -2762,7 +2762,14 @@ static void d3d9EndFrameInit(Renderer* renderer) {
 		dr->samplerStateApplied = false;
 		applyPointSampling(Dev(dr), dr);
 		if (renderer->runner->appSurfaceAutoDraw) {
+			// Match GL: disable blending for the app-surface-to-backbuffer composite.
+			// The app surface may contain semi-transparent pixels (alpha < 1) from
+			// sprite blending. With SRC_ALPHA blending enabled, those pixels would
+			// be darkened against the black backbuffer instead of written as-is.
+			Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
 			d3d9DrawSurface(renderer, APPLICATION_SURFACE_ID, 0, 0, -1, -1, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
+			flushBatch(dr);
+			dr->blendIsNormal = false;
 		}
 	}
 }
