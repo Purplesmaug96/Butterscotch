@@ -895,14 +895,18 @@ static void flushBatch(D3D9Renderer* dr) {
 
 	// Bind texture (skip redundant SetTexture calls)
 	void* desiredTex = nullptr;
-	if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
+	if (dr->batchSurfaceTex) {
+		desiredTex = dr->batchSurfaceTex;
+		dr->batchSurfaceTex = nullptr;
+		dr->currentTextureIndex = -1;
+	} else if (dr->currentTextureIndex >= 0 && (uint32_t)dr->currentTextureIndex < dr->textureCount) {
 		desiredTex = dr->textures[dr->currentTextureIndex];
 	}
 	if (!desiredTex) {
 		desiredTex = dr->whiteTexture;
 	}
 
-	if (dr->currentTextureIndex != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
+	if (dr->boundTexturePtr != desiredTex) {
 		dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
 		dr->boundTextureIndex = dr->currentTextureIndex;
 		dr->boundTexturePtr = desiredTex;
@@ -4542,7 +4546,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
-#ifdef PLATFORM_XBOX360_XDK
 	// Route through the batch system so the surface quad is drawn via the same
 	// pipeline as sprites (shaders, viewport, etc.) and consecutive surface
 	// draws with the same texture can be batched into a single DrawPrimitiveUP.
@@ -4562,26 +4565,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 	// Invalidate so the next ensureTexture always flushes (avoids
 	// mixing the surface quad with subsequent sprites in the same batch).
 	dr->currentTextureIndex = -1;
-#else
-	// Desktop: draw directly (the desktop batch path is for debugging only)
-	{
-		IDirect3DDevice9* dev = Dev(dr);
-		dev->SetTexture(0, (IDirect3DBaseTexture9*)drawTex);
-		dr->currentTextureIndex = -2;
-		SpriteVertex v[4];
-		float sx, sy;
-		transformPoint(dr, cx[0], cy[0], &sx, &sy);
-		setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
-		transformPoint(dr, cx[1], cy[1], &sx, &sy);
-		setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
-		transformPoint(dr, cx[2], cy[2], &sx, &sy);
-		setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
-		transformPoint(dr, cx[3], cy[3], &sx, &sy);
-		setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
-		dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
-		dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(SpriteVertex));
-	}
-#endif
 }
 
 extern int32_t* gGameW;
