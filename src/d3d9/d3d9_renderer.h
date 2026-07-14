@@ -15,8 +15,8 @@
 #define D3D9_MAX_TRIS 2048
 #define D3D9_VERTS_PER_TRI 3
 
-// Vertex: position(4f), texcoord(2f), color(4f)
-#define D3D9_VERTEX_STRIDE 40
+// Vertex: position(2f), texcoord(2f), color(D3DCOLOR)
+#define D3D9_VERTEX_STRIDE 20
 
 // Maximum number of shader uniforms we track
 #define D3D9_MAX_SHADER_UNIFORMS 64
@@ -186,6 +186,15 @@ typedef struct {
 	// Fog state
 	bool fogEnable;
 	uint32_t fogColor;
+
+	// Cache: last applied shader constants (avoid redundant SetVertexShaderConstantF)
+	int32_t cachedGameW, cachedGameH;
+	bool cachedFogEnable;
+	uint32_t cachedFogColor;
+
+	// Cache: GML shader matrix uniforms (5 matrices * 4 registers * 4 floats)
+	Matrix4f cachedGmlMatrices[5];
+	bool cachedGmlMatricesValid;
 
 	// Blend mode
 	int32_t blendMode;

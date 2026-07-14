@@ -155,13 +155,26 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 using namespace std;
 
 // ===[ Vertex Format ]===
-// Uses FLOAT4 position (pre-transformed screen coords, z=0, w=1)
-// and FLOAT4 color to avoid D3DCOLOR endianness issues on Xbox 360.
+// Packed to 20 bytes: float2 pos, float2 uv, D3DCOLOR color
+// Matches GL renderer's Vertex layout for bandwidth efficiency.
 struct SpriteVertex {
-	float x, y, z, w; // position (screen-space, z=0, w=1)
-	float u, v;		  // texcoord
-	float r, g, b, a; // color as floats
+	float x, y;       // position (screen-space, z=0 implied, w=1 implied)
+	float u, v;       // texcoord
+	D3DCOLOR color;   // packed ARGB
 };
+
+static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, float tv,
+							 float cr, float cg, float cb, float ca) {
+	sv->x = px - 0.5f;
+	sv->y = py - 0.5f;
+	sv->u = tu;
+	sv->v = tv;
+	uint8_t r = (uint8_t)(cr * 255.0f + 0.5f);
+	uint8_t g = (uint8_t)(cg * 255.0f + 0.5f);
+	uint8_t b = (uint8_t)(cb * 255.0f + 0.5f);
+	uint8_t a = (uint8_t)(ca * 255.0f + 0.5f);
+	sv->color = D3DCOLOR_ARGB(a, r, g, b);
+}
 
 // ===[ HLSL Shader Source ]===
 //
@@ -176,11 +189,11 @@ struct SpriteVertex {
 // Position is already in screen pixels with z=0, w=1.
 // With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
 static const char* g_vsSource =
-	"struct VS_IN  { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
+	"struct VS_IN  { float2 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
 	"struct VS_OUT { float4 Pos : POSITION; float2 Tex : TEXCOORD0; float4 Col : TEXCOORD1; };\n"
 	"VS_OUT main(VS_IN i) {\n"
 	"  VS_OUT o;\n"
-	"  o.Pos = i.Pos;\n"
+	"  o.Pos = float4(i.Pos, 0.0f, 1.0f);\n"
 	"  o.Tex = i.Tex;\n"
 	"  o.Col = i.Col;\n"
 	"  return o;\n"
@@ -191,7 +204,7 @@ static const char* g_vsSource =
 static const char* g_vsSource =
 	"uniform float2 uHalfRes;\n"
 	"struct VS_IN {\n"
-	"    float4 Pos : POSITION;\n"
+	"    float2 Pos : POSITION;\n"
 	"    float2 Tex : TEXCOORD0;\n"
 	"    float4 Col : TEXCOORD1;\n"
 	"};\n"
@@ -228,20 +241,6 @@ static const char* g_psSource =
 	"}\n";
 
 // ===[ Helpers ]===
-
-static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, float tv,
-							 float cr, float cg, float cb, float ca) {
-	sv->x = px - 0.5f;
-	sv->y = py - 0.5f;
-	sv->z = 0.0f;
-	sv->w = 1.0f;
-	sv->u = tu;
-	sv->v = tv;
-	sv->r = cr;
-	sv->g = cg;
-	sv->b = cb;
-	sv->a = ca;
-}
 
 static inline float texelStart(float pos, float textureSize) {
 	return (pos + 0.5f) / textureSize;
@@ -506,9 +505,11 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 	dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 	dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
-	// Set the uHalfRes uniform for the default vertex shader
-	float halfRes[2] = { (float)dr->gameW * 0.5f, (float)dr->gameH * 0.5f };
-	dev->SetVertexShaderConstantF(0, halfRes, 1);
+	// Set the uHalfRes uniform for the default vertex shader (only if changed)
+	if (dr->cachedGameW != dr->gameW || dr->cachedGameH != dr->gameH) {
+		float halfRes[2] = { (float)dr->gameW * 0.5f, (float)dr->gameH * 0.5f };
+		dev->SetVertexShaderConstantF(0, halfRes, 1);
+	}
 
 	// Alpha blending
 	d3d9SetNormalBlend(dev, dr);
@@ -523,6 +524,12 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 
 	// Point filtering
 	applyPointSampling(dev, dr);
+
+	// Cache: matrix uniforms (only update when they change)
+	dr->cachedGameW = dr->gameW;
+	dr->cachedGameH = dr->gameH;
+	dr->cachedFogEnable = dr->fogEnable;
+	dr->cachedFogColor = dr->fogColor;
 
 	dr->renderStateDirty = false;
 }
@@ -864,8 +871,8 @@ static void flushBatch(D3D9Renderer* dr) {
 	if (triCount > 0) {
 		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
 		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)triCount,
-							 (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
-							 sizeof(SpriteVertex));
+							(BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
+							sizeof(SpriteVertex));
 		dr->triCount = 0;
 	}
 }
@@ -2441,9 +2448,9 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	// Create vertex declaration
 	static const D3DVERTEXELEMENT9 decl[] = {
-		{ 0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
-		{ 0, 16, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 },
-		{ 0, 24, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1 },
+		{ 0, 0,  D3DDECLTYPE_FLOAT2,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
+		{ 0, 8,  D3DDECLTYPE_FLOAT2,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 },
+		{ 0, 16, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1 },
 		D3DDECL_END()
 	};
 	dev->CreateVertexDeclaration(decl, (IDirect3DVertexDeclaration9**)&dr->pVertexDecl);
@@ -2517,6 +2524,13 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	dr->viewportY = 0;
 	dr->viewportW = 0;
 	dr->viewportH = 0;
+
+	// Initialize shader constant caches
+	dr->cachedGameW = -1;
+	dr->cachedGameH = -1;
+	dr->cachedFogEnable = false;
+	dr->cachedFogColor = 0;
+	dr->cachedGmlMatricesValid = false;
 
 	// Initialize GML shader support — compile lazily on first use
 #ifndef D3D9_DISABLE_SHADERS
@@ -3034,12 +3048,10 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		transformPoint(dr, x + cx[i], y + cy[i], &sx, &sy);
 		v[i].x = sx - 0.5f;
 		v[i].y = sy - 0.5f;
-		v[i].z = 0.0f;
-		v[i].w = 1.0f;
-		v[i].r = cr;
-		v[i].g = cg;
-		v[i].b = cb;
-		v[i].a = ca;
+		v[i].color = D3DCOLOR_ARGB((uint8_t)(ca * 255.0f + 0.5f),
+			(uint8_t)(cr * 255.0f + 0.5f),
+			(uint8_t)(cg * 255.0f + 0.5f),
+			(uint8_t)(cb * 255.0f + 0.5f));
 	}
 	v[0].u = u0;
 	v[0].v = v0;
@@ -3633,32 +3645,30 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 						cy[3] = sy1;
 					}
 
-					SpriteVertex* v = allocQuad(dr);
+SpriteVertex* v = allocQuad(dr);
 					float screenX, screenY;
 					for (int i = 0; i < 4; i++) {
 						transformPoint(dr, x + cx[i], y + cy[i], &screenX, &screenY);
 						v[i].x = screenX - 0.5f;
 						v[i].y = screenY - 0.5f;
-						v[i].z = 0.0f;
-						v[i].w = 1.0f;
 					}
 					// Per-vertex colors: TL=0, TR=1, BR=2, BL=3
-					v[0].r = vTLr;
-					v[0].g = vTLg;
-					v[0].b = vTLb;
-					v[0].a = vTLa;
-					v[1].r = vTRr;
-					v[1].g = vTRg;
-					v[1].b = vTRb;
-					v[1].a = vTRa;
-					v[2].r = vBRr;
-					v[2].g = vBRg;
-					v[2].b = vBRb;
-					v[2].a = vBRa;
-					v[3].r = vBLr;
-					v[3].g = vBLg;
-					v[3].b = vBLb;
-					v[3].a = vBLa;
+					v[0].color = D3DCOLOR_ARGB((uint8_t)(vTLa * 255.0f + 0.5f),
+						(uint8_t)(vTLr * 255.0f + 0.5f),
+						(uint8_t)(vTLg * 255.0f + 0.5f),
+						(uint8_t)(vTLb * 255.0f + 0.5f));
+					v[1].color = D3DCOLOR_ARGB((uint8_t)(vTRa * 255.0f + 0.5f),
+						(uint8_t)(vTRr * 255.0f + 0.5f),
+						(uint8_t)(vTRg * 255.0f + 0.5f),
+						(uint8_t)(vTRb * 255.0f + 0.5f));
+					v[2].color = D3DCOLOR_ARGB((uint8_t)(vBRa * 255.0f + 0.5f),
+						(uint8_t)(vBRr * 255.0f + 0.5f),
+						(uint8_t)(vBRg * 255.0f + 0.5f),
+						(uint8_t)(vBRb * 255.0f + 0.5f));
+					v[3].color = D3DCOLOR_ARGB((uint8_t)(vBLa * 255.0f + 0.5f),
+						(uint8_t)(vBLr * 255.0f + 0.5f),
+						(uint8_t)(vBLg * 255.0f + 0.5f),
+						(uint8_t)(vBLb * 255.0f + 0.5f));
 					v[0].u = gU0;
 					v[0].v = gV0;
 					v[1].u = gU1;
@@ -5139,11 +5149,25 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
 	if (gmMatrices != nullptr) {
 		// gm_Matrices is float4x4[5] - 5 matrices, each 4 registers
-		for (int m = 0; m < 5; m++) {
-			dev->SetVertexShaderConstantF(
-				gmMatrices->registerIndex + m * 4,
-				renderer->gmlMatrices[m].m,
-				4);
+		// Only update if matrices have changed
+		bool matricesChanged = !dr->cachedGmlMatricesValid;
+		if (!matricesChanged) {
+			for (int m = 0; m < 5; m++) {
+				if (memcmp(&dr->cachedGmlMatrices[m], &renderer->gmlMatrices[m], sizeof(Matrix4f)) != 0) {
+					matricesChanged = true;
+					break;
+				}
+			}
+		}
+		if (matricesChanged) {
+			for (int m = 0; m < 5; m++) {
+				dev->SetVertexShaderConstantF(
+					gmMatrices->registerIndex + m * 4,
+					renderer->gmlMatrices[m].m,
+					4);
+				dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
+			}
+			dr->cachedGmlMatricesValid = true;
 		}
 	}
 
@@ -5156,6 +5180,7 @@ static void d3d9GpuResetShader(Renderer* renderer) {
 	setShaders(dr, dr->pVertexShader, dr->pPixelShader);
 
 	dr->renderStateDirty = true;
+	dr->cachedGmlMatricesValid = false;
 
 	renderer->currentShader = -1;
 }
@@ -5718,6 +5743,8 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 		return;
 	}
 
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+
 	float sprW = sw * xscale;
 	float sprH = sh * yscale;
 	if (sprW <= 0.0f || sprH <= 0.0f) {
@@ -5729,6 +5756,30 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 
 	float endX = roomW;
 	float endY = roomH;
+
+	// Frustum clipping: clip tile iteration to the visible game-space area
+	if (dr->viewportW > 0 && dr->viewportH > 0) {
+		float gameLeft = ((float)dr->viewportX - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
+		float gameTop = ((float)dr->viewportY - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
+		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
+		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
+
+		if (gameLeft > startX) {
+			startX += floorf((gameLeft - startX) / sprW) * sprW;
+		}
+		if (gameRight < endX) {
+			endX = gameRight;
+		}
+		if (gameTop > startY) {
+			startY += floorf((gameTop - startY) / sprH) * sprH;
+		}
+		if (gameBottom < endY) {
+			endY = gameBottom;
+		}
+	}
+	if (startX >= endX || startY >= endY) {
+		return;
+	}
 
 	for (float ty = startY; ty <= endY; ty += sprH) {
 		for (float tx = startX; tx <= endX; tx += sprW) {
