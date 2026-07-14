@@ -347,12 +347,18 @@ static DWORD gmlBlendFactorToD3D(int32_t factor) {
 	}
 }
 
-static void d3d9SetNormalBlend(IDirect3DDevice9* dev) {
+static void d3d9SetNormalBlend(IDirect3DDevice9* dev, D3D9Renderer* dr) {
+	if (dr && dr->blendIsNormal) {
+		return;
+	}
 	dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
 	dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
 	dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
 	dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+	if (dr) {
+		dr->blendIsNormal = true;
+	}
 }
 
 static void resetFullBackbufferState(D3D9Renderer* dr) {
@@ -460,7 +466,11 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
 	dr->appSurfaceResolved = true;
 }
 
-static void applyPointSampling(IDirect3DDevice9* dev) {
+static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
+	// Skip if already applied this frame (unless forced by render target switch)
+	if (dr && dr->samplerStateApplied) {
+		return;
+	}
 	// Xbox 360 only has 4 texture samplers; desktop D3D9 has up to 8.
 	// Only loop over the actual hardware limit to avoid unnecessary API calls.
 #ifdef PLATFORM_XBOX360_XDK
@@ -474,6 +484,9 @@ static void applyPointSampling(IDirect3DDevice9* dev) {
 		dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+	}
+	if (dr) {
+		dr->samplerStateApplied = true;
 	}
 }
 
@@ -498,7 +511,7 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 	dev->SetVertexShaderConstantF(0, halfRes, 1);
 
 	// Alpha blending
-	d3d9SetNormalBlend(dev);
+	d3d9SetNormalBlend(dev, dr);
 	dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
 	dev->SetRenderState(D3DRS_COLORWRITEENABLE,
 						D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
@@ -509,7 +522,7 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 	dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 
 	// Point filtering
-	applyPointSampling(dev);
+	applyPointSampling(dev, dr);
 
 	dr->renderStateDirty = false;
 }
@@ -813,19 +826,30 @@ static void flushBatch(D3D9Renderer* dr) {
 	setShaders(dr, targetVS, targetPS);
 	setViewportEnable(dr, targetViewport);
 
-	void* desiredTex = dr->whiteTexture;
-	const int32_t currentTexIdx = dr->currentTextureIndex;
+	void* desiredTex;
+	int32_t bindIdx;
 
-	if (currentTexIdx >= 0 && (uint32_t)currentTexIdx < dr->textureCount) {
-		void* tex = dr->textures[currentTexIdx];
-		if (tex) {
-			desiredTex = tex;
+	if (dr->batchSurfaceTex) {
+		// Surface texture override (set by d3d9DrawSurface)
+		desiredTex = dr->batchSurfaceTex;
+		bindIdx = -2;
+		dr->batchSurfaceTex = nullptr;
+		// Invalidate currentTextureIndex so the next ensureTexture forces a flush
+		dr->currentTextureIndex = -1;
+	} else {
+		desiredTex = dr->whiteTexture;
+		bindIdx = dr->currentTextureIndex;
+		if (bindIdx >= 0 && (uint32_t)bindIdx < dr->textureCount) {
+			void* tex = dr->textures[bindIdx];
+			if (tex) {
+				desiredTex = tex;
+			}
 		}
 	}
 
-	if (currentTexIdx != dr->boundTextureIndex || dr->boundTexturePtr != desiredTex) {
+	if (dr->boundTexturePtr != desiredTex) {
 		dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
-		dr->boundTextureIndex = currentTexIdx;
+		dr->boundTextureIndex = bindIdx;
 		dr->boundTexturePtr = desiredTex;
 	}
 
@@ -1266,6 +1290,29 @@ static bool readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outD
 		return false;
 	}
 
+	// Prefer the persistent lazyLoadFile handle to avoid fopen/fclose per call.
+	if (dw->lazyLoadFile) {
+		long savedPos = ftell(dw->lazyLoadFile);
+		if (savedPos < 0 || fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) != 0) {
+			free(data);
+			return false;
+		}
+
+		size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
+		if (fseek(dw->lazyLoadFile, savedPos, SEEK_SET) != 0) {
+			free(data);
+			return false;
+		}
+		if (readCount != count) {
+			free(data);
+			return false;
+		}
+
+		*outData = data;
+		return true;
+	}
+
+	// Fallback: open file by path (when lazyLoadFile is not available)
 	if (dw->lazyLoadFilePath) {
 		FILE* file = fopen(dw->lazyLoadFilePath, "rb");
 		if (!file) {
@@ -1281,27 +1328,6 @@ static bool readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outD
 
 		size_t readCount = fread(data, 1, count, file);
 		fclose(file);
-		if (readCount != count) {
-			free(data);
-			return false;
-		}
-
-		*outData = data;
-		return true;
-	}
-
-	if (dw->lazyLoadFile) {
-		long savedPos = ftell(dw->lazyLoadFile);
-		if (savedPos < 0 || fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) != 0) {
-			free(data);
-			return false;
-		}
-
-		size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
-		if (fseek(dw->lazyLoadFile, savedPos, SEEK_SET) != 0) {
-			free(data);
-			return false;
-		}
 		if (readCount != count) {
 			free(data);
 			return false;
@@ -1514,18 +1540,24 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
 		return;
 	}
 
-	// Only scan a small bounded number of slots per frame.
-	// This avoids worst-case O(textureCount) stalls.
-	uint32_t checked = 0;
-	const uint32_t maxChecks = 64;
+	// Adaptive scan: scan up to 64 non-decoded slots, but process any
+	// decoded textures found along the way. If many textures finish
+	// decoding in a single frame, we keep uploading them without throttling.
+	uint32_t emptyChecks = 0;
+	const uint32_t maxEmptyChecks = 64;
+	// Hard cap on total slots scanned per frame to avoid stalls on huge counts.
+	const uint32_t hardScanLimit = (dr->textureCount < 1024) ? dr->textureCount : 1024;
+	uint32_t totalScanned = 0;
 
-	while (checked < maxChecks) {
+	while (emptyChecks < maxEmptyChecks && totalScanned < hardScanLimit) {
 		uint32_t i = dr->textureDecodedUploadCursor;
 		dr->textureDecodedUploadCursor = (dr->textureDecodedUploadCursor + 1) % dr->textureCount;
-		checked++;
+		totalScanned++;
 
 		if (dr->textureLoadState[i] == TEX_LOAD_DECODED) {
 			uploadDecodedTexture(dr, i);
+		} else {
+			emptyChecks++;
 		}
 	}
 }
@@ -1685,8 +1717,8 @@ async_loop:
 			}
 			return true;
 		}
+		YIELD();
 		goto async_loop;
-		// return false;
 	}
 
 	// Fall back to synchronous decode for external textures
@@ -2202,6 +2234,7 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 			// Assign register
 			uniforms[count].name = strdup(name);
 			uniforms[count].isSampler = isSampler;
+			uniforms[count].isVertex = isVertex;
 
 			if (isVertex) {
 				uniforms[count].registerIndex = nextVertexRegister;
@@ -2575,6 +2608,8 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 	dr->gameH = gameH;
 	dr->screenW = windowW;
 	dr->screenH = windowH;
+	dr->samplerStateApplied = false;
+	dr->blendIsNormal = false;
 	dr->frameCounter++;
 	if (dr->frameCounter == 0) {
 		dr->frameCounter = 1;
@@ -2639,7 +2674,8 @@ static void d3d9EndFrameInit(Renderer* renderer) {
 		dr->renderingToApplicationSurface = false;
 		setGameTargetTransform(dr);
 		Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
-		applyPointSampling(Dev(dr));
+		dr->samplerStateApplied = false;
+		applyPointSampling(Dev(dr), dr);
 		if (renderer->runner->appSurfaceAutoDraw) {
 			d3d9DrawSurface(renderer, APPLICATION_SURFACE_ID, 0, 0, -1, -1, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
 		}
@@ -3920,7 +3956,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 	switch (mode) {
 	case bm_normal:
 		// Cs*As + Cd*(1-As)
-		d3d9SetNormalBlend(dev);
+		d3d9SetNormalBlend(dev, dr);
 		dr->blendMode = mode;
 		dr->sFactor = sFactor;
 		dr->dFactor = dFactor;
@@ -3929,6 +3965,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 		return;
 
 	case bm_add:
+		dr->blendIsNormal = false;
 		blendOp = D3DBLENDOP_ADD;
 		srcFactorD3D = D3DBLEND_SRCALPHA; // GLCommon: SRC_ALPHA
 		dstFactorD3D = D3DBLEND_ONE;	  // GLCommon: ONE
@@ -3939,6 +3976,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 		break;
 
 	case bm_subtract:
+		dr->blendIsNormal = false;
 		blendOp = D3DBLENDOP_ADD;
 		srcFactorD3D = D3DBLEND_ZERO;		 // GLCommon: ZERO
 		dstFactorD3D = D3DBLEND_INVSRCCOLOR; // GLCommon: ONE_MINUS_SRC_COLOR
@@ -3949,6 +3987,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 		break;
 
 	case bm_reverse_subtract:
+		dr->blendIsNormal = false;
 		blendOp = D3DBLENDOP_REVSUBTRACT; // GLCommon: REVERSE_SUBTRACT
 		srcFactorD3D = D3DBLEND_SRCALPHA; // GLCommon: SRC_ALPHA
 		dstFactorD3D = D3DBLEND_ONE;	  // GLCommon: ONE
@@ -3959,6 +3998,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 		break;
 
 	case bm_min:
+		dr->blendIsNormal = false;
 		blendOp = D3DBLENDOP_MIN;	 // GLCommon: MIN
 		srcFactorD3D = D3DBLEND_ONE; // GLCommon: ONE
 		dstFactorD3D = D3DBLEND_ONE; // GLCommon: ONE
@@ -3969,6 +4009,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 		break;
 
 	case bm_max:
+		dr->blendIsNormal = false;
 		blendOp = D3DBLENDOP_ADD;			 // GLCommon: ADD
 		srcFactorD3D = D3DBLEND_SRCALPHA;	 // GLCommon: SRC_ALPHA
 		dstFactorD3D = D3DBLEND_INVSRCCOLOR; // GLCommon: ONE_MINUS_SRC_COLOR
@@ -3981,7 +4022,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 	default:
 		// Factor-only bm_* values are intended for gpuSetBlendModeExt().
 		// For compatibility and determinism, fall back to GLCommon "normal".
-		d3d9SetNormalBlend(dev);
+		d3d9SetNormalBlend(dev, dr);
 		dr->blendMode = bm_normal;
 		dr->sFactor = bm_src_alpha;
 		dr->dFactor = bm_inv_src_alpha;
@@ -4006,6 +4047,7 @@ static void d3d9GpuSetBlendMode(Renderer* renderer, int32_t mode) {
 static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	dr->renderStateDirty = true;
+	dr->blendIsNormal = false;
 	IDirect3DDevice9* dev = Dev(dr);
 	flushBatch(dr);
 	dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
@@ -4030,6 +4072,7 @@ static void d3d9GpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t 
 static void d3d9GpuSetBlendEnable(Renderer* renderer, bool enable) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	dr->renderStateDirty = true;
+	dr->blendIsNormal = false;
 	flushBatch(dr);
 	Dev(dr)->SetRenderState(D3DRS_ALPHABLENDENABLE, enable ? TRUE : FALSE);
 	if (!enable) {
@@ -4441,7 +4484,8 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		// and setGameTargetTransform correctly maps the game frame to the screen.
 		setGameTargetTransform(dr);
 		Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
-		applyPointSampling(Dev(dr));
+		dr->samplerStateApplied = false;
+		applyPointSampling(Dev(dr), dr);
 	}
 
 	// Resolve multi-sampled application surface to its texture
@@ -4465,9 +4509,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 	}
 
 	flushBatch(dr);
-	IDirect3DDevice9* dev = Dev(dr);
-	dev->SetTexture(0, (IDirect3DBaseTexture9*)drawTex);
-	dr->currentTextureIndex = -2;
 
 	float fTexW = (float)texW;
 	float fTexH = (float)texH;
@@ -4501,25 +4542,45 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
-	// Use the current transform (set by setGameTargetTransform already above)
-	// to map game-space coordinates to the screen with proper letterboxing.
-	SpriteVertex v[4];
-	float sx, sy;
-	transformPoint(dr, cx[0], cy[0], &sx, &sy);
-	setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
-	transformPoint(dr, cx[1], cy[1], &sx, &sy);
-	setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
-	transformPoint(dr, cx[2], cy[2], &sx, &sy);
-	setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
-	transformPoint(dr, cx[3], cy[3], &sx, &sy);
-	setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
 #ifdef PLATFORM_XBOX360_XDK
-	dev->DrawPrimitiveUP(D3DPT_QUADLIST, 1, v, sizeof(SpriteVertex));
+	// Route through the batch system so the surface quad is drawn via the same
+	// pipeline as sprites (shaders, viewport, etc.) and consecutive surface
+	// draws with the same texture can be batched into a single DrawPrimitiveUP.
+	dr->batchSurfaceTex = drawTex;
+	{
+		SpriteVertex* v = allocQuad(dr);
+		float sx, sy;
+		transformPoint(dr, cx[0], cy[0], &sx, &sy);
+		setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
+		transformPoint(dr, cx[1], cy[1], &sx, &sy);
+		setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
+		transformPoint(dr, cx[2], cy[2], &sx, &sy);
+		setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
+		transformPoint(dr, cx[3], cy[3], &sx, &sy);
+		setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
+	}
+	// Invalidate so the next ensureTexture always flushes (avoids
+	// mixing the surface quad with subsequent sprites in the same batch).
+	dr->currentTextureIndex = -1;
 #else
-	// Map your custom C++ layout explicitly so DXVK reads the float4 colors/positions
-	dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
-	// 4 vertices -> 2 triangles using triangle strip (matches SpriteVertex layout)
-	dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(SpriteVertex));
+	// Desktop: draw directly (the desktop batch path is for debugging only)
+	{
+		IDirect3DDevice9* dev = Dev(dr);
+		dev->SetTexture(0, (IDirect3DBaseTexture9*)drawTex);
+		dr->currentTextureIndex = -2;
+		SpriteVertex v[4];
+		float sx, sy;
+		transformPoint(dr, cx[0], cy[0], &sx, &sy);
+		setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
+		transformPoint(dr, cx[1], cy[1], &sx, &sy);
+		setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
+		transformPoint(dr, cx[2], cy[2], &sx, &sy);
+		setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
+		transformPoint(dr, cx[3], cy[3], &sx, &sy);
+		setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
+		dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
+		dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(SpriteVertex));
+	}
 #endif
 }
 
@@ -5081,10 +5142,11 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 	IDirect3DDevice9* dev = Dev(dr);
 	float values[4] = { value1, value2, value3, value4 };
-	// Set each register for the count
-	for (int32_t i = 0; i < count && i < 4; i++) {
-		dev->SetVertexShaderConstantF(u->registerIndex + i, values, 1);
-		dev->SetPixelShaderConstantF(u->registerIndex + i, values, 1);
+	// Only set the shader stage this uniform belongs to
+	if (u->isVertex) {
+		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
+	} else {
+		dev->SetPixelShaderConstantF(u->registerIndex, values, u->registerCount);
 	}
 }
 
@@ -5115,12 +5177,12 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
 	dr->renderStateDirty = true;
 
 	IDirect3DDevice9* dev = Dev(dr);
-	int32_t values[4] = { value1, value2, value3, value4 };
-	// D3D9 doesn't have SetVertexShaderConstantI for vs_2_0, use float
 	float fvalues[4] = { (float)value1, (float)value2, (float)value3, (float)value4 };
-	for (int32_t i = 0; i < count && i < 4; i++) {
-		dev->SetVertexShaderConstantF(u->registerIndex + i, fvalues, 1);
-		dev->SetPixelShaderConstantF(u->registerIndex + i, fvalues, 1);
+	// Only set the shader stage this uniform belongs to
+	if (u->isVertex) {
+		dev->SetVertexShaderConstantF(u->registerIndex, fvalues, u->registerCount);
+	} else {
+		dev->SetPixelShaderConstantF(u->registerIndex, fvalues, u->registerCount);
 	}
 }
 

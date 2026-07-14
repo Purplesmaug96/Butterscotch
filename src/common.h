@@ -74,7 +74,7 @@
     #elif defined(_M_ARM64) || defined(_M_ARM)
 		#include <intrin.h>
         #define YIELD() __yield()
-    #else
+	#else
         #define YIELD() ((void)0)
     #endif
 #else

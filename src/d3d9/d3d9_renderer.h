@@ -31,6 +31,7 @@ typedef struct {
 	int32_t registerCount; // number of registers (4 floats each)
 	uint32_t samplerSlot;  // for sampler uniforms
 	bool isSampler;
+	bool isVertex;		   // true = VS uniform, false = PS uniform
 } D3D9ShaderUniform;
 
 typedef struct {
@@ -186,6 +187,14 @@ typedef struct {
 	int32_t dFactor;
 	int32_t sFactorAlpha;
 	int32_t dFactorAlpha;
+
+	// Cache: sampler state has been applied this frame (avoids redundant SetSamplerState)
+	bool samplerStateApplied;
+	// Cache: blend state is currently at "normal" defaults (avoids redundant SetRenderState)
+	bool blendIsNormal;
+
+	// Surface texture override for batch system (Xbox 360 only)
+	void* batchSurfaceTex; // IDirect3DTexture9*, non-null = use instead of dr->textures[]
 } D3D9Renderer;
 
 Renderer* D3D9Renderer_create(void* pd3dDevice);
