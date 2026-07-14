@@ -521,8 +521,8 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 
 	// Set shared render state that should only be applied once per frame
 	// (unless something else dirties it).
-	// Use setShaders() to avoid redundant SetVertexShader/SetPixelShader calls.
-	setShaders(dr, dr->pVertexShader, dr->pPixelShader);
+	dev->SetVertexShader((IDirect3DVertexShader9*)dr->pVertexShader);
+	dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 	dev->SetVertexDeclaration((IDirect3DVertexDeclaration9*)dr->pVertexDecl);
 
 	// Set the uHalfRes uniform for the default vertex shader (only if changed)
