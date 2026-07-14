@@ -1572,7 +1572,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
         case BUILTIN_VAR_VIEW_XVIEW: {
             GMLCamera* camera = Runner_getCameraForView(runner, arrayIndex);
             if (camera != nullptr) {
-                camera->viewX = RValue_toReal(val);
+                camera->viewX = (float)RValue_toReal(val);
                 Runner_updateCameraViewSimple(camera);
             }
             return;
@@ -1580,7 +1580,7 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
         case BUILTIN_VAR_VIEW_YVIEW: {
             GMLCamera* camera = Runner_getCameraForView(runner, arrayIndex);
             if (camera != nullptr) {
-                camera->viewY = RValue_toInt32(val);
+                camera->viewY = (float)RValue_toReal(val);
                 Runner_updateCameraViewSimple(camera);
             }
             return;
@@ -2929,7 +2929,7 @@ static RValue builtin_matrix_build_projection_ortho(MAYBE_UNUSED VMContext *ctx,
     if (toPrevMatrix && !rvalueIsMatrix(args[4])) return RValue_makeUndefined();
 
     Matrix4f mat;
-    Matrix4f_Orthographic(&mat, width, height, zfar, znear);
+    Matrix4f_Orthographic(&mat, (float)width, (float)height, (float)zfar, (float)znear);
 
     if (!toPrevMatrix) {
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
@@ -2984,7 +2984,7 @@ static RValue builtin_matrix_get(MAYBE_UNUSED VMContext *ctx, RValue *args, int3
         return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &ctx->runner->renderer->gmlMatrices[Matrix]));
     } else {
         repeat (16, i) {
-            *GMLArray_slot(destArray, i) = RValue_makeReal(ctx->runner->renderer->gmlMatrices[Matrix].m[i]);
+            *GMLArray_slot(destArray, (int32_t)i) = RValue_makeReal(ctx->runner->renderer->gmlMatrices[Matrix].m[i]);
         }
         return RValue_makeArrayWeak(destArray);
     }
@@ -3020,7 +3020,7 @@ static RValue builtin_matrix_build_lookat(MAYBE_UNUSED VMContext *ctx, RValue *a
     Matrix4f matrix;
     Matrix4f_identity(&matrix);
 
-    Matrix4f_LookAt(&matrix, xFrom, yFrom, zFrom, xTo, yTo, zTo, xUp, yUp, zUp);
+    Matrix4f_LookAt(&matrix, (float)xFrom, (float)yFrom, (float)zFrom, (float)xTo, (float)yTo, (float)zTo, (float)xUp, (float)yUp, (float)zUp);
 
     bool toPrevMatrix = argCount == 10;
     GMLArray *destArray = toPrevMatrix ? args[9].array : nullptr;
@@ -3523,8 +3523,8 @@ static RValue builtin_camera_set_view_pos(VMContext* ctx, RValue* args, int32_t 
     Runner* runner = ctx->runner;
     GMLCamera* camera = Runner_getCameraById(runner, RValue_toInt32(args[0]));
     if (camera != nullptr) {
-        camera->viewX = RValue_toReal(args[1]);
-        camera->viewY = RValue_toReal(args[2]);
+        camera->viewX = (float)RValue_toReal(args[1]);
+        camera->viewY = (float)RValue_toReal(args[2]);
         Runner_updateCameraViewSimple(camera);
     }
     return RValue_makeUndefined();
@@ -3694,8 +3694,8 @@ static RValue builtin_camera_create_view(VMContext* ctx, RValue* args, int32_t a
     if (0 > id) return RValue_makeReal(-1);
     GMLCamera* camera = Runner_getCameraById(runner, id);
     // camera_create_view(room_x, room_y, room_w, room_h, [angle, object, x_speed, y_speed, x_border, y_border])
-    if (argCount > 0) camera->viewX = RValue_toReal(args[0]);
-    if (argCount > 1) camera->viewY = RValue_toReal(args[1]);
+    if (argCount > 0) camera->viewX = (float)RValue_toReal(args[0]);
+    if (argCount > 1) camera->viewY = (float)RValue_toReal(args[1]);
     if (argCount > 2) camera->viewWidth = RValue_toInt32(args[2]);
     if (argCount > 3) camera->viewHeight = RValue_toInt32(args[3]);
     if (argCount > 4) camera->viewAngle = (float) RValue_toReal(args[4]);

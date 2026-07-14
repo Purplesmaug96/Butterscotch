@@ -59,7 +59,7 @@ void Runner_updateCameraViewSimple(GMLCamera* camera) {
 
     Matrix4f projectionMatrix;
     Matrix4f_Orthographic(&projectionMatrix, (float) camera->viewWidth, -((float) camera->viewHeight), 32000.0, 0.0);
-    
+
 
     camera->viewMatrix = viewMatrix;
     camera->projectionMatrix = projectionMatrix;
@@ -1199,8 +1199,8 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
             }
 
             int32_t viewX, viewY, viewW, viewH;
-            expandViewAxis(camera->viewX, camera->viewWidth, gameW, widescreenBaseW, &viewX, &viewW);
-            expandViewAxis(camera->viewY, camera->viewHeight, gameH, widescreenBaseH, &viewY, &viewH);
+            expandViewAxis((int32_t)camera->viewX, camera->viewWidth, gameW, widescreenBaseW, &viewX, &viewW);
+            expandViewAxis((int32_t)camera->viewY, camera->viewHeight, gameH, widescreenBaseH, &viewY, &viewH);
             applyFreeCamera(runner, &viewX, &viewY, &viewW, &viewH);
             int32_t portX = (int32_t) ((float) view->portX * runner->displayScaleX + 0.5f);
             int32_t portY = (int32_t) ((float) view->portY * runner->displayScaleY + 0.5f);
@@ -1371,8 +1371,8 @@ GMLCamera* Runner_getCameraForView(Runner* runner, int32_t viewIndex) {
 // Populates a default camera (slot == view index) from parsed room view data.
 static void initDefaultCameraFromRoomView(GMLCamera* camera, RoomView* roomView) {
     camera->allocated = true;
-    camera->viewX = roomView->viewX;
-    camera->viewY = roomView->viewY;
+    camera->viewX = (float)roomView->viewX;
+    camera->viewY = (float)roomView->viewY;
     camera->viewWidth = roomView->viewWidth;
     camera->viewHeight = roomView->viewHeight;
     camera->borderX = roomView->borderX;
@@ -2812,8 +2812,8 @@ void Runner_getMouseRoomPosition(Runner* runner, GMLReal* outX, GMLReal* outY) {
         int32_t widescreenBaseW = gameW - runner->widescreenExtraWidth;
         int32_t widescreenBaseH = gameH - runner->widescreenExtraHeight;
         int32_t viewX, viewY, viewW, viewH;
-        expandViewAxis(pickedCamera->viewX, pickedCamera->viewWidth, gameW, widescreenBaseW, &viewX, &viewW);
-        expandViewAxis(pickedCamera->viewY, pickedCamera->viewHeight, gameH, widescreenBaseH, &viewY, &viewH);
+        expandViewAxis((int32_t)pickedCamera->viewX, pickedCamera->viewWidth, gameW, widescreenBaseW, &viewX, &viewW);
+        expandViewAxis((int32_t)pickedCamera->viewY, pickedCamera->viewHeight, gameH, widescreenBaseH, &viewY, &viewH);
 
         // Scale the picked view's port into FBO space exactly as Runner_drawViews does.
         int32_t portX = (int32_t) ((float) pickedView->portX * displayScaleX + 0.5f);
@@ -3279,8 +3279,8 @@ static void updateViews(Runner* runner) {
         if (target != nullptr) {
             int32_t ix = (int32_t) GMLReal_floor(target->x);
             int32_t iy = (int32_t) GMLReal_floor(target->y);
-            camera->viewX = followAxis(camera->viewX, camera->viewWidth, ix, camera->borderX, camera->speedX, (int32_t) room->width);
-            camera->viewY = followAxis(camera->viewY, camera->viewHeight, iy, camera->borderY, camera->speedY, (int32_t) room->height);
+            camera->viewX = (float) followAxis((int32_t)camera->viewX, camera->viewWidth, ix, camera->borderX, camera->speedX, (int32_t) room->width);
+            camera->viewY = (float) followAxis((int32_t)camera->viewY, camera->viewHeight, iy, camera->borderY, camera->speedY, (int32_t) room->height);
             Runner_updateCameraViewSimple(camera);
         }
     }
@@ -3350,8 +3350,8 @@ static void dispatchOutsideViewEvents(Runner* runner, int32_t viewIndex) {
     if (entryCount == 0) return;
 
     GMLCamera* camera = Runner_getCameraForView(runner, viewIndex);
-    int32_t viewLeft = camera->viewX;
-    int32_t viewTop = camera->viewY;
+    int32_t viewLeft = (int32_t)camera->viewX;
+    int32_t viewTop = (int32_t)camera->viewY;
     int32_t viewWidth = camera->viewWidth;
     int32_t viewHeight = camera->viewHeight;
     int32_t viewRight = viewLeft + viewWidth;

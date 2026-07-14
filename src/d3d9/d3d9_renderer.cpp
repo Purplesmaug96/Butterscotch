@@ -2413,6 +2413,10 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	IDirect3DDevice9* dev = Dev(dr);
 	renderer->dataWin = dataWin;
 
+	Matrix4f world;
+	Matrix4f_identity(&world);
+	renderer->gmlMatrices[MATRIX_WORLD] = world;
+
 #ifndef PLATFORM_XBOX360_XDK
 	InitVertexDeclaration(dev);
 #endif
@@ -2729,6 +2733,8 @@ static void d3d9EndFrameEnd(Renderer* renderer) {
 	d3d9EndFrame(renderer);
 }
 
+static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, const Matrix4f* projectionMatrix);
+
 static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH,
 						  int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
@@ -2797,8 +2803,17 @@ static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int3
 	dr->portOffsetX = screenPortX;
 	dr->portOffsetY = screenPortY;
 
-	// No projection matrix needed — vertices are pre-transformed screen coords.
-	// D3DRS_VIEWPORTENABLE=FALSE means the GPU uses positions directly as pixels.
+	// Look up camera for the current view and set up view/projection matrices.
+	int32_t viewCurrent = 0;
+	if (renderer->runner && renderer->runner->viewsEnabled) {
+		viewCurrent = renderer->runner->viewCurrent;
+	}
+	RuntimeView* view = &renderer->runner->views[viewCurrent];
+	renderer->cameraCurrent = view->cameraId;
+	GMLCamera* camera = Runner_getCameraById(renderer->runner, renderer->cameraCurrent);
+	if (camera != nullptr) {
+		d3d9ApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
+	}
 }
 
 static void d3d9EndView(Renderer* renderer) {
@@ -2807,10 +2822,24 @@ static void d3d9EndView(Renderer* renderer) {
 	Dev(dr)->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 }
 
-static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* worldToClip) {
+static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, const Matrix4f* projectionMatrix) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	flushBatch(dr);
-	renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = *worldToClip;
+
+	Matrix4f world = renderer->gmlMatrices[MATRIX_WORLD];
+	Matrix4f view = *viewMatrix;
+	Matrix4f projection = *projectionMatrix;
+
+	Matrix4f worldView;
+	Matrix4f_multiply(&worldView, &view, &world);
+
+	Matrix4f worldViewProjection;
+	Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
+
+	renderer->gmlMatrices[MATRIX_VIEW] = view;
+	renderer->gmlMatrices[MATRIX_PROJECTION] = projection;
+	renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
+	renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
 }
 
 static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId) {
@@ -2853,15 +2882,40 @@ static void d3d9BeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t
 	// game-to-screen transform to properly fill the 1280×720 backbuffer.
 	// Only override the transform when actual GUI scaling (aspect-ratio-aware
 	// letterboxing) is needed, i.e., when guiW != portW or guiH != portH.
+	// Set up GUI camera
+	renderer->cameraCurrent = GUI_CAMERA;
+	GMLCamera* guiCamera = &renderer->runner->guiCamera;
+	guiCamera->allocated = true;
+	guiCamera->viewX = 0.0f;
+	guiCamera->viewY = 0.0f;
+	guiCamera->viewWidth = guiW;
+	guiCamera->viewHeight = guiH;
+	guiCamera->borderX = 0;
+	guiCamera->borderY = 0;
+	guiCamera->speedX = 0;
+	guiCamera->speedY = 0;
+	guiCamera->objectId = -1;
+	guiCamera->viewAngle = 0;
+
+	Matrix4f projectionMatrix;
+	Matrix4f_Orthographic(&projectionMatrix, (float)guiW, (float)guiH, 32000.0, 0.0);
+
+	Matrix4f viewMatrix;
+	float cx = (float)guiW * 0.5f;
+	float cy = (float)guiH * 0.5f;
+	Matrix4f_identity(&viewMatrix);
+	Matrix4f_LookAt(&viewMatrix, cx, cy, -16000.0, cx, cy, 16000.0, 0.0, 1.0, 0.0);
+	guiCamera->viewMatrix = viewMatrix;
+	guiCamera->projectionMatrix = projectionMatrix;
+
+	d3d9ApplyProjection(renderer, &guiCamera->viewMatrix, &guiCamera->projectionMatrix);
+
 	if (guiW == portW && guiH == portH) {
-		// No GUI rescaling needed — preserve the existing transform (set by
-		// setGameTargetTransform in endFrameInit or from a previous view setup).
 		return;
 	}
 
 	dr->offsetX = 0.0f;
 	dr->offsetY = 0.0f;
-	// Use uniform scale with centering offsets to preserve the GUI's aspect ratio
 	dr->portScaleX = uniformScale;
 	dr->portScaleY = uniformScale;
 	dr->portOffsetX = (float)portX + offsetX;
@@ -4264,13 +4318,16 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 
 	dr->renderStateDirty = true;
 
+	int32_t viewCurrent = 0;
+	if (renderer->runner && renderer->runner->viewsEnabled) {
+		viewCurrent = renderer->runner->viewCurrent;
+	}
+	RuntimeView* view = &renderer->runner->views[viewCurrent];
+	renderer->cameraCurrent = view->cameraId;
+	GMLCamera* camera = Runner_getCameraById(renderer->runner, renderer->cameraCurrent);
+
 	if (surfaceID == APPLICATION_SURFACE_ID) {
 		if (implicitApplicationSurface && dr->savedViewStateValid) {
-			// surface_reset_target popped back to the application surface implicitly
-			// (the surface stack is now empty). Restore the view state that was saved
-			// when the user surface was set as target, so rendering continues with
-			// the correct camera/projection. This matches the GL renderer's behavior
-			// which restores previousViewMatrix and CPort values.
 			flushBatch(dr);
 			HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->appSurfaceLevel);
 			if (FAILED(hr)) {
@@ -4286,7 +4343,6 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 			vp.MaxZ = 1.0f;
 			dev->SetViewport(&vp);
 
-			// Restore the view transform that was active before the user switched to a surface.
 			dr->offsetX = dr->savedOffsetX;
 			dr->offsetY = dr->savedOffsetY;
 			dr->portScaleX = dr->savedPortScaleX;
@@ -4294,18 +4350,16 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 			dr->portOffsetX = dr->savedPortOffsetX;
 			dr->portOffsetY = dr->savedPortOffsetY;
 
-			// We ARE rendering to the application surface — set the flag so that
-			// endFrameInit resolves and presents it correctly at the end of the frame.
-			// The view transform was restored from the saved values, so beginView
-			// (if called again) would work correctly since the saved values were captured
-			// while renderingToApplicationSurface was true and already incorporate renderScale.
+			if (camera != nullptr) {
+				d3d9ApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
+			}
+
 			dr->renderingToApplicationSurface = true;
 			dr->appSurfaceResolved = false;
 			dr->savedViewStateValid = false;
 			return true;
 		}
 
-		// Application surface handling (explicit set or first time)
 		if (!dr->appSurfaceLevel) {
 			return false;
 		}
@@ -4327,14 +4381,13 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 		dr->renderingToApplicationSurface = true;
 		dr->appSurfaceResolved = false;
 		setApplicationSurfaceTransform(dr);
+		if (camera != nullptr) {
+			d3d9ApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
+		}
 		return true;
 	}
 
-	// Dynamic surface — save the current view state before switching to the user surface.
-	// This allows us to restore it when surface_reset_target pops back (implicitApplicationSurface).
 	if (dr->renderingToApplicationSurface) {
-		// We're currently rendering to the application surface with a game transform.
-		// Save that transform before the user surface takes over.
 		dr->savedOffsetX = dr->offsetX;
 		dr->savedOffsetY = dr->offsetY;
 		dr->savedPortScaleX = dr->portScaleX;
@@ -4356,7 +4409,6 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 		return false;
 	}
 
-	// Set viewport to cover the full surface
 	D3DVIEWPORT9 vp;
 	vp.X = 0;
 	vp.Y = 0;
@@ -4367,7 +4419,6 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 	dev->SetViewport(&vp);
 	dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 
-	// When rendering to a dynamic surface, set 1:1 transform
 	dr->renderingToApplicationSurface = false;
 	dr->offsetX = 0.0f;
 	dr->offsetY = 0.0f;
@@ -4375,6 +4426,30 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 	dr->portScaleY = 1.0f;
 	dr->portOffsetX = 0.0f;
 	dr->portOffsetY = 0.0f;
+
+	// Check if this surface belongs to the current view
+	if (view != nullptr && surfaceID == view->surfaceId) {
+		if (camera != nullptr) {
+			d3d9ApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
+		}
+	} else {
+		// Surface doesn't belong to the current view — use SURFACE_CAMERA
+		renderer->cameraCurrent = SURFACE_CAMERA;
+		GMLCamera* surfCamera = &renderer->runner->surfaceCamera;
+		surfCamera->allocated = true;
+		surfCamera->viewX = 0.0f;
+		surfCamera->viewY = 0.0f;
+		surfCamera->viewWidth = dr->surfaceWidth[surfaceID];
+		surfCamera->viewHeight = dr->surfaceHeight[surfaceID];
+		surfCamera->borderX = 0;
+		surfCamera->borderY = 0;
+		surfCamera->speedX = 0;
+		surfCamera->speedY = 0;
+		surfCamera->objectId = -1;
+		surfCamera->viewAngle = 0;
+		Runner_updateCameraViewSimple(surfCamera);
+		d3d9ApplyProjection(renderer, &surfCamera->viewMatrix, &surfCamera->projectionMatrix);
+	}
 
 	return true;
 }
@@ -5665,16 +5740,41 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portW, int32_t portH, bool renderingToUserSurface) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 
-	// Compatibility: GUI coordinate mapping is primarily handled in beginGUI().
-	// setGuiProjection is invoked by Runner when GUI size changes mid-pass.
-	// We update the transform parameters used by subsequent surface_reset_target restores.
-
 	if (portW <= 0 || portH <= 0 || guiW <= 0 || guiH <= 0) {
 		return;
 	}
 
+	renderer->cameraCurrent = GUI_CAMERA;
+	GMLCamera* guiCamera = &renderer->runner->guiCamera;
+	guiCamera->allocated = true;
+	guiCamera->viewX = 0.0f;
+	guiCamera->viewY = 0.0f;
+	guiCamera->viewWidth = guiW;
+	guiCamera->viewHeight = guiH;
+	guiCamera->borderX = 0;
+	guiCamera->borderY = 0;
+	guiCamera->speedX = 0;
+	guiCamera->speedY = 0;
+	guiCamera->objectId = -1;
+	guiCamera->viewAngle = 0;
+
+	Matrix4f projectionMatrix;
+	Matrix4f_Orthographic(&projectionMatrix, (float)guiW, (float)guiH, 32000.0, 0.0);
 	if (renderingToUserSurface) {
-		// When rendering directly to a user surface, treat GUI coordinates as 1:1 in that surface.
+		Matrix4f_flipClipY(&projectionMatrix);
+	}
+
+	Matrix4f viewMatrix;
+	float cx = (float)guiW * 0.5f;
+	float cy = (float)guiH * 0.5f;
+	Matrix4f_identity(&viewMatrix);
+	Matrix4f_LookAt(&viewMatrix, cx, cy, -16000.0, cx, cy, 16000.0, 0.0, 1.0, 0.0);
+	guiCamera->viewMatrix = viewMatrix;
+	guiCamera->projectionMatrix = projectionMatrix;
+
+	d3d9ApplyProjection(renderer, &guiCamera->viewMatrix, &guiCamera->projectionMatrix);
+
+	if (renderingToUserSurface) {
 		dr->offsetX = 0.0f;
 		dr->offsetY = 0.0f;
 		dr->portScaleX = 1.0f;
@@ -5684,7 +5784,6 @@ void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_
 		return;
 	}
 
-	// Update uniform letterbox mapping for subsequent GUI draws.
 	float scaleX = (float)portW / (float)guiW;
 	float scaleY = (float)portH / (float)guiH;
 	float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
@@ -5698,6 +5797,25 @@ void d3d9SetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, int32_
 	dr->portOffsetY = (float)portH * 0.0f + offsetY;
 
 	dr->renderStateDirty = true;
+}
+
+static void d3d9SetMatrix(Renderer* renderer, int32_t matrixType, Matrix4f matrix) {
+	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	flushBatch(dr);
+	renderer->gmlMatrices[matrixType] = matrix;
+
+	Matrix4f world = renderer->gmlMatrices[MATRIX_WORLD];
+	Matrix4f view = renderer->gmlMatrices[MATRIX_VIEW];
+	Matrix4f projection = renderer->gmlMatrices[MATRIX_PROJECTION];
+
+	Matrix4f worldView;
+	Matrix4f_multiply(&worldView, &view, &world);
+
+	Matrix4f worldViewProjection;
+	Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
+
+	renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
+	renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
 }
 
 // ===[ Public API ]===
@@ -5772,6 +5890,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	d3d9RendererVtable.textureSetStage = d3d9TextureSetStage;
 	d3d9RendererVtable.shaderIsCompiled = d3d9ShaderIsCompiled;
 	d3d9RendererVtable.shadersSupported = d3d9ShadersSupported;
+	d3d9RendererVtable.setMatrix = d3d9SetMatrix;
 	d3d9RendererVtable.drawSpriteTiled = d3d9DrawSpriteTiled;
 	d3d9RendererVtable.drawSurfaceTiled = d3d9DrawSurfaceTiled;
 	dr->base.vtable = &d3d9RendererVtable;
@@ -5780,6 +5899,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->base.drawFont = -1;
 	dr->base.circlePrecision = 24;
 	dr->base.currentShader = -1;
+	dr->base.cameraCurrent = 0;
 	dr->drawPhase = RENDER_PHASE_NONE;
 	dr->pd3dDevice = pd3dDevice;
 	dr->currentTextureIndex = -1;
