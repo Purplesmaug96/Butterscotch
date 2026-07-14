@@ -3715,6 +3715,8 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	dr->textures[pageId] = tex;
 	dr->textureWidths[pageId] = srcW;
 	dr->textureHeights[pageId] = srcH;
+	dr->textureBlobSizes[pageId] = (uint32_t)(srcW * srcH * 4);
+	dr->textureBytesUsed += dr->textureBlobSizes[pageId];
 
 	free(rgba);
 
@@ -4410,8 +4412,8 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		texH = dr->appSurfaceAllocH;
 	} else if (surfaceID >= 0 && (uint32_t)surfaceID < dr->surfaceCount && dr->surfaceTexture[surfaceID]) {
 		drawTex = (IDirect3DTexture9*)dr->surfaceTexture[surfaceID];
-		texW = dr->surfaceWidth[surfaceID];
-		texH = dr->surfaceHeight[surfaceID];
+		texW = (dr->surfaceWidth[surfaceID] + 7) & ~7;
+		texH = (dr->surfaceHeight[surfaceID] + 7) & ~7;
 	} else {
 		D3D9_DIAG_LIMITED(128, "D3D9: draw_surface unsupported id=%d src=%d,%d %dx%d",
 						  surfaceID, srcLeft, srcTop, srcWidth, srcHeight);
@@ -4454,8 +4456,8 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 			srcWidth = dr->appSurfaceW;
 			srcHeight = dr->appSurfaceH;
 		} else {
-			srcWidth = texW;
-			srcHeight = texH;
+			srcWidth = dr->surfaceWidth[surfaceID];
+			srcHeight = dr->surfaceHeight[surfaceID];
 		}
 	}
 	if (srcWidth <= 0 || srcHeight <= 0) {
@@ -4697,18 +4699,23 @@ static void d3d9SurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t d
 	dstRect.bottom = destY + (part ? srcH : srcH);
 
 	if (!part) {
-		// When part == false, ignore src rect and copy whole src to matching-size box at dest
-		D3DSURFACE_DESC srcDesc, dstDesc;
-		srcSurf->GetDesc(&srcDesc);
-		dstSurf->GetDesc(&dstDesc);
+		// When part == false, ignore src rect and copy whole src using logical dimensions
+		int32_t srcLogicalW, srcLogicalH;
+		if (srcSurfaceID == APPLICATION_SURFACE_ID) {
+			srcLogicalW = dr->appSurfaceW;
+			srcLogicalH = dr->appSurfaceH;
+		} else {
+			srcLogicalW = dr->surfaceWidth[srcSurfaceID];
+			srcLogicalH = dr->surfaceHeight[srcSurfaceID];
+		}
 		srcRect.left = 0;
 		srcRect.top = 0;
-		srcRect.right = (LONG)srcDesc.Width;
-		srcRect.bottom = (LONG)srcDesc.Height;
+		srcRect.right = srcLogicalW;
+		srcRect.bottom = srcLogicalH;
 		dstRect.left = destX;
 		dstRect.top = destY;
-		dstRect.right = destX + (LONG)srcDesc.Width;
-		dstRect.bottom = destY + (LONG)srcDesc.Height;
+		dstRect.right = destX + srcLogicalW;
+		dstRect.bottom = destY + srcLogicalH;
 	}
 	D3DXLoadSurfaceFromSurface(dstSurf, nullptr, &dstRect, srcSurf, nullptr, &srcRect, D3DX_FILTER_POINT, 0);
 }
