@@ -158,10 +158,25 @@ static std::string postProcessHLSL(const std::string& code, bool isVertex) {
         }
     }
 
-    // Remove the static variable declarations since they're now in the struct
-    // But keep them if they're used as local variables in main
-    // Actually, the static variables are used by the translated code, so we need
-    // to keep them. The prologue copies from input to these statics.
+    // Replace "return generateOutput(input);" with inline VS_OUTPUT construction.
+    // ANGLE's standalone HLSL translator emits this call but doesn't provide the
+    // generateOutput function (that would normally come from libANGLE's D3D9 backend).
+    if (isVertex) {
+        std::string outputInit = "VS_OUTPUT output;\n"
+                                 "    output.gl_Position = gl_Position;\n";
+        if (result.find("_v_vTexcoord") != std::string::npos) {
+            outputInit += "    output.v_vTexcoord = _v_vTexcoord;\n";
+        }
+        if (result.find("_v_vColour") != std::string::npos) {
+            outputInit += "    output.v_vColour = _v_vColour;\n";
+        }
+        outputInit += "    return output;";
+
+        size_t callPos = result.find("return generateOutput(input);");
+        if (callPos != std::string::npos) {
+            result.replace(callPos, strlen("return generateOutput(input);"), outputInit);
+        }
+    }
 
     return result;
 }

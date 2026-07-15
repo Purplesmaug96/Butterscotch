@@ -5121,6 +5121,128 @@ static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float
 
 #else
 
+// ANGLE's HLSL9 translator emits vertex shaders that call generateOutput(VS_INPUT input)
+// at the end of main() but omits the function definition. This post-processor scans the
+// source for static varying declarations (_v_* and gl_Position) and synthesizes the missing
+// function that packs them into the VS_OUTPUT struct.
+static char* patchVertexShaderForGenerateOutput(const char* source) {
+	if (!source) return NULL;
+
+	if (strstr(source, "VS_OUTPUT generateOutput(")) return NULL;
+	if (!strstr(source, "generateOutput")) return NULL;
+
+#define MAX_OUTPUT_FIELDS 32
+	char* outputFields[MAX_OUTPUT_FIELDS];
+	char* staticVars[MAX_OUTPUT_FIELDS];
+	int fieldCount = 0;
+
+	const char* p = source;
+	while (p && (p = strstr(p, "static")) != NULL && fieldCount < MAX_OUTPUT_FIELDS) {
+		p += 6;
+
+		while (*p == ' ' || *p == '\t') p++;
+
+		while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+
+		while (*p == ' ' || *p == '\t') p++;
+
+		const char* varStart = p;
+		while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+		const char* varEnd = p;
+		size_t varLen = (size_t)(varEnd - varStart);
+
+		if (varLen == 11 && memcmp(varStart, "gl_Position", 11) == 0) {
+			outputFields[fieldCount] = safeStrdup("gl_Position");
+			staticVars[fieldCount] = safeStrdup("gl_Position");
+			fieldCount++;
+		} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
+			outputFields[fieldCount] = (char*)malloc(varLen - 2);
+			if (outputFields[fieldCount]) {
+				memcpy(outputFields[fieldCount], varStart + 3, varLen - 3);
+				outputFields[fieldCount][varLen - 3] = '\0';
+				staticVars[fieldCount] = (char*)malloc(varLen + 1);
+				if (staticVars[fieldCount]) {
+					memcpy(staticVars[fieldCount], varStart, varLen);
+					staticVars[fieldCount][varLen] = '\0';
+					fieldCount++;
+				} else {
+					free(outputFields[fieldCount]);
+				}
+			}
+		}
+	}
+
+	if (fieldCount == 0) return NULL;
+
+	const char* mainFunc = strstr(source, "main(");
+	if (!mainFunc) {
+		for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
+		return NULL;
+	}
+
+	const char* mainStart = mainFunc;
+	while (mainStart > source && *mainStart != '\n') mainStart--;
+	if (*mainStart == '\n') mainStart++;
+
+	size_t baseSize = strlen(
+		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
+		"{\n"
+		"    VS_OUTPUT output;\n"
+		"    output.gl_Position.x = gl_Position.x + dx_ViewAdjust.x;\n"
+		"    output.gl_Position.y = -(gl_Position.y + dx_ViewAdjust.y);\n"
+		"    output.gl_Position.z = (gl_Position.z * clipControlOrigin + gl_Position.w * clipControlZeroToOne) * 0.5 + gl_Position.w * 0.5;\n"
+		"    output.gl_Position.w = gl_Position.w;\n");
+	size_t fieldSize = 0;
+	for (int i = 0; i < fieldCount; i++) {
+		if (strcmp(outputFields[i], "gl_Position") == 0)
+			continue;
+		fieldSize += strlen("    output.") + strlen(outputFields[i]) + strlen(" = ") + strlen(staticVars[i]) + strlen(";\n");
+	}
+	size_t returnSize = strlen(
+		"    return output;\n"
+		"}\n\n");
+	size_t funcSize = baseSize + fieldSize + returnSize;
+
+	size_t beforeMainLen = (size_t)(mainStart - source);
+	size_t afterMainLen = strlen(mainStart);
+
+	size_t totalSize = beforeMainLen + funcSize + afterMainLen + 1;
+	char* patched = (char*)malloc(totalSize);
+	if (!patched) {
+		for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
+		return NULL;
+	}
+
+	memcpy(patched, source, beforeMainLen);
+	size_t offset = beforeMainLen;
+
+	offset += (size_t)snprintf(patched + offset, totalSize - offset,
+		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
+		"{\n"
+		"    VS_OUTPUT output;\n"
+		"    output.gl_Position.x = gl_Position.x + dx_ViewAdjust.x;\n"
+		"    output.gl_Position.y = -(gl_Position.y + dx_ViewAdjust.y);\n"
+		"    output.gl_Position.z = (gl_Position.z * clipControlOrigin + gl_Position.w * clipControlZeroToOne) * 0.5 + gl_Position.w * 0.5;\n"
+		"    output.gl_Position.w = gl_Position.w;\n");
+
+	for (int i = 0; i < fieldCount; i++) {
+		if (strcmp(outputFields[i], "gl_Position") == 0)
+			continue;
+		offset += (size_t)snprintf(patched + offset, totalSize - offset,
+			"    output.%s = %s;\n", outputFields[i], staticVars[i]);
+	}
+
+	offset += (size_t)snprintf(patched + offset, totalSize - offset,
+		"    return output;\n"
+		"}\n\n");
+
+	memcpy(patched + offset, mainStart, afterMainLen + 1);
+
+	for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
+
+	return patched;
+}
+
 // Compile a GML shader on demand (lazy compilation)
 static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
@@ -5167,8 +5289,17 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		return;
 	}
 
+	char* patchedVertexSource = patchVertexShaderForGenerateOutput(vertexShaderSource);
+	if (patchedVertexSource) {
+		vertexShaderSource = patchedVertexSource;
+	}
+
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
+
+	if (patchedVertexSource) {
+		free(patchedVertexSource);
+	}
 }
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
