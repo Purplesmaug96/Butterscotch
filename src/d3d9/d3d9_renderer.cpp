@@ -2105,12 +2105,43 @@ void InitVertexDeclaration(IDirect3DDevice9* dev) {
 
 HRESULT compileShader(
 	const char* source,
-	const char* profile, // "vs_2_0" or "ps_2_0"
+	const char* profile,
 	void** outBytecode,
 	size_t* outSize) {
-	ID3DXBuffer* pErr = nullptr;
+	ID3DXBuffer* shader = nullptr;
+	ID3DXBuffer* errors = nullptr;
 	HRESULT hr = D3DXCompileShader(source, (UINT)strlen(source),
-								   nullptr, nullptr, "main", profile, 0, (ID3DXBuffer**)outBytecode, &pErr, nullptr);
+								   nullptr, nullptr, "main", profile, 0,
+								   &shader, &errors, nullptr);
+	if (FAILED(hr)) {
+		if (errors) {
+			const char* errMsg = (const char*)errors->GetBufferPointer();
+			OutputDebugStringA(errMsg);
+			fprintf(stderr, "D3D9: D3DXCompileShader error for profile %s:\n%s\n", profile, errMsg);
+			errors->Release();
+		}
+		*outBytecode = nullptr;
+		*outSize = 0;
+		return hr;
+	}
+
+	if (shader) {
+		*outSize = shader->GetBufferSize();
+		*outBytecode = malloc(*outSize);
+		if (*outBytecode) {
+			memcpy(*outBytecode, shader->GetBufferPointer(), *outSize);
+		} else {
+			*outSize = 0;
+			hr = E_OUTOFMEMORY;
+		}
+		shader->Release();
+	} else {
+		*outBytecode = nullptr;
+		*outSize = 0;
+		hr = E_FAIL;
+	}
+
+	if (errors) errors->Release();
 	return hr;
 }
 
@@ -2343,6 +2374,24 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		return false;
 	}
 
+	// // TEST: compile PS first to check if prior VS compilation corrupts D3DX state
+	// fprintf(stderr, "D3D9: === TEST PS-FIRST compile for %s ===\n", name ? name : "unknown");
+	// void* testPsFirst = nullptr;
+	// size_t testPsFirstSize = 0;
+	// HRESULT testPsFirstHr = compileShader("float4 main() : COLOR0 { return float4(0,0,0,1); }", "ps_2_0", &testPsFirst, &testPsFirstSize);
+	// fprintf(stderr, "D3D9: === TEST PS-FIRST hr=0x%08X %s ===\n", (unsigned)testPsFirstHr, SUCCEEDED(testPsFirstHr) ? "OK" : "FAIL");
+	// if (testPsFirst) free(testPsFirst);
+
+	// // TEST: compile VS first again for comparison
+	// fprintf(stderr, "D3D9: === TEST VS-TEST compile for %s ===\n", name ? name : "unknown");
+	// void* testVs = nullptr;
+	// size_t testVsSize = 0;
+	// HRESULT testVsHr = compileShader("float4x4 m; float4 main(float4 pos:POSITION):POSITION{return mul(pos,m);}", "vs_2_0", &testVs, &testVsSize);
+	// fprintf(stderr, "D3D9: === TEST VS-TEST hr=0x%08X %s ===\n", (unsigned)testVsHr, SUCCEEDED(testVsHr) ? "OK" : "FAIL");
+	// if (testVs) free(testVs);
+
+	// fprintf(stderr, "D3D9: === STEP 1: compile vertex shader for %s ===\n", name ? name : "unknown");
+	// fprintf(stderr, "D3D9: VS source for %s:\n%s\n\n", name ? name : "unknown", vertexShaderSource);
 	// Compile vertex shader
 	void* vsBytecode = nullptr;
 	size_t vsBytecodeSize = 0;
@@ -2351,6 +2400,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		fprintf(stderr, "D3D9: Failed to compile vertex shader %s\nSource:\n%s\n\n", name ? name : "unknown", vertexShaderSource ? vertexShaderSource : "(null)");
 		return false;
 	}
+	// fprintf(stderr, "D3D9: === STEP 2: CreateVertexShader for %s ===\n", name ? name : "unknown");
 
 	IDirect3DVertexShader9* vs = nullptr;
 	hr = dev->CreateVertexShader((const DWORD*)vsBytecode, &vs);
@@ -2359,16 +2409,23 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		fprintf(stderr, "D3D9: CreateVertexShader failed for %s hr=0x%08X\n", name ? name : "unknown", (unsigned)hr);
 		return false;
 	}
+	// fprintf(stderr, "D3D9: === STEP 3: compile pixel shader for %s ===\n", name ? name : "unknown");
+	// fprintf(stderr, "D3D9: PS source for %s:\n%s\n\n", name ? name : "unknown", fragmentShaderSource);
 
-	// Compile pixel shader
+	// Compile pixel shader (ps_3_0 on 360 for discard support)
+	const char* psProfile = "ps_2_0";
+#ifdef PLATFORM_XBOX360_XDK
+	psProfile = "ps_3_0";
+#endif
 	void* psBytecode = nullptr;
 	size_t psBytecodeSize = 0;
-	hr = compileShader(fragmentShaderSource, "ps_2_0", &psBytecode, &psBytecodeSize);
+	hr = compileShader(fragmentShaderSource, psProfile, &psBytecode, &psBytecodeSize);
 	if (FAILED(hr) || !psBytecode) {
 		fprintf(stderr, "D3D9: Failed to compile pixel shader %s\nSource:\n%s\n\n", name ? name : "unknown", fragmentShaderSource ? fragmentShaderSource : "(null)");
 		vs->Release();
 		return false;
 	}
+	// fprintf(stderr, "D3D9: === STEP 4: CreatePixelShader for %s ===\n", name ? name : "unknown");
 
 	IDirect3DPixelShader9* ps = nullptr;
 	hr = dev->CreatePixelShader((const DWORD*)psBytecode, &ps);
@@ -2384,11 +2441,13 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 	gmlShader->compiled = true;
 
 	// Parse uniforms from HLSL source
+	// fprintf(stderr, "D3D9: === STEP 5: parse uniforms for %s ===\n", name ? name : "unknown");
 	gmlShader->uniformCount = parseHLSLUniforms(vertexShaderSource, "vs_2_0", gmlShader->uniforms);
 	uint32_t psUniforms = parseHLSLUniforms(fragmentShaderSource, "ps_2_0", gmlShader->uniforms + gmlShader->uniformCount);
 	gmlShader->uniformCount += psUniforms;
 
 	// Assign sampler slots sequentially
+	// fprintf(stderr, "D3D9: === STEP 6: sampler loop for %s ===\n", name ? name : "unknown");
 	uint32_t nextSamplerSlot = 0;
 	for (uint32_t i = 0; i < gmlShader->uniformCount; i++) {
 		if (gmlShader->uniforms[i].isSampler) {
@@ -5156,10 +5215,13 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 			staticVars[fieldCount] = safeStrdup("gl_Position");
 			fieldCount++;
 		} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
-			outputFields[fieldCount] = (char*)malloc(varLen - 2);
+			// Strip only the leading '_' to get the field name.
+			// Static:  _v_vTexcoord  (12 chars)
+			// Field:   v_vTexcoord   (11 chars) — matches VS_OUTPUT member name.
+			outputFields[fieldCount] = (char*)malloc(varLen - 1);
 			if (outputFields[fieldCount]) {
-				memcpy(outputFields[fieldCount], varStart + 3, varLen - 3);
-				outputFields[fieldCount][varLen - 3] = '\0';
+				memcpy(outputFields[fieldCount], varStart + 1, varLen - 1);
+				outputFields[fieldCount][varLen - 1] = '\0';
 				staticVars[fieldCount] = (char*)malloc(varLen + 1);
 				if (staticVars[fieldCount]) {
 					memcpy(staticVars[fieldCount], varStart, varLen);
@@ -5237,6 +5299,153 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 	return patched;
 }
 
+// Patches a fragment/pixel shader that calls return generateOutput() but lacks a definition.
+// Removes @@ PIXEL OUTPUT @@ placeholder and inserts generateOutput() before main().
+static char* patchFragmentShaderForGenerateOutput(const char* source) {
+	if (!source) return NULL;
+	if (!strstr(source, "return generateOutput()")) return NULL;
+	if (strstr(source, "float4 generateOutput()")) return NULL;
+
+	size_t sourceLen = strlen(source);
+
+	// The build-time postProcessHLSL may not have replaced @@ VERTEX OUTPUT @@
+	// in fragment shaders. If PS_INPUT is missing, inject it.
+	bool needsPSInput = strstr(source, "struct PS_INPUT") == NULL;
+	const char* psInputStruct = NULL;
+	size_t psInputLen = 0;
+	if (needsPSInput) {
+		const char* psInputFmt =
+			"struct PS_INPUT\n"
+			"{\n"
+			"%s"  // v_vTexcoord
+			"%s"  // v_vColour
+			"};\n\n";
+		char psInputBuf[256];
+		const char* texcoordField = strstr(source, "_v_vTexcoord") ? "    float2 v_vTexcoord : TEXCOORD0;\n" : "";
+		const char* colourField  = strstr(source, "_v_vColour")    ? "    float4 v_vColour : TEXCOORD1;\n"  : "";
+		snprintf(psInputBuf, sizeof(psInputBuf), psInputFmt, texcoordField, colourField);
+		psInputStruct = psInputBuf;
+		psInputLen = strlen(psInputStruct);
+	}
+
+	// postProcessHLSL unconditionally adds "_v_vColour = input.v_vColour;" in the prologue,
+	// but ANGLE may omit the _v_vColour declaration if the GLSL shader declares but never
+	// reads the varying in its fragment body.  Add the missing declaration.
+	const char colourDecl[] = "static  float4 _v_vColour = {0, 0, 0, 0};\n";
+	size_t colourDeclLen = strlen(colourDecl);
+	bool needsColourDecl =
+		strstr(source, "_v_vColour") != NULL &&
+		strstr(source, "static  float4 _v_vColour") == NULL;
+
+	// Find positions in the ORIGINAL source (in order: colourInsert before pixelOutput before main)
+	const char* texcoordLine = strstr(source, "static  float2 _v_vTexcoord = {0, 0};\n");
+	const char* colourInsertPos = texcoordLine ? texcoordLine + strlen("static  float2 _v_vTexcoord = {0, 0};\n") : NULL;
+
+	const char* pixelOutputPos = strstr(source, "@@ PIXEL OUTPUT @@");
+	size_t pixelOutputLen = pixelOutputPos ? strlen("@@ PIXEL OUTPUT @@") : 0;
+
+	const char* mainPos = strstr(source, "float4 main(");
+	if (!mainPos) return NULL;
+
+	const char generateFunc[] =
+		"float4 generateOutput()\n"
+		"{\n"
+		"    return gl_Color[0];\n"
+		"}\n\n";
+	size_t generateFuncLen = strlen(generateFunc);
+
+	// Calculate result size
+	size_t extra = generateFuncLen;
+	if (needsColourDecl && colourInsertPos) extra += colourDeclLen;
+	if (needsPSInput) extra += psInputLen;
+	char* result = (char*)malloc(sourceLen - pixelOutputLen + extra + 1);
+	if (!result) return NULL;
+
+	char* out = result;
+	const char* in = source;
+
+	// --- Segment 1: from start to colourInsertPos (insert colour decl after texcoord line) ---
+	const char* seg1End = pixelOutputPos ? pixelOutputPos : mainPos;
+	if (needsColourDecl && colourInsertPos && colourInsertPos < seg1End) {
+		size_t seg1Len = (size_t)(colourInsertPos - in);
+		memcpy(out, in, seg1Len);
+		out += seg1Len;
+		in += seg1Len;
+
+		memcpy(out, colourDecl, colourDeclLen);
+		out += colourDeclLen;
+	}
+
+	// --- Segment 2: from current position to pixelOutputPos (skip the placeholder) ---
+	if (pixelOutputPos) {
+		size_t seg2Len = (size_t)(pixelOutputPos - in);
+		memcpy(out, in, seg2Len);
+		out += seg2Len;
+		in = pixelOutputPos + pixelOutputLen;
+	}
+
+	// --- Segment 3: from current position to mainPos (insert PS_INPUT + generateOutput before main) ---
+	size_t seg3Len = (size_t)(mainPos - in);
+
+	// If we need PS_INPUT, insert it right before main.  Pick an insertion point
+	// within seg3 that is just before the final blank-line / generateOutput block.
+	if (needsPSInput) {
+		// Insert PS_INPUT before generateOutput, or before main if generateOutput isn't there.
+		const char* genFuncInSrc = strstr(in, "float4 generateOutput()");
+		const char* psInsertPoint = genFuncInSrc ? genFuncInSrc : mainPos;
+		size_t beforePS = (size_t)(psInsertPoint - in);
+		memcpy(out, in, beforePS);
+		out += beforePS;
+		in += beforePS;
+
+		memcpy(out, psInputStruct, psInputLen);
+		out += psInputLen;
+	}
+
+	// Copy remaining up to main
+	size_t remToMain = (size_t)(mainPos - in);
+	memcpy(out, in, remToMain);
+	out += remToMain;
+	in += remToMain;
+
+	// Insert generateOutput function
+	memcpy(out, generateFunc, generateFuncLen);
+	out += generateFuncLen;
+
+	// --- Segment 4: from mainPos to end ---
+	size_t seg4Len = sourceLen - (size_t)(in - source);
+	memcpy(out, in, seg4Len);
+	out += seg4Len;
+	*out = '\0';
+
+	// The Xbox 360 microcode compiler does not support the "discard;" statement.
+	// Replace it with an early return that outputs transparent black.
+	if (result) {
+		const char discardWorkaround[] = "gl_Color[0] = float4(0,0,0,0); return generateOutput();";
+		size_t waLen = strlen(discardWorkaround);
+		size_t discardLen = strlen("discard;");
+		char* dp = result;
+		while ((dp = strstr(dp, "discard;\n")) != NULL) {
+			size_t before = (size_t)(dp - result);
+			size_t afterLen = strlen(dp + discardLen);
+			size_t newSize = before + waLen + afterLen + 1;
+			char* newResult = (char*)malloc(newSize);
+			if (newResult) {
+				memcpy(newResult, result, before);
+				memcpy(newResult + before, discardWorkaround, waLen);
+				memcpy(newResult + before + waLen, dp + discardLen, afterLen + 1);
+				free(result);
+				result = newResult;
+				dp = result + before + waLen;
+			} else {
+				break;
+			}
+		}
+	}
+
+	return result;
+}
+
 // Compile a GML shader on demand (lazy compilation)
 static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
@@ -5260,7 +5469,7 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		return;
 	}
 
-	fprintf(stderr, "D3D9: Compiling %s (lazy)\n", shdr->name);
+	fprintf(stderr, "D3D9: Compiling %s\n", shdr->name);
 
 	// Try native HLSL9 source first
 	// (Dont because deltarune has stubbed hlsl9 shaders)
@@ -5288,9 +5497,17 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		vertexShaderSource = patchedVertexSource;
 	}
 
+	char* patchedFragmentSource = patchFragmentShaderForGenerateOutput(fragmentShaderSource);
+	if (patchedFragmentSource) {
+		fragmentShaderSource = patchedFragmentSource;
+	}
+
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
 
+	if (patchedFragmentSource) {
+		free(patchedFragmentSource);
+	}
 	if (patchedVertexSource) {
 		free(patchedVertexSource);
 	}
