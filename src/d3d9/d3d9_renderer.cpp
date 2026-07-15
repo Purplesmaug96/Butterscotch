@@ -5722,7 +5722,7 @@ static char* patchPixelShaderPrologue(const char* source) {
 	int existCount = 0;
 	{
 		const char* line = brace + 1;
-		while (*line == ' ' || *line == '\t') line++;
+		while (*line == ' ' || *line == '\t' || *line == '\n' || *line == '\r') line++;
 		while (strncmp(line, "_v_", 3) == 0 && existCount < 16) {
 			// Find the semicolon
 			const char* semi = strchr(line, ';');
@@ -5757,12 +5757,12 @@ static char* patchPixelShaderPrologue(const char* source) {
 			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
 			size_t varLen = (size_t)(p - varStart);
 			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
-				char* fn = (char*)malloc(varLen);
+				char* fn = (char*)malloc(varLen + 1);
 				if (!fn) continue;
-				memcpy(fn, varStart, varLen); fn[varLen - 1] = '\0';
+				memcpy(fn, varStart, varLen); fn[varLen] = '\0';
 				char* sn = (char*)malloc(varLen);
 				if (!sn) { free(fn); continue; }
-				memcpy(sn, varStart, varLen - 1); sn[varLen - 1] = '\0';
+				memcpy(sn, varStart + 1, varLen - 1); sn[varLen - 1] = '\0';
 				vars[varCount].typeStart  = typeStart;
 				vars[varCount].typeLen    = typeLen;
 				vars[varCount].staticName = fn;    // "_v_vTexcoord"
@@ -5778,15 +5778,13 @@ static char* patchPixelShaderPrologue(const char* source) {
 	size_t addLen = 0;
 
 	for (int i = 0; i < varCount; i++) {
+		// _v_vTexcoord and _v_vColour are always in the build-time prologue
+		if (strcmp(vars[i].staticName, "_v_vTexcoord") == 0 ||
+			strcmp(vars[i].staticName, "_v_vColour") == 0)
+			continue;
 		bool found = false;
 		for (int j = 0; j < existCount; j++) {
-			if (strcmp(vars[i].staticName, "_v_vTexcoord") == 0 ||
-				strcmp(vars[i].staticName, "_v_vColour") == 0) {
-				// These are always in the prologue, skip
-				found = true;
-				break;
-			}
-				if (strncmp(existing[j].s, vars[i].staticName, strlen(vars[i].staticName)) == 0) {
+			if (strncmp(existing[j].s, vars[i].staticName, strlen(vars[i].staticName)) == 0) {
 				found = true;
 				break;
 			}
@@ -5794,7 +5792,7 @@ static char* patchPixelShaderPrologue(const char* source) {
 		if (found) continue;
 		// Add prologue line
 		char buf[128];
-		snprintf(buf, sizeof(buf), "    %s = input.%s;\n", vars[i].staticName, vars[i].fieldName);
+		snprintf(buf, sizeof(buf), "\n    %s = input.%s;", vars[i].staticName, vars[i].fieldName);
 		strncat(additions, buf, sizeof(additions) - addLen - 1);
 		addLen = strlen(additions);
 	}
