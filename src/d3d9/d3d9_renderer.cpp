@@ -5376,27 +5376,38 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 		out += colourDeclLen;
 	}
 
-	// --- Segment 2: from current position to pixelOutputPos (skip the placeholder) ---
-	if (pixelOutputPos) {
-		size_t seg2Len = (size_t)(pixelOutputPos - in);
-		memcpy(out, in, seg2Len);
-		out += seg2Len;
+	// --- Segment 2: from current position to gl_Color end (insert generateOutput after gl_Color[1]) ---
+	// generateOutput() must be defined BEFORE any function that calls it (e.g. f_DoAlphaTest_float4).
+	// Insert it right after the gl_Color[1] static declaration (before user functions).
+	{
+		const char* glColorDecl = strstr(in, "gl_Color[1]");
+		const char* glColorEnd = glColorDecl ? strstr(glColorDecl, "};") : NULL;
+		if (glColorEnd) {
+			size_t beforeGLEnd = (size_t)(glColorEnd + 2 - in);
+			memcpy(out, in, beforeGLEnd);
+			out += beforeGLEnd;
+			in += beforeGLEnd;
+
+			memcpy(out, generateFunc, generateFuncLen);
+			out += generateFuncLen;
+		}
+	}
+
+	// --- Segment 3: from current position to pixelOutputPos (skip the placeholder) ---
+	if (pixelOutputPos && in < pixelOutputPos) {
+		size_t seg3Len = (size_t)(pixelOutputPos - in);
+		memcpy(out, in, seg3Len);
+		out += seg3Len;
 		in = pixelOutputPos + pixelOutputLen;
 	}
 
-	// --- Segment 3: from current position to mainPos (insert PS_INPUT + generateOutput before main) ---
-	size_t seg3Len = (size_t)(mainPos - in);
-
-	// If we need PS_INPUT, insert it right before main.  Pick an insertion point
-	// within seg3 that is just before the final blank-line / generateOutput block.
+	// --- Segment 5: from current position to mainPos (insert PS_INPUT before main) ---
 	if (needsPSInput) {
-		// Insert PS_INPUT before generateOutput, or before main if generateOutput isn't there.
-		const char* genFuncInSrc = strstr(in, "float4 generateOutput()");
-		const char* psInsertPoint = genFuncInSrc ? genFuncInSrc : mainPos;
-		size_t beforePS = (size_t)(psInsertPoint - in);
-		memcpy(out, in, beforePS);
-		out += beforePS;
-		in += beforePS;
+		// PS_INPUT must be defined before main(PS_INPUT input).  Insert it right before main.
+		size_t beforeMain = (size_t)(mainPos - in);
+		memcpy(out, in, beforeMain);
+		out += beforeMain;
+		in += beforeMain;
 
 		memcpy(out, psInputStruct, psInputLen);
 		out += psInputLen;
@@ -5408,10 +5419,6 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	out += remToMain;
 	in += remToMain;
 
-	// Insert generateOutput function
-	memcpy(out, generateFunc, generateFuncLen);
-	out += generateFuncLen;
-
 	// --- Segment 4: from mainPos to end ---
 	size_t seg4Len = sourceLen - (size_t)(in - source);
 	memcpy(out, in, seg4Len);
@@ -5419,10 +5426,10 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	*out = '\0';
 
 	// The Xbox 360 microcode compiler does not support the "discard;" statement.
-	// Replace it with an early return that outputs transparent black.
+	// Replace it with clip(-1) which emits the same kill instruction and may be supported.
 	if (result) {
-		const char discardWorkaround[] = "gl_Color[0] = float4(0,0,0,0); return generateOutput();";
-		size_t waLen = strlen(discardWorkaround);
+		const char workaround[] = "clip(-1);";
+		size_t waLen = strlen(workaround);
 		size_t discardLen = strlen("discard;");
 		char* dp = result;
 		while ((dp = strstr(dp, "discard;\n")) != NULL) {
@@ -5432,7 +5439,7 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 			char* newResult = (char*)malloc(newSize);
 			if (newResult) {
 				memcpy(newResult, result, before);
-				memcpy(newResult + before, discardWorkaround, waLen);
+				memcpy(newResult + before, workaround, waLen);
 				memcpy(newResult + before + waLen, dp + discardLen, afterLen + 1);
 				free(result);
 				result = newResult;
