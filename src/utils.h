@@ -88,6 +88,7 @@ static inline void *safeMallocFunction(size_t size, const char *file, int line) 
         fprintf(stderr, "FATAL: malloc(%zu) failed at %s:%d\n", size, file, line);
         abort();
     }
+	memset(ret, 0, size);
     return ret;
 }
 #define safeMalloc(size) safeMallocFunction(size, __FILE__, __LINE__)
@@ -98,6 +99,7 @@ static inline void *safeCallocFunction(size_t count, size_t size, const char *fi
         fprintf(stderr, "FATAL: calloc(%zu, %zu) failed at %s:%d\n", count, size, file, line);
         abort();
     }
+	memset(ret, 0, size);
     return ret;
 }
 #define safeCalloc(count, size) safeCallocFunction(count, size, __FILE__, __LINE__)
