@@ -5184,188 +5184,670 @@ static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float
 // at the end of main() but omits the function definition. This post-processor scans the
 // source for static varying declarations (_v_* and gl_Position) and synthesizes the missing
 // function that packs them into the VS_OUTPUT struct.
-static bool structHasField(const char* structStart, const char* structEnd, const char* fieldName) {
-	// Scan lines between the opening { (at structStart) and closing }; (at structEnd)
-	if (!structStart || !structEnd || !fieldName) return false;
-	size_t fnLen = strlen(fieldName);
-	const char* line = structStart;
-	while (line < structEnd) {
-		while (*line == ' ' || *line == '\t') line++;
-		if (*line == '}' || *line == '\0') break;
-		// Skip type (word before field name)
-		while (*line && *line != ' ' && *line != '\t') line++;
-		while (*line == ' ' || *line == '\t') line++;
-		if (strncmp(line, fieldName, fnLen) == 0) {
-			char after = line[fnLen];
-			if (after == ' ' || after == '\t' || after == ':' || after == ';') return true;
+// Patches VS_INPUT struct to add any missing _in_* attribute fields.
+// Returns a newly allocated string with the patched source, or NULL if no change.
+static char* patchVertexShaderInputStruct(const char* source) {
+	if (!source) return NULL;
+	const char* vsDecl = strstr(source, "struct VS_INPUT");
+	const char* vsBody = vsDecl ? strchr(vsDecl, '{') : NULL;
+	const char* vsEnd  = vsDecl ? strstr(vsDecl, "};") : NULL;
+	if (!vsBody || !vsEnd) return NULL;
+
+	// Scan for _in_TextureCoord reference in source
+	bool needsTexcoord = strstr(source, "_in_TextureCoord") != NULL;
+	if (!needsTexcoord) return NULL;
+
+	// Check if VS_INPUT already has in_TextureCoord
+	{
+		const char* line = vsBody + 1;
+		while (line < vsEnd) {
+			while (*line == ' ' || *line == '\t') line++;
+			if (*line == '}' || *line == '\0') break;
+			while (*line && *line != ' ' && *line != '\t') line++;
+			while (*line == ' ' || *line == '\t') line++;
+			if (strncmp(line, "in_TextureCoord", 15) == 0) {
+				char a = line[15];
+				if (a == ' ' || a == '\t' || a == ':') return NULL;
+			}
+			while (*line && *line != '\n') line++;
+			if (*line == '\n') line++;
 		}
-		while (*line && *line != '\n') line++;
-		if (*line == '\n') line++;
 	}
-	return false;
+
+	// Add static declaration if missing, and struct field
+	const char texcoordStatic[] = "static float2 _in_TextureCoord = {0, 0};\n";
+	size_t texcoordStaticLen = strlen(texcoordStatic);
+	const char texcoordField[] = "    float2 in_TextureCoord : TEXCOORD0;\n";
+	size_t texcoordFieldLen = strlen(texcoordField);
+
+	// Find insertion point for static: after last _in_* static
+	const char* attrInsert = NULL;
+	const char* p = source;
+	while (p) {
+		const char* st = strstr(p, "static");
+		if (!st) break;
+		const char* afterSt = st + 6;
+		while (*afterSt == ' ' || *afterSt == '\t') afterSt++;
+		if (strncmp(afterSt, "float", 5) == 0 || strncmp(afterSt, "float2", 6) == 0 || strncmp(afterSt, "float3", 6) == 0 || strncmp(afterSt, "float4", 6) == 0) {
+			const char* typeEnd = afterSt;
+			while (*typeEnd && *typeEnd != ' ' && *typeEnd != '\t') typeEnd++;
+			const char* varStart = typeEnd;
+			while (*varStart == ' ' || *varStart == '\t') varStart++;
+			if (strncmp(varStart, "_in_", 4) == 0) {
+				const char* lineEnd = strchr(st, '\n');
+				attrInsert = lineEnd ? lineEnd + 1 : st + strlen(st);
+				p = attrInsert;
+				continue;
+			}
+		}
+		p = st + 1;
+	}
+
+	// Find VS_INPUT struct insertion point (before "};")
+	const char* structInsert = vsEnd; // before "};"
+
+	size_t staticAddLen = 0;
+	if (!strstr(source, "static float2 _in_TextureCoord") &&
+		!strstr(source, "static  float2 _in_TextureCoord")) {
+		if (attrInsert) staticAddLen = texcoordStaticLen;
+		else attrInsert = NULL;
+	}
+
+	if (staticAddLen == 0) attrInsert = NULL;
+
+	// Count the number of attributes in VS_INPUT to determine TEXCOORD slot
+	int attrCount = 0;
+	{
+		const char* line = vsBody + 1;
+		while (line < vsEnd) {
+			while (*line == ' ' || *line == '\t') line++;
+			if (*line == '}' || *line == '\0') break;
+			const char* start = line;
+			(void)start;
+			while (*line && *line != '\n') line++;
+			if (*line == '\n') line++;
+			attrCount++;
+		}
+	}
+
+	size_t sourceLen = strlen(source);
+	size_t totalSize = sourceLen + staticAddLen + texcoordFieldLen + 1;
+	char* result = (char*)malloc(totalSize);
+	if (!result) return NULL;
+
+	char* out = result;
+	const char* in = source;
+
+	// Copy up to attribute insertion point
+	if (attrInsert) {
+		size_t before = (size_t)(attrInsert - in);
+		memcpy(out, in, before);
+		out += before; in += before;
+		memcpy(out, texcoordStatic, texcoordStaticLen);
+		out += texcoordStaticLen;
+	}
+
+	// Copy up to struct "};"
+	size_t endOff = (size_t)(structInsert - in);
+	memcpy(out, in, endOff);
+	out += endOff; in += endOff;
+
+	// Insert struct field
+	memcpy(out, texcoordField, texcoordFieldLen);
+	out += texcoordFieldLen;
+
+	// Copy remaining
+	size_t rem = sourceLen - (size_t)(in - source);
+	memcpy(out, in, rem + 1);
+
+	// Fix TEXCOORD slots if needed - we only added one field after the existing ones,
+	// so the slot is just the count of existing attributes. But if there's already a
+	// TEXCOORD0, we need to use the next available. Our default is TEXCOORD0.
+	// If in_TextureCoord should be TEXCOORD0 and in_Colour should be COLOR,
+	// this should be fine. We'll swap slots if needed.
+
+	return result;
 }
 
+// Patches VS_OUTPUT and VS_INPUT structs, and adds generateOutput() if missing.
 static char* patchVertexShaderForGenerateOutput(const char* source) {
 	if (!source) return NULL;
-
 	if (strstr(source, "VS_OUTPUT generateOutput(")) return NULL;
 	if (!strstr(source, "generateOutput")) return NULL;
 
-	// Parse existing VS_OUTPUT struct fields
 	const char* vsOutputStruct = strstr(source, "struct VS_OUTPUT");
-	const char* vsOutputEnd = NULL;
-	if (vsOutputStruct) {
-		vsOutputEnd = strstr(vsOutputStruct, "};");
-		if (vsOutputEnd) vsOutputEnd += 2; // past the };
+	const char* vsOutputBody = vsOutputStruct ? strchr(vsOutputStruct, '{') : NULL;
+	const char* vsOutputEnd   = vsOutputStruct ? strstr(vsOutputStruct, "};") : NULL;
+
+	struct VarInfo {
+		const char* typeStart;
+		size_t typeLen;
+		char* fieldName;
+		char* staticName;
+	};
+	VarInfo vars[32];
+	int varCount = 0;
+
+	{
+		const char* p = source;
+		while (p && (p = strstr(p, "static")) != NULL && varCount < 32) {
+			p += 6;
+			while (*p == ' ' || *p == '\t') p++;
+			const char* typeStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t typeLen = (size_t)(p - typeStart);
+			while (*p == ' ' || *p == '\t') p++;
+			const char* varStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t varLen = (size_t)(p - varStart);
+
+			if (varLen == 11 && memcmp(varStart, "gl_Position", 11) == 0) {
+				vars[varCount].typeStart  = typeStart;
+				vars[varCount].typeLen    = typeLen;
+				vars[varCount].fieldName  = safeStrdup("gl_Position");
+				vars[varCount].staticName = safeStrdup("gl_Position");
+				varCount++;
+			} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
+				size_t fnLen = varLen - 1;
+				char* fn = (char*)malloc(fnLen + 1);
+				if (!fn) continue;
+				memcpy(fn, varStart + 1, fnLen); fn[fnLen] = '\0';
+				char* sn = (char*)malloc(varLen + 1);
+				if (!sn) { free(fn); continue; }
+				memcpy(sn, varStart, varLen); sn[varLen] = '\0';
+				vars[varCount].typeStart  = typeStart;
+				vars[varCount].typeLen    = typeLen;
+				vars[varCount].fieldName  = fn;
+				vars[varCount].staticName = sn;
+				varCount++;
+			}
+		}
 	}
+	if (varCount == 0) return NULL;
 
-#define MAX_OUTPUT_FIELDS 32
-	char* outputFields[MAX_OUTPUT_FIELDS];
-	char* staticVars[MAX_OUTPUT_FIELDS];
-	int fieldCount = 0;
+	fprintf(stderr, "D3D9: patchVertexShaderForGenerateOutput found %d varyings\n", varCount);
 
-	const char* p = source;
-	while (p && (p = strstr(p, "static")) != NULL && fieldCount < MAX_OUTPUT_FIELDS) {
-		p += 6;
+	char structAdditions[384] = "";
+	size_t structAddLen = 0;
+	if (vsOutputBody && vsOutputEnd) {
+		fprintf(stderr, "D3D9:   VS_OUTPUT struct found at body+0 end+%zu\n",
+			(size_t)(vsOutputEnd - vsOutputBody));
+		int nextSlot = 0;
+		{
+			const char* line = vsOutputBody + 1;
+			while (line < vsOutputEnd) {
+				while (*line == ' ' || *line == '\t') line++;
+				if (*line == '}' || *line == '\0') break;
+				while (*line && *line != ' ' && *line != '\t') line++;
+				while (*line == ' ' || *line == '\t') line++;
+				while (*line && *line != ' ' && *line != '\t' && *line != ':') line++;
+				while (*line == ' ' || *line == '\t') line++;
+				if (*line == ':') {
+					line++;
+					while (*line == ' ' || *line == '\t') line++;
+					if (strncmp(line, "TEXCOORD", 8) == 0) {
+						int slot = atoi(line + 8);
+						if (slot >= nextSlot) nextSlot = slot + 1;
+					}
+				}
+				while (*line && *line != '\n') line++;
+				if (*line == '\n') line++;
+			}
+		}
 
-		while (*p == ' ' || *p == '\t') p++;
-
-		while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
-
-		while (*p == ' ' || *p == '\t') p++;
-
-		const char* varStart = p;
-		while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
-		const char* varEnd = p;
-		size_t varLen = (size_t)(varEnd - varStart);
-
-		if (varLen == 11 && memcmp(varStart, "gl_Position", 11) == 0) {
-			outputFields[fieldCount] = safeStrdup("gl_Position");
-			staticVars[fieldCount] = safeStrdup("gl_Position");
-			fieldCount++;
-		} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
-			// Strip only the leading '_' to get the field name.
-			char fieldName[64];
-			size_t fnLen = varLen - 1;
-			if (fnLen >= sizeof(fieldName)) continue;
-			memcpy(fieldName, varStart + 1, fnLen);
-			fieldName[fnLen] = '\0';
-
-			// Skip if the VS_OUTPUT struct doesn't have this field
-			const char* vsOutputBody = vsOutputStruct ? strchr(vsOutputStruct, '{') : NULL;
-		if (vsOutputBody && vsOutputEnd && !structHasField(vsOutputBody + 1, vsOutputEnd, fieldName)) {
-				continue;
+		for (int i = 0; i < varCount; i++) {
+			if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+			{
+				const char* line = vsOutputBody + 1;
+				bool found = false;
+				while (line < vsOutputEnd && !found) {
+					while (*line == ' ' || *line == '\t') line++;
+					if (*line == '}' || *line == '\0') break;
+					while (*line && *line != ' ' && *line != '\t') line++;
+					while (*line == ' ' || *line == '\t') line++;
+					size_t fnLen = strlen(vars[i].fieldName);
+					if (strncmp(line, vars[i].fieldName, fnLen) == 0) {
+						char a = line[fnLen];
+						if (a == ' ' || a == '\t' || a == ':' || a == ';') found = true;
+					}
+					while (*line && *line != '\n') line++;
+					if (*line == '\n') line++;
+				}
+				if (found) {
+					fprintf(stderr, "D3D9:   field %s already in VS_OUTPUT\n", vars[i].fieldName);
+					continue;
+				}
+				fprintf(stderr, "D3D9:   field %s MISSING from VS_OUTPUT, adding\n", vars[i].fieldName);
 			}
 
-			outputFields[fieldCount] = (char*)malloc(varLen - 1);
-			if (outputFields[fieldCount]) {
-				memcpy(outputFields[fieldCount], varStart + 1, varLen - 1);
-				outputFields[fieldCount][varLen - 1] = '\0';
-				staticVars[fieldCount] = (char*)malloc(varLen + 1);
-				if (staticVars[fieldCount]) {
-					memcpy(staticVars[fieldCount], varStart, varLen);
-					staticVars[fieldCount][varLen] = '\0';
-					fieldCount++;
-				} else {
-					free(outputFields[fieldCount]);
+			char typeStr[32];
+			size_t tl = vars[i].typeLen;
+			if (tl >= sizeof(typeStr)) tl = sizeof(typeStr) - 1;
+			memcpy(typeStr, vars[i].typeStart, tl); typeStr[tl] = '\0';
+			fprintf(stderr, "D3D9:     type=%s slot=TEXCOORD%d\n", typeStr, nextSlot);
+			char line[128];
+			snprintf(line, sizeof(line), "    %s %s : TEXCOORD%d;\n", typeStr, vars[i].fieldName, nextSlot++);
+			size_t avail = sizeof(structAdditions) - structAddLen;
+			strncat(structAdditions, line, avail > 0 ? avail - 1 : 0);
+			structAddLen = strlen(structAdditions);
+		}
+	}
+
+	const char* mainFunc = strstr(source, "main(");
+	if (!mainFunc) {
+		for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+		return NULL;
+	}
+	const char* mainStart = mainFunc;
+	while (mainStart > source && *mainStart != '\n') mainStart--;
+	if (*mainStart == '\n') mainStart++;
+	size_t mainOffset = (size_t)(mainStart - source);
+
+	const char genHeader[] =
+		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
+		"{\n"
+		"    VS_OUTPUT output;\n"
+		"    output.gl_Position = gl_Position;\n";
+	size_t headerSize = strlen(genHeader);
+	size_t assignSize = 0;
+	for (int i = 0; i < varCount; i++) {
+		if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+		assignSize += strlen("    output.") + strlen(vars[i].fieldName) + strlen(" = ") + strlen(vars[i].staticName) + strlen(";\n");
+	}
+	const char genTail[] = "    return output;\n}\n\n";
+	size_t tailSize = strlen(genTail);
+	size_t funcSize = headerSize + assignSize + tailSize;
+
+	size_t beforeMainLen = mainOffset + structAddLen;
+	size_t afterMainLen  = strlen(mainStart);
+
+	size_t totalSize = beforeMainLen + funcSize + afterMainLen + 1;
+	char* patched = (char*)malloc(totalSize);
+	if (!patched) {
+		for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+		return NULL;
+	}
+
+	char* out = patched;
+	const char* in = source;
+
+	if (structAddLen > 0 && vsOutputEnd) {
+		size_t endOff = (size_t)(vsOutputEnd - source);
+		memcpy(out, in, endOff);
+		out += endOff;
+		in  += endOff;
+
+		memcpy(out, structAdditions, structAddLen);
+		out += structAddLen;
+
+		size_t rem = mainOffset - (size_t)(in - source);
+		if (rem > 0) {
+			memcpy(out, in, rem);
+			out += rem;
+			in  += rem;
+		}
+	} else {
+		memcpy(out, in, mainOffset);
+		out += mainOffset;
+		in  += mainOffset;
+	}
+
+	memcpy(out, genHeader, headerSize);
+	out += headerSize;
+
+	for (int i = 0; i < varCount; i++) {
+		if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+		out += (size_t)snprintf(out, totalSize - (size_t)(out - patched),
+			"    output.%s = %s;\n", vars[i].fieldName, vars[i].staticName);
+	}
+
+	memcpy(out, genTail, tailSize);
+	out += tailSize;
+
+	memcpy(out, mainStart, afterMainLen + 1);
+
+	for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+
+	return patched;
+}
+
+// Patches PS_INPUT struct to add missing _v_* varying fields.
+// Finds the existing struct and replaces it with a complete version.
+// Returns a newly allocated string with the patched source, or NULL if no change.
+static char* patchPixelShaderInputStruct(const char* source) {
+	if (!source) return NULL;
+
+	// Scan static _v_* declarations
+#define PSIS2_MAX_VARS 16
+	struct { const char* typeStart; size_t typeLen; char* fieldName; } psVars[PSIS2_MAX_VARS];
+	int varCount = 0;
+	{
+		const char* p = source;
+		while (p && (p = strstr(p, "static")) != NULL && varCount < PSIS2_MAX_VARS) {
+			p += 6;
+			while (*p == ' ' || *p == '\t') p++;
+			const char* typeStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t typeLen = (size_t)(p - typeStart);
+			while (*p == ' ' || *p == '\t') p++;
+			const char* varStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t varLen = (size_t)(p - varStart);
+			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
+				char* fn = (char*)malloc(varLen);
+				if (!fn) continue;
+				memcpy(fn, varStart + 1, varLen - 1); fn[varLen - 1] = '\0';
+				psVars[varCount].typeStart = typeStart;
+				psVars[varCount].typeLen   = typeLen;
+				psVars[varCount].fieldName = fn;
+				fprintf(stderr, "D3D9:   pixel varying %d: '%.*s' (type=%.*s)\n",
+					varCount, (int)(varLen-1), varStart+1, (int)typeLen, typeStart);
+				varCount++;
+			} else if (varLen > 3 && memcmp(varStart, "_in_", 4) == 0) {
+				fprintf(stderr, "D3D9:   pixel SKIP _in_: '%.*s'\n", (int)varLen, varStart);
+			}
+		}
+	}
+	fprintf(stderr, "D3D9: patchPixelShaderInputStruct total varyings=%d sourceLen=%zu\n", varCount, source ? strlen(source) : 0);
+	if (varCount == 0) return NULL;
+
+	// Find existing struct PS_INPUT
+	const char* psDecl = strstr(source, "struct PS_INPUT");
+	const char* psEnd  = psDecl ? strstr(psDecl, "};") : NULL;
+
+	if (psDecl && psEnd) {
+		// Check if all fields are already present
+		int existingNextSlot = 0;
+		{
+			const char* body = strchr(psDecl, '{');
+			if (!body) { for (int i = 0; i < varCount; i++) free(psVars[i].fieldName); return NULL; }
+			const char* line = body + 1;
+			while (line < psEnd) {
+				while (*line == ' ' || *line == '\t') line++;
+				if (*line == '}' || *line == '\0') break;
+				while (*line && *line != ' ' && *line != '\t') line++;
+				while (*line == ' ' || *line == '\t') line++;
+				while (*line && *line != ' ' && *line != '\t' && *line != ':') line++;
+				while (*line == ' ' || *line == '\t') line++;
+				if (*line == ':') {
+					line++;
+					while (*line == ' ' || *line == '\t') line++;
+					if (strncmp(line, "TEXCOORD", 8) == 0) {
+						int slot = atoi(line + 8);
+						if (slot >= existingNextSlot) existingNextSlot = slot + 1;
+					}
+				}
+				while (*line && *line != '\n') line++;
+				if (*line == '\n') line++;
+			}
+			// Check each psVar
+			line = body + 1;
+			int missingCount = 0;
+			while (line < psEnd) {
+				(void)line;
+				line = psEnd; // just to prevent warning, real check is below
+			}
+			for (int i = 0; i < varCount; i++) {
+				const char* l = body + 1;
+				bool found = false;
+				while (l < psEnd && !found) {
+					while (*l == ' ' || *l == '\t') l++;
+					if (*l == '}' || *l == '\0') break;
+					while (*l && *l != ' ' && *l != '\t') l++;
+					while (*l == ' ' || *l == '\t') l++;
+					size_t fnLen = strlen(psVars[i].fieldName);
+					if (strncmp(l, psVars[i].fieldName, fnLen) == 0) {
+						char a = l[fnLen];
+						if (a == ' ' || a == '\t' || a == ':' || a == ';') found = true;
+					}
+					while (*l && *l != '\n') l++;
+					if (*l == '\n') l++;
+				}
+				if (found) { free(psVars[i].fieldName); psVars[i].fieldName = NULL; }
+				else missingCount++;
+			}
+			if (missingCount == 0) {
+				// No missing fields, no change needed
+				fprintf(stderr, "D3D9:   all %d fields already in PS_INPUT\n", varCount);
+				for (int i = 0; i < varCount; i++) if (psVars[i].fieldName) free(psVars[i].fieldName);
+				return NULL;
+			}
+		}
+	}
+
+	// Build a replacement struct with ALL fields
+	char newStruct[512] = "struct PS_INPUT\n{\n";
+	size_t nsOff = strlen(newStruct);
+	int nextSlot = 0;
+
+	// If old struct exists, we'll use its TEXCOORD layout
+	if (psDecl && psEnd) {
+		const char* body = strchr(psDecl, '{');
+		if (body) {
+			const char* line = body + 1;
+			while (line < psEnd) {
+				while (*line == ' ' || *line == '\t') line++;
+				if (*line == '}' || *line == '\0') break;
+				// Copy entire line as-is
+				const char* eol = line;
+				while (*eol && *eol != '\n') eol++;
+				if (eol > line) {
+					size_t llen = (size_t)(eol - line);
+					if (nsOff + llen + 2 < sizeof(newStruct)) {
+						memcpy(newStruct + nsOff, line, llen);
+						nsOff += llen;
+						newStruct[nsOff++] = '\n';
+					}
+				}
+				line = eol;
+				if (*line == '\n') line++;
+				// Update nextSlot
+				// Find TEXCOORD in this line
+				const char* t = line - 2;
+				while (t > body && *t != '\n') t--;
+				if (*t == '\n') t++;
+				const char* col = strchr(t, ':');
+				if (col && strncmp(col + 1, " TEXCOORD", 9) == 0) {
+					int slot = atoi(col + 10);
+					if (slot >= nextSlot) nextSlot = slot + 1;
 				}
 			}
 		}
 	}
 
-	if (fieldCount == 0) return NULL;
+	// Add any missing fields
+	for (int i = 0; i < varCount; i++) {
+		if (!psVars[i].fieldName) continue;
+		char typeStr[32];
+		size_t tl = psVars[i].typeLen;
+		if (tl >= sizeof(typeStr)) tl = sizeof(typeStr) - 1;
+		memcpy(typeStr, psVars[i].typeStart, tl); typeStr[tl] = '\0';
+		int w = snprintf(newStruct + nsOff, sizeof(newStruct) - nsOff,
+			"    %s %s : TEXCOORD%d;\n", typeStr, psVars[i].fieldName, nextSlot++);
+		if (w > 0) nsOff += (size_t)w;
+	}
+	snprintf(newStruct + nsOff, sizeof(newStruct) - nsOff, "};\n\n");
+	size_t newStructLen = strlen(newStruct);
 
-	const char* mainFunc = strstr(source, "main(");
-	if (!mainFunc) {
-		for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
-		return NULL;
+	for (int i = 0; i < varCount; i++) if (psVars[i].fieldName) free(psVars[i].fieldName);
+
+	size_t sourceLen = strlen(source);
+
+	if (psDecl && psEnd) {
+		// Replace old struct with new one
+		size_t structStartOff = (size_t)(psDecl - source);
+		size_t structEndOff   = (size_t)(psEnd + 2 - source); // past "};"
+		size_t beforeLen = structStartOff;
+		size_t afterLen  = sourceLen - structEndOff;
+		char* result = (char*)malloc(beforeLen + newStructLen + afterLen + 1);
+		if (!result) return NULL;
+		memcpy(result, source, beforeLen);
+		memcpy(result + beforeLen, newStruct, newStructLen);
+		memcpy(result + beforeLen + newStructLen, source + structEndOff, afterLen + 1);
+		fprintf(stderr, "D3D9: patchPixelShaderInputStruct replaced PS_INPUT (%zu -> %zu bytes)\n",
+			structEndOff - structStartOff, newStructLen);
+		return result;
 	}
 
-	const char* mainStart = mainFunc;
-	while (mainStart > source && *mainStart != '\n') mainStart--;
-	if (*mainStart == '\n') mainStart++;
+	// No existing struct – insert before main
+	const char* mainPos = strstr(source, "float4 main(");
+	if (!mainPos) return NULL;
+	size_t beforeMain = (size_t)(mainPos - source);
+	char* result = (char*)malloc(sourceLen + newStructLen + 1);
+	if (!result) return NULL;
+	memcpy(result, source, beforeMain);
+	memcpy(result + beforeMain, newStruct, newStructLen);
+	memcpy(result + beforeMain + newStructLen, mainPos, sourceLen - beforeMain + 1);
+	fprintf(stderr, "D3D9: patchPixelShaderInputStruct created PS_INPUT (%zu bytes)\n", newStructLen);
+	return result;
+}
 
-	size_t baseSize = strlen(
-		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
-		"{\n"
-		"    VS_OUTPUT output;\n"
-		"    output.gl_Position = gl_Position;\n");
-	size_t fieldSize = 0;
-	for (int i = 0; i < fieldCount; i++) {
-		if (strcmp(outputFields[i], "gl_Position") == 0)
-			continue;
-		fieldSize += strlen("    output.") + strlen(outputFields[i]) + strlen(" = ") + strlen(staticVars[i]) + strlen(";\n");
+// Adds missing _v_* = input.v_* assignments to the main() prologue.
+// Returns a newly allocated string with the patched source, or NULL if no change.
+static char* patchPixelShaderPrologue(const char* source) {
+	if (!source) return NULL;
+
+	// Find main function opening
+	const char* mainFunc = strstr(source, "float4 main(");
+	if (!mainFunc) return NULL;
+	const char* brace = strchr(mainFunc, '{');
+	if (!brace) return NULL;
+
+	// The prologue is right after the opening brace: collect existing assignments
+	// Format: "    _v_vTexcoord = input.v_vTexcoord;\n"
+	// We need to find which _v_* statics don't have a corresponding assignment.
+	// Check which _v_* fields already have prologue assignments
+	struct Pstr { const char* s; size_t len; };
+	Pstr existing[16];
+	int existCount = 0;
+	{
+		const char* line = brace + 1;
+		while (*line == ' ' || *line == '\t') line++;
+		while (strncmp(line, "_v_", 3) == 0 && existCount < 16) {
+			// Find the semicolon
+			const char* semi = strchr(line, ';');
+			if (!semi) break;
+			// Extract variable name: "_v_vTexcoord"
+			const char* varEnd = line;
+			while (*varEnd && *varEnd != ' ' && *varEnd != '\t' && *varEnd != '=') varEnd++;
+			existing[existCount].s   = line;
+			existing[existCount].len = (size_t)(varEnd - line);
+			existCount++;
+			line = semi + 1;
+			while (*line == ' ' || *line == '\t' || *line == '\n') line++;
+		}
 	}
-	size_t returnSize = strlen(
-		"    return output;\n"
-		"}\n\n");
-	size_t funcSize = baseSize + fieldSize + returnSize;
 
-	size_t beforeMainLen = (size_t)(mainStart - source);
-	size_t afterMainLen = strlen(mainStart);
+	if (existCount == 0) return NULL;
 
-	size_t totalSize = beforeMainLen + funcSize + afterMainLen + 1;
-	char* patched = (char*)malloc(totalSize);
-	if (!patched) {
-		for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
-		return NULL;
+	// Scan static _v_* declarations
+	struct Pvar { const char* typeStart; size_t typeLen; char* fieldName; char* staticName; };
+	Pvar vars[16];
+	int varCount = 0;
+	{
+		const char* p = source;
+		while (p && (p = strstr(p, "static")) != NULL && varCount < 16) {
+			p += 6;
+			while (*p == ' ' || *p == '\t') p++;
+			const char* typeStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t typeLen = (size_t)(p - typeStart);
+			while (*p == ' ' || *p == '\t') p++;
+			const char* varStart = p;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			size_t varLen = (size_t)(p - varStart);
+			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
+				char* fn = (char*)malloc(varLen);
+				if (!fn) continue;
+				memcpy(fn, varStart, varLen); fn[varLen - 1] = '\0';
+				char* sn = (char*)malloc(varLen);
+				if (!sn) { free(fn); continue; }
+				memcpy(sn, varStart, varLen - 1); sn[varLen - 1] = '\0';
+				vars[varCount].typeStart  = typeStart;
+				vars[varCount].typeLen    = typeLen;
+				vars[varCount].staticName = fn;    // "_v_vTexcoord"
+				vars[varCount].fieldName  = sn;    // "v_vTexcoord" (no underscore)
+				varCount++;
+			}
+		}
+	}
+	if (varCount == 0) return NULL;
+
+	// Determine which are missing from the prologue
+	char additions[384] = "";
+	size_t addLen = 0;
+
+	for (int i = 0; i < varCount; i++) {
+		bool found = false;
+		for (int j = 0; j < existCount; j++) {
+			if (strcmp(vars[i].staticName, "_v_vTexcoord") == 0 ||
+				strcmp(vars[i].staticName, "_v_vColour") == 0) {
+				// These are always in the prologue, skip
+				found = true;
+				break;
+			}
+				if (strncmp(existing[j].s, vars[i].staticName, strlen(vars[i].staticName)) == 0) {
+				found = true;
+				break;
+			}
+		}
+		if (found) continue;
+		// Add prologue line
+		char buf[128];
+		snprintf(buf, sizeof(buf), "    %s = input.%s;\n", vars[i].staticName, vars[i].fieldName);
+		strncat(additions, buf, sizeof(additions) - addLen - 1);
+		addLen = strlen(additions);
 	}
 
-	memcpy(patched, source, beforeMainLen);
-	size_t offset = beforeMainLen;
+	for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
 
-	offset += (size_t)snprintf(patched + offset, totalSize - offset,
-		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
-		"{\n"
-		"    VS_OUTPUT output;\n"
-		"    output.gl_Position = gl_Position;\n");
+	if (addLen == 0) return NULL;
 
-	for (int i = 0; i < fieldCount; i++) {
-		if (strcmp(outputFields[i], "gl_Position") == 0)
-			continue;
-		offset += (size_t)snprintf(patched + offset, totalSize - offset,
-			"    output.%s = %s;\n", outputFields[i], staticVars[i]);
+	// Insert after the last existing prologue line
+	// Find the position after the last _v_* = ...; line
+	const char* insertPos = NULL;
+	{
+		// Start scanning from the opening brace + 1
+		const char* scan = brace + 1;
+		while (*scan == ' ' || *scan == '\t' || *scan == '\n') scan++;
+		// Find the last _v_* = input.v_*; line
+		const char* lastAssign = NULL;
+		while (strncmp(scan, "_v_", 3) == 0) {
+			lastAssign = scan;
+			const char* semi = strchr(scan, ';');
+			if (!semi) break;
+			scan = semi + 1;
+			while (*scan == ' ' || *scan == '\t' || *scan == '\n') scan++;
+		}
+		if (lastAssign) {
+			const char* semi = strchr(lastAssign, ';');
+			if (semi) insertPos = semi + 1;
+		}
 	}
 
-	offset += (size_t)snprintf(patched + offset, totalSize - offset,
-		"    return output;\n"
-		"}\n\n");
+	if (!insertPos) return NULL;
 
-	memcpy(patched + offset, mainStart, afterMainLen + 1);
-
-	for (int i = 0; i < fieldCount; i++) { free(outputFields[i]); free(staticVars[i]); }
-
-	return patched;
+	size_t sourceLen = strlen(source);
+	size_t insertOff = (size_t)(insertPos - source);
+	char* result = (char*)malloc(sourceLen + addLen + 1);
+	if (!result) return NULL;
+	memcpy(result, source, insertOff);
+	memcpy(result + insertOff, additions, addLen);
+	memcpy(result + insertOff + addLen, insertPos, sourceLen - insertOff + 1);
+	fprintf(stderr, "D3D9: patchPixelShaderPrologue added %zu bytes\n", addLen);
+	return result;
 }
 
 // Patches a fragment/pixel shader that calls return generateOutput() but lacks a definition.
 // Removes @@ PIXEL OUTPUT @@ placeholder and inserts generateOutput() before main().
+// NOTE: PS_INPUT struct patching is handled by patchPixelShaderInputStruct() separately.
+//       Prologue patching is handled by patchPixelShaderPrologue() separately.
 static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	if (!source) return NULL;
 	if (!strstr(source, "return generateOutput()")) return NULL;
 	if (strstr(source, "float4 generateOutput()")) return NULL;
 
 	size_t sourceLen = strlen(source);
-
-	// The build-time postProcessHLSL may not have replaced @@ VERTEX OUTPUT @@
-	// in fragment shaders. If PS_INPUT is missing, inject it.
-	bool needsPSInput = strstr(source, "struct PS_INPUT") == NULL;
-	const char* psInputStruct = NULL;
-	size_t psInputLen = 0;
-	if (needsPSInput) {
-		const char* psInputFmt =
-			"struct PS_INPUT\n"
-			"{\n"
-			"%s"  // v_vTexcoord
-			"%s"  // v_vColour
-			"};\n\n";
-		char psInputBuf[256];
-		const char* texcoordField = strstr(source, "_v_vTexcoord") ? "    float2 v_vTexcoord : TEXCOORD0;\n" : "";
-		const char* colourField  = strstr(source, "_v_vColour")    ? "    float4 v_vColour : TEXCOORD1;\n"  : "";
-		snprintf(psInputBuf, sizeof(psInputBuf), psInputFmt, texcoordField, colourField);
-		psInputStruct = psInputBuf;
-		psInputLen = strlen(psInputStruct);
-	}
 
 	// postProcessHLSL unconditionally adds "_v_vColour = input.v_vColour;" in the prologue,
 	// but ANGLE may omit the _v_vColour declaration if the GLSL shader declares but never
@@ -5376,13 +5858,10 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 		strstr(source, "_v_vColour") != NULL &&
 		strstr(source, "static  float4 _v_vColour") == NULL;
 
-	// Find positions in the ORIGINAL source (in order: colourInsert before pixelOutput before main)
 	const char* texcoordLine = strstr(source, "static  float2 _v_vTexcoord = {0, 0};\n");
 	const char* colourInsertPos = texcoordLine ? texcoordLine + strlen("static  float2 _v_vTexcoord = {0, 0};\n") : NULL;
-
 	const char* pixelOutputPos = strstr(source, "@@ PIXEL OUTPUT @@");
 	size_t pixelOutputLen = pixelOutputPos ? strlen("@@ PIXEL OUTPUT @@") : 0;
-
 	const char* mainPos = strstr(source, "float4 main(");
 	if (!mainPos) return NULL;
 
@@ -5393,46 +5872,39 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 		"}\n\n";
 	size_t generateFuncLen = strlen(generateFunc);
 
-	// Calculate result size
+	// Calculate total extra bytes
 	size_t extra = generateFuncLen;
 	if (needsColourDecl && colourInsertPos) extra += colourDeclLen;
-	if (needsPSInput) extra += psInputLen;
 	char* result = (char*)malloc(sourceLen - pixelOutputLen + extra + 1);
 	if (!result) return NULL;
 
 	char* out = result;
 	const char* in = source;
 
-	// --- Segment 1: from start to colourInsertPos (insert colour decl after texcoord line) ---
+	// Segment 1: copy up to colourInsertPos (insert colour decl after texcoord line)
 	const char* seg1End = pixelOutputPos ? pixelOutputPos : mainPos;
 	if (needsColourDecl && colourInsertPos && colourInsertPos < seg1End) {
 		size_t seg1Len = (size_t)(colourInsertPos - in);
 		memcpy(out, in, seg1Len);
-		out += seg1Len;
-		in += seg1Len;
-
+		out += seg1Len; in += seg1Len;
 		memcpy(out, colourDecl, colourDeclLen);
 		out += colourDeclLen;
 	}
 
-	// --- Segment 2: from current position to gl_Color end (insert generateOutput after gl_Color[1]) ---
-	// generateOutput() must be defined BEFORE any function that calls it (e.g. f_DoAlphaTest_float4).
-	// Insert it right after the gl_Color[1] static declaration (before user functions).
+	// Segment 2: from current position to gl_Color end (insert generateOutput)
 	{
 		const char* glColorDecl = strstr(in, "gl_Color[1]");
 		const char* glColorEnd = glColorDecl ? strstr(glColorDecl, "};") : NULL;
 		if (glColorEnd) {
 			size_t beforeGLEnd = (size_t)(glColorEnd + 2 - in);
 			memcpy(out, in, beforeGLEnd);
-			out += beforeGLEnd;
-			in += beforeGLEnd;
-
+			out += beforeGLEnd; in += beforeGLEnd;
 			memcpy(out, generateFunc, generateFuncLen);
 			out += generateFuncLen;
 		}
 	}
 
-	// --- Segment 3: from current position to pixelOutputPos (skip the placeholder) ---
+	// Segment 3: from current position to pixelOutputPos (skip placeholder)
 	if (pixelOutputPos && in < pixelOutputPos) {
 		size_t seg3Len = (size_t)(pixelOutputPos - in);
 		memcpy(out, in, seg3Len);
@@ -5440,32 +5912,18 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 		in = pixelOutputPos + pixelOutputLen;
 	}
 
-	// --- Segment 5: from current position to mainPos (insert PS_INPUT before main) ---
-	if (needsPSInput) {
-		// PS_INPUT must be defined before main(PS_INPUT input).  Insert it right before main.
-		size_t beforeMain = (size_t)(mainPos - in);
-		memcpy(out, in, beforeMain);
-		out += beforeMain;
-		in += beforeMain;
-
-		memcpy(out, psInputStruct, psInputLen);
-		out += psInputLen;
-	}
-
 	// Copy remaining up to main
 	size_t remToMain = (size_t)(mainPos - in);
 	memcpy(out, in, remToMain);
-	out += remToMain;
-	in += remToMain;
+	out += remToMain; in += remToMain;
 
-	// --- Segment 4: from mainPos to end ---
+	// Copy from mainPos to end
 	size_t seg4Len = sourceLen - (size_t)(in - source);
 	memcpy(out, in, seg4Len);
 	out += seg4Len;
 	*out = '\0';
 
-	// The Xbox 360 microcode compiler does not support the "discard;" statement.
-	// Replace it with clip(-1) which emits the same kill instruction and may be supported.
+	// Replace discard; with clip(-1);
 	if (result) {
 		const char workaround[] = "clip(-1);";
 		size_t waLen = strlen(workaround);
@@ -5538,25 +5996,33 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		return;
 	}
 
-	char* patchedVertexSource = patchVertexShaderForGenerateOutput(vertexShaderSource);
-	if (patchedVertexSource) {
-		vertexShaderSource = patchedVertexSource;
-	}
+	// Patch vertex shader: first VS_INPUT struct, then generateOutput
+	char* patchedVert1 = patchVertexShaderInputStruct(vertexShaderSource);
+	if (patchedVert1) { vertexShaderSource = patchedVert1; }
+	char* patchedVert2 = patchVertexShaderForGenerateOutput(vertexShaderSource);
+	if (patchedVert2) { vertexShaderSource = patchedVert2; }
 
-	char* patchedFragmentSource = patchFragmentShaderForGenerateOutput(fragmentShaderSource);
-	if (patchedFragmentSource) {
-		fragmentShaderSource = patchedFragmentSource;
-	}
+	// Patch fragment shader: generateOutput first (adds missing static decls like _v_vColour),
+	// then PS_INPUT struct (scans static decls), then prologue assignments.
+	char* patchedFrag2 = patchFragmentShaderForGenerateOutput(fragmentShaderSource);
+	if (patchedFrag2) { fragmentShaderSource = patchedFrag2; }
+	char* patchedFrag1 = patchPixelShaderInputStruct(fragmentShaderSource);
+	if (patchedFrag1) { fragmentShaderSource = patchedFrag1; }
+	char* patchedFragPrologue = patchPixelShaderPrologue(fragmentShaderSource);
+	if (patchedFragPrologue) { fragmentShaderSource = patchedFragPrologue; }
 
+	if (strcmp(shdr->name, "shd_prophecy_legend") == 0) {
+		fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
+		fprintf(stderr, "D3D9: ===== FRAGMENT SOURCE for %s =====\n%s\n", shdr->name, fragmentShaderSource);
+	}
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
 
-	if (patchedFragmentSource) {
-		free(patchedFragmentSource);
-	}
-	if (patchedVertexSource) {
-		free(patchedVertexSource);
-	}
+	if (patchedFragPrologue) free(patchedFragPrologue);
+	if (patchedFrag1) free(patchedFrag1);
+	if (patchedFrag2) free(patchedFrag2);
+	if (patchedVert2) free(patchedVert2);
+	if (patchedVert1) free(patchedVert1);
 }
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
