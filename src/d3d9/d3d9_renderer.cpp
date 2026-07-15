@@ -5184,11 +5184,40 @@ static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float
 // at the end of main() but omits the function definition. This post-processor scans the
 // source for static varying declarations (_v_* and gl_Position) and synthesizes the missing
 // function that packs them into the VS_OUTPUT struct.
+static bool structHasField(const char* structStart, const char* structEnd, const char* fieldName) {
+	// Scan lines between the opening { (at structStart) and closing }; (at structEnd)
+	if (!structStart || !structEnd || !fieldName) return false;
+	size_t fnLen = strlen(fieldName);
+	const char* line = structStart;
+	while (line < structEnd) {
+		while (*line == ' ' || *line == '\t') line++;
+		if (*line == '}' || *line == '\0') break;
+		// Skip type (word before field name)
+		while (*line && *line != ' ' && *line != '\t') line++;
+		while (*line == ' ' || *line == '\t') line++;
+		if (strncmp(line, fieldName, fnLen) == 0) {
+			char after = line[fnLen];
+			if (after == ' ' || after == '\t' || after == ':' || after == ';') return true;
+		}
+		while (*line && *line != '\n') line++;
+		if (*line == '\n') line++;
+	}
+	return false;
+}
+
 static char* patchVertexShaderForGenerateOutput(const char* source) {
 	if (!source) return NULL;
 
 	if (strstr(source, "VS_OUTPUT generateOutput(")) return NULL;
 	if (!strstr(source, "generateOutput")) return NULL;
+
+	// Parse existing VS_OUTPUT struct fields
+	const char* vsOutputStruct = strstr(source, "struct VS_OUTPUT");
+	const char* vsOutputEnd = NULL;
+	if (vsOutputStruct) {
+		vsOutputEnd = strstr(vsOutputStruct, "};");
+		if (vsOutputEnd) vsOutputEnd += 2; // past the };
+	}
 
 #define MAX_OUTPUT_FIELDS 32
 	char* outputFields[MAX_OUTPUT_FIELDS];
@@ -5216,8 +5245,18 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 			fieldCount++;
 		} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
 			// Strip only the leading '_' to get the field name.
-			// Static:  _v_vTexcoord  (12 chars)
-			// Field:   v_vTexcoord   (11 chars) — matches VS_OUTPUT member name.
+			char fieldName[64];
+			size_t fnLen = varLen - 1;
+			if (fnLen >= sizeof(fieldName)) continue;
+			memcpy(fieldName, varStart + 1, fnLen);
+			fieldName[fnLen] = '\0';
+
+			// Skip if the VS_OUTPUT struct doesn't have this field
+			const char* vsOutputBody = vsOutputStruct ? strchr(vsOutputStruct, '{') : NULL;
+		if (vsOutputBody && vsOutputEnd && !structHasField(vsOutputBody + 1, vsOutputEnd, fieldName)) {
+				continue;
+			}
+
 			outputFields[fieldCount] = (char*)malloc(varLen - 1);
 			if (outputFields[fieldCount]) {
 				memcpy(outputFields[fieldCount], varStart + 1, varLen - 1);
