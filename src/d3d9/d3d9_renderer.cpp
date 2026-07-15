@@ -5188,10 +5188,7 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
 		"{\n"
 		"    VS_OUTPUT output;\n"
-		"    output.gl_Position.x = gl_Position.x + dx_ViewAdjust.x;\n"
-		"    output.gl_Position.y = -(gl_Position.y + dx_ViewAdjust.y);\n"
-		"    output.gl_Position.z = (gl_Position.z * clipControlOrigin + gl_Position.w * clipControlZeroToOne) * 0.5 + gl_Position.w * 0.5;\n"
-		"    output.gl_Position.w = gl_Position.w;\n");
+		"    output.gl_Position = gl_Position;\n");
 	size_t fieldSize = 0;
 	for (int i = 0; i < fieldCount; i++) {
 		if (strcmp(outputFields[i], "gl_Position") == 0)
@@ -5220,10 +5217,7 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 		"VS_OUTPUT generateOutput(VS_INPUT input)\n"
 		"{\n"
 		"    VS_OUTPUT output;\n"
-		"    output.gl_Position.x = gl_Position.x + dx_ViewAdjust.x;\n"
-		"    output.gl_Position.y = -(gl_Position.y + dx_ViewAdjust.y);\n"
-		"    output.gl_Position.z = (gl_Position.z * clipControlOrigin + gl_Position.w * clipControlZeroToOne) * 0.5 + gl_Position.w * 0.5;\n"
-		"    output.gl_Position.w = gl_Position.w;\n");
+		"    output.gl_Position = gl_Position;\n");
 
 	for (int i = 0; i < fieldCount; i++) {
 		if (strcmp(outputFields[i], "gl_Position") == 0)
