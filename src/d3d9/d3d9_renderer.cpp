@@ -17,7 +17,9 @@
 #include <limits.h>
 #include <algorithm>
 
+#ifdef PLATFORM_XBOX360_XDK
 #include <textures.h>
+#endif
 
 // Threading strategy:
 // - Desktop/Windows: use std::thread/std::mutex/std::condition_variable
@@ -2288,32 +2290,52 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 			}
 			name[ni] = '\0';
 
+			// ANGLE prefixes all uniform names with '_' (e.g. _gm_Matrices, _time).
+			// Strip it so lookups match the original GLSL name.
+			if (name[0] == '_' && name[1] != '\0') {
+				for (int si = 0; si <= ni; si++) name[si] = name[si + 1];
+			}
+
 			if (strlen(name) == 0 || name[0] == '{') {
 				continue;
+			}
+
+			// Strip any [N] array suffix from the name (parsed before the colon
+			// in ANGLE output like "float4x4 _gm_Matrices[5] : register(c3)")
+			int arraySize = 1;
+			{
+				char* bracket = strchr(name, '[');
+				if (bracket) {
+					int n = atoi(bracket + 1);
+					if (n > 0) arraySize = n;
+					*bracket = '\0';
+				}
 			}
 
 			// Determine type and register count
 			bool isSampler = (strcmp(type, "sampler2D") == 0) || (strcmp(type, "sampler") == 0) || (strcmp(type, "SamplerState") == 0);
 			int regCount = 1;
 
-			// Array support: check for [N]
-			int arraySize = 1;
-			while (*p == ' ' || *p == '\t') {
-				p++;
-			}
-			if (*p == '[') {
-				p++;
-				char numStr[16] = { 0 };
-				int numI = 0;
-				while (*p && *p >= '0' && *p <= '9' && numI < 15) {
-					numStr[numI++] = *p++;
-				}
-				if (*p == ']') {
+			// Array support: check for [N] in remaining source after name
+			if (arraySize == 1) {
+				while (*p == ' ' || *p == '\t') {
 					p++;
 				}
-				arraySize = atoi(numStr);
-				if (arraySize < 1) {
-					arraySize = 1;
+				if (*p == '[') {
+					p++;
+					char numStr[16] = { 0 };
+					int numI = 0;
+					while (*p && *p >= '0' && *p <= '9' && numI < 15) {
+						numStr[numI++] = *p++;
+					}
+					if (*p == ']') {
+						p++;
+					}
+					int n = atoi(numStr);
+					if (n > 0) arraySize = n;
+					if (arraySize < 1) {
+						arraySize = 1;
+					}
 				}
 			}
 
@@ -2332,6 +2354,9 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 
 			// Assign register
 			uniforms[count].name = strdup(name);
+			fprintf(stderr, "D3D9: parseHLSLUniforms %s uniform '%s' type=%s reg=%d\n",
+				isVertex ? "VS" : "PS", uniforms[count].name, type,
+				isVertex ? nextVertexRegister : nextPixelRegister);
 			uniforms[count].isSampler = isSampler;
 			uniforms[count].isVertex = isVertex;
 
@@ -5193,12 +5218,40 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	const char* vsEnd  = vsDecl ? strstr(vsDecl, "};") : NULL;
 	if (!vsBody || !vsEnd) return NULL;
 
-	// Scan for _in_TextureCoord reference in source
-	bool needsTexcoord = strstr(source, "_in_TextureCoord") != NULL;
-	if (!needsTexcoord) return NULL;
-
-	// Check if VS_INPUT already has in_TextureCoord
+	// The vertex declaration maps color data to TEXCOORD1 (D3DCOLOR at offset 16),
+	// but ANGLE translates GL vertex attributes to COLOR semantic.
+	// Patch VS_INPUT to use TEXCOORD1 for in_Colour so it matches the declaration.
+	bool needsColorFix = false;
+	const char* colourSemPos = NULL;
+	size_t colourSemOldLen = 0;
 	{
+		const char* line = vsBody + 1;
+		while (line < vsEnd) {
+			while (*line == ' ' || *line == '\t') line++;
+			if (*line == '}' || *line == '\0') break;
+			while (*line && *line != ' ' && *line != '\t') line++;
+			while (*line == ' ' || *line == '\t') line++;
+			if (strncmp(line, "in_Colour", 9) == 0) {
+				const char* sem = line + 9;
+				while (*sem == ' ' || *sem == '\t') sem++;
+				if (*sem == ':') {
+					sem++;
+					while (*sem == ' ' || *sem == '\t') sem++;
+					if (strncmp(sem, "COLOR", 5) == 0) {
+						needsColorFix = true;
+						colourSemPos = sem;
+						colourSemOldLen = (sem[5] == '0') ? 6 : 5;
+					}
+				}
+			}
+			while (*line && *line != '\n') line++;
+			if (*line == '\n') line++;
+		}
+	}
+
+	// Scan for _in_TextureCoord reference in source and check if already in VS_INPUT
+	bool needsTexcoord = (strstr(source, "_in_TextureCoord") != NULL);
+	if (needsTexcoord) {
 		const char* line = vsBody + 1;
 		while (line < vsEnd) {
 			while (*line == ' ' || *line == '\t') line++;
@@ -5207,14 +5260,15 @@ static char* patchVertexShaderInputStruct(const char* source) {
 			while (*line == ' ' || *line == '\t') line++;
 			if (strncmp(line, "in_TextureCoord", 15) == 0) {
 				char a = line[15];
-				if (a == ' ' || a == '\t' || a == ':') return NULL;
+				if (a == ' ' || a == '\t' || a == ':') needsTexcoord = false;
 			}
 			while (*line && *line != '\n') line++;
 			if (*line == '\n') line++;
 		}
 	}
 
-	// Add static declaration if missing, and struct field
+	if (!needsTexcoord && !needsColorFix) return NULL;
+
 	const char texcoordStatic[] = "static float2 _in_TextureCoord = {0, 0};\n";
 	size_t texcoordStaticLen = strlen(texcoordStatic);
 	const char texcoordField[] = "    float2 in_TextureCoord : TEXCOORD0;\n";
@@ -5222,63 +5276,45 @@ static char* patchVertexShaderInputStruct(const char* source) {
 
 	// Find insertion point for static: after last _in_* static
 	const char* attrInsert = NULL;
-	const char* p = source;
-	while (p) {
-		const char* st = strstr(p, "static");
-		if (!st) break;
-		const char* afterSt = st + 6;
-		while (*afterSt == ' ' || *afterSt == '\t') afterSt++;
-		if (strncmp(afterSt, "float", 5) == 0 || strncmp(afterSt, "float2", 6) == 0 || strncmp(afterSt, "float3", 6) == 0 || strncmp(afterSt, "float4", 6) == 0) {
-			const char* typeEnd = afterSt;
-			while (*typeEnd && *typeEnd != ' ' && *typeEnd != '\t') typeEnd++;
-			const char* varStart = typeEnd;
-			while (*varStart == ' ' || *varStart == '\t') varStart++;
-			if (strncmp(varStart, "_in_", 4) == 0) {
-				const char* lineEnd = strchr(st, '\n');
-				attrInsert = lineEnd ? lineEnd + 1 : st + strlen(st);
-				p = attrInsert;
-				continue;
-			}
-		}
-		p = st + 1;
-	}
-
-	// Find VS_INPUT struct insertion point (before "};")
-	const char* structInsert = vsEnd; // before "};"
-
-	size_t staticAddLen = 0;
-	if (!strstr(source, "static float2 _in_TextureCoord") &&
+	if (needsTexcoord &&
+		!strstr(source, "static float2 _in_TextureCoord") &&
 		!strstr(source, "static  float2 _in_TextureCoord")) {
-		if (attrInsert) staticAddLen = texcoordStaticLen;
-		else attrInsert = NULL;
-	}
-
-	if (staticAddLen == 0) attrInsert = NULL;
-
-	// Count the number of attributes in VS_INPUT to determine TEXCOORD slot
-	int attrCount = 0;
-	{
-		const char* line = vsBody + 1;
-		while (line < vsEnd) {
-			while (*line == ' ' || *line == '\t') line++;
-			if (*line == '}' || *line == '\0') break;
-			const char* start = line;
-			(void)start;
-			while (*line && *line != '\n') line++;
-			if (*line == '\n') line++;
-			attrCount++;
+		const char* p = source;
+		while (p) {
+			const char* st = strstr(p, "static");
+			if (!st) break;
+			const char* afterSt = st + 6;
+			while (*afterSt == ' ' || *afterSt == '\t') afterSt++;
+			if (strncmp(afterSt, "float", 5) == 0) {
+				const char* typeEnd = afterSt;
+				while (*typeEnd && *typeEnd != ' ' && *typeEnd != '\t') typeEnd++;
+				const char* varStart = typeEnd;
+				while (*varStart == ' ' || *varStart == '\t') varStart++;
+				if (strncmp(varStart, "_in_", 4) == 0) {
+					const char* lineEnd = strchr(st, '\n');
+					attrInsert = lineEnd ? lineEnd + 1 : st + strlen(st);
+					p = attrInsert;
+					continue;
+				}
+			}
+			p = st + 1;
 		}
 	}
 
+	// Build output by writing segments
 	size_t sourceLen = strlen(source);
-	size_t totalSize = sourceLen + staticAddLen + texcoordFieldLen + 1;
+	size_t colourGrow = needsColorFix ? (9 - colourSemOldLen) : 0; // "TEXCOORD1" = 9 bytes
+	size_t totalSize = sourceLen
+		+ (attrInsert ? texcoordStaticLen : 0)
+		+ (needsTexcoord ? texcoordFieldLen : 0)
+		+ colourGrow + 1;
 	char* result = (char*)malloc(totalSize);
 	if (!result) return NULL;
 
 	char* out = result;
 	const char* in = source;
 
-	// Copy up to attribute insertion point
+	// Segment 1: up to static insertion point
 	if (attrInsert) {
 		size_t before = (size_t)(attrInsert - in);
 		memcpy(out, in, before);
@@ -5287,24 +5323,44 @@ static char* patchVertexShaderInputStruct(const char* source) {
 		out += texcoordStaticLen;
 	}
 
-	// Copy up to struct "};"
-	size_t endOff = (size_t)(structInsert - in);
-	memcpy(out, in, endOff);
-	out += endOff; in += endOff;
+	// Segment 2: from current position to just before COLOR semantic in VS_INPUT
+	// (or to vsEnd if no color fix, or to vsEnd if only texcoord struct field needed)
+	const char* colourCopyEnd = vsEnd;
+	if (needsColorFix && colourSemPos) {
+		colourCopyEnd = colourSemPos;
+	}
 
-	// Insert struct field
-	memcpy(out, texcoordField, texcoordFieldLen);
-	out += texcoordFieldLen;
+	{
+		size_t segLen = (size_t)(colourCopyEnd - in);
+		memcpy(out, in, segLen);
+		out += segLen;
+		in += segLen;
+	}
 
-	// Copy remaining
-	size_t rem = sourceLen - (size_t)(in - source);
-	memcpy(out, in, rem + 1);
+	// If color fix, insert "TEXCOORD1" and skip past the old COLOR text
+	if (needsColorFix && colourSemPos) {
+		memcpy(out, "TEXCOORD1", 9);
+		out += 9;
+		in += colourSemOldLen;
 
-	// Fix TEXCOORD slots if needed - we only added one field after the existing ones,
-	// so the slot is just the count of existing attributes. But if there's already a
-	// TEXCOORD0, we need to use the next available. Our default is TEXCOORD0.
-	// If in_TextureCoord should be TEXCOORD0 and in_Colour should be COLOR,
-	// this should be fine. We'll swap slots if needed.
+		// Copy rest of struct body (after COLOR, up to vsEnd)
+		size_t restLen = (size_t)(vsEnd - in);
+		memcpy(out, in, restLen);
+		out += restLen;
+		in += restLen;
+	}
+
+	// After the "};" - insert texcoord field if needed
+	if (needsTexcoord) {
+		memcpy(out, texcoordField, texcoordFieldLen);
+		out += texcoordFieldLen;
+	}
+
+	// Copy remaining source from after vsEnd to end
+	{
+		size_t rem = sourceLen - (size_t)(in - source);
+		memcpy(out, in, rem + 1);
+	}
 
 	return result;
 }
@@ -6051,6 +6107,12 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	setViewportEnable(dr, true);
 
 	// Set built-in uniforms
+	if (dr->base.dataWin && (uint32_t)shaderIndex < dr->base.dataWin->shdr.count) {
+		fprintf(stderr, "D3D9: gpuSetShader %s uniforms:", dr->base.dataWin->shdr.shaders[shaderIndex].name);
+		for (uint32_t ui = 0; ui < shader->uniformCount; ui++)
+			fprintf(stderr, " %s%s", shader->uniforms[ui].name, shader->uniforms[ui].isSampler ? "(s)" : "");
+		fprintf(stderr, "\n");
+	}
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
 	if (gmMatrices != nullptr) {
 		// gm_Matrices is float4x4[5] - 5 matrices, each 4 registers
@@ -6065,10 +6127,25 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			}
 		}
 		if (matricesChanged) {
+			fprintf(stderr, "D3D9: uploading gm_Matrices to register %d\n", gmMatrices->registerIndex);
+			// GML matrices use Y-down convention; D3D9 NDC uses Y-up.
+			// Flip Y for projection and WVP (matching the GL renderer).
+			Matrix4f upload[MATRICES_MAX];
+			memcpy(upload, renderer->gmlMatrices, sizeof(upload));
+			Matrix4f_flipClipY(&upload[MATRIX_PROJECTION]);
+			Matrix4f_flipClipY(&upload[MATRIX_WORLD_VIEW_PROJECTION]);
+			// ANGLE's HLSL stores matrices transposed (row-major).
+			// Our matrices are column-major, so transpose before upload
+			// so that mul(transpose(M), v) in the shader gives M * v.
 			for (int m = 0; m < 5; m++) {
+				const float* s = upload[m].m;
+				float t[16];
+				for (int r = 0; r < 4; r++)
+					for (int c = 0; c < 4; c++)
+						t[c * 4 + r] = s[r * 4 + c];
 				dev->SetVertexShaderConstantF(
 					gmMatrices->registerIndex + m * 4,
-					renderer->gmlMatrices[m].m,
+					(const float*)t,
 					4);
 				dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
 			}
