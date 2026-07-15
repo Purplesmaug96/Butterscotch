@@ -42,6 +42,17 @@ typedef struct {
     int32_t* surfaceWidth;
     int32_t* surfaceHeight;
     uint32_t surfaceCount;
+
+    // True if the GPU doesn't support NPOT textures (GL < 2.0), requiring
+    // FBO color-attachment textures to have power-of-two dimensions.
+    bool needsPOT;
+
+    // Blending mode + factors
+    int32_t currentBlendMode;
+    int32_t currentSFactor;
+    int32_t currentDFactor;
+    int32_t currentSFactorAlpha;
+    int32_t currentDFactorAlpha;
 } GLLegacyRenderer;
 
 bool GLLegacyRenderer_ensureTextureLoaded(GLLegacyRenderer* gl, uint32_t pageId);

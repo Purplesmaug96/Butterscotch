@@ -46,6 +46,26 @@ static void freeRuntimeLayersArray(RuntimeLayer** runtimeLayerArray) {
     *runtimeLayerArray = nullptr;
 }
 
+void Runner_updateCameraViewSimple(GMLCamera* camera) {
+
+    float x = camera->viewX + camera->viewWidth/2;
+    float y = camera->viewY + camera->viewHeight/2;
+    Matrix4f viewMatrix;
+    Matrix4f_identity(&viewMatrix);
+    Matrix4f_LookAt(&viewMatrix, x, y, -16000.0, x, y, 16000.0, 0.0, 1.0, 0.0);
+    Matrix4f_translate(&viewMatrix, x, y, 0.0f);
+    Matrix4f_rotateZ(&viewMatrix, -camera->viewAngle * (float) M_PI / 180.0f);
+    Matrix4f_translate(&viewMatrix, -x, -y, 0.0f);
+
+    Matrix4f projectionMatrix;
+    Matrix4f_Orthographic(&projectionMatrix, (float) camera->viewWidth, -((float) camera->viewHeight), 32000.0, 0.0);
+
+
+    camera->viewMatrix = viewMatrix;
+    camera->projectionMatrix = projectionMatrix;
+
+}
+
 // ===[ Helper: Find event action in object hierarchy ]===
 // Resolves the handler for (objectIndex, eventType, eventSubtype) via the precomputed ResolvedEventTable.
 // Returns the CODE chunk handler id, or -1 if the object does not respond.
@@ -891,6 +911,21 @@ void Runner_draw(Runner* runner) {
             // Re-resolve every iteration: a previous instance's Draw event may have called layer_create/layer_destroy and reallocated runner->runtimeLayers.
             RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, d->runtimeLayerId);
             if (runtimeLayer == nullptr || !runtimeLayer->visible) continue;
+            VMContext* ctx = runner->vmContext;
+            Instance* savedInstance = ctx->currentInstance;
+            int32_t savedEventType = ctx->currentEventType;
+            int32_t savedEventSubtype = ctx->currentEventSubtype;
+
+            ctx->currentInstance = ctx->globalScopeInstance;
+            ctx->currentEventType = EVENT_DRAW;
+            ctx->currentEventSubtype = DRAW_NORMAL;
+
+            if (runtimeLayer->beginScript >= 0)
+                VM_callCodeIndex(ctx, runtimeLayer->beginScript, nullptr, 0);
+
+            ctx->currentInstance = savedInstance;
+            ctx->currentEventType = savedEventType;
+            ctx->currentEventSubtype = savedEventSubtype;
             float layerOffsetX = runtimeLayer->xOffset;
             float layerOffsetY = runtimeLayer->yOffset;
 
@@ -993,6 +1028,16 @@ void Runner_draw(Runner* runner) {
             } else if (parsedLayer->type == RoomLayerType_Effect) {
                 // TODO: Implement post-processing effect layers!
             }
+            ctx->currentInstance = ctx->globalScopeInstance;
+            ctx->currentEventType = EVENT_DRAW;
+            ctx->currentEventSubtype = DRAW_NORMAL;
+
+            if (runtimeLayer->endScript >= 0)
+                VM_callCodeIndex(ctx, runtimeLayer->endScript, nullptr, 0);
+
+            ctx->currentInstance = savedInstance;
+            ctx->currentEventType = savedEventType;
+            ctx->currentEventSubtype = savedEventSubtype;
         }
     }
 
@@ -1140,11 +1185,10 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
                 if (runner->drawBackgroundColor)
                     renderer->vtable->clearScreen(renderer, runner->currentRoom->backgroundColor, 1.0f);
 
-                Matrix4f proj;
-                Matrix4f_viewProjection(&proj, (float) camera->viewX, (float) camera->viewY, (float) camera->viewWidth, (float) camera->viewHeight, camera->viewAngle);
-                renderer->vtable->applyProjection(renderer, &proj);
-
                 runner->viewCurrent = (int32_t) vi;
+                runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
+                runner->renderer->vtable->applyProjection(runner->renderer, &camera->viewMatrix, &camera->projectionMatrix);
+
                 Runner_draw(runner);
 
                 renderer->vtable->flush(renderer);
@@ -1165,6 +1209,7 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
             float viewAngle = camera->viewAngle;
 
             runner->viewCurrent = (int32_t) vi;
+            runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
             renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
 
             Runner_draw(runner);
@@ -1178,13 +1223,27 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
     }
 
     if (!anyViewRendered) {
+        runner->viewCurrent = 0;
+        GMLCamera* camera = Runner_getCameraForView(runner, (int32_t) runner->viewCurrent);
+        runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
         // See GameMaker-HTML5's "DrawViews", in specific the !m_enableviews path
         // When views aren't used, the room width/height is used
         int32_t viewX, viewY, viewW, viewH;
         expandViewAxis(0, (int32_t) runner->currentRoom->width, gameW, widescreenBaseW, &viewX, &viewW);
         expandViewAxis(0, (int32_t) runner->currentRoom->height, gameH, widescreenBaseH, &viewY, &viewH);
         applyFreeCamera(runner, &viewX, &viewY, &viewW, &viewH);
+        //make default projection
+        if (camera != nullptr) {
+            camera->viewX = 0;
+            camera->viewY = 0;
+            camera->viewWidth = runner->currentRoom->width;
+            camera->viewHeight = runner->currentRoom->height;
+            camera->viewAngle = 0.0;
+            Runner_updateCameraViewSimple(camera);
+        }
+
         renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, 0, 0, gameW, gameH, 0);
+
         Runner_draw(runner);
 
         if (debugShowCollisionMasks) DebugOverlay_drawCollisionMasks(runner);
@@ -1195,6 +1254,7 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
 
     // Reset view_current to 0 so non-Draw events (Step, Alarm, Create) see view_current = 0
     runner->viewCurrent = 0;
+    runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
 }
 
 // ===[ Instance Creation Helper ]===
@@ -1296,6 +1356,8 @@ GMLCamera* Runner_getCameraById(Runner* runner, int32_t id) {
     if (0 > id) return nullptr;
     else if (MAX_DEFAULT_ROOM_CAMERAS > id) camera = &runner->defaultCameras[id];
     else if (MAX_CAMERAS > id) camera = &runner->userCameras[id - MAX_DEFAULT_ROOM_CAMERAS];
+    else if (id == SURFACE_CAMERA) camera = &runner->surfaceCamera;
+    else if (id == GUI_CAMERA) camera = &runner->guiCamera;
     else return nullptr;
     if (!camera->allocated) return nullptr;
     return camera;
@@ -1319,6 +1381,8 @@ static void initDefaultCameraFromRoomView(GMLCamera* camera, RoomView* roomView)
     camera->speedY = roomView->speedY;
     camera->objectId = roomView->objectId;
     camera->viewAngle = 0;
+    Runner_updateCameraViewSimple(camera);
+
 }
 
 // Copies the viewport (port) properties and enabled flag from parsed room data.
@@ -1437,6 +1501,8 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         runtimeLayer.hSpeed = layerSource->hSpeed;
         runtimeLayer.vSpeed = layerSource->vSpeed;
         runtimeLayer.dynamic = false;
+        runtimeLayer.beginScript = -1;
+        runtimeLayer.endScript = -1;
         arrput(runner->runtimeLayers, runtimeLayer);
         if (layerSource->id > maxLayerId) maxLayerId = layerSource->id;
     }
@@ -1583,6 +1649,8 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
                 runtimeLayer.visible = true;
                 runtimeLayer.dynamic = true;
                 runtimeLayer.dynamicName = safeStrdup(oldLayerName);
+                runtimeLayer.beginScript = -1;
+                runtimeLayer.endScript = -1;
                 arrput(runner->runtimeLayers, runtimeLayer);
                 newLayerId = (int32_t) runtimeLayer.id;
                 newLayerDepth = runtimeLayer.depth;
@@ -2116,7 +2184,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->gamepads = RunnerGamepad_create();
     runner->mouse = RunnerMouse_create();
     runner->appSurfaceEnabled = true;
-    runner->windowTitle = dataWin->gen8.displayName ? strdup(dataWin->gen8.displayName) : nullptr;
+    runner->windowTitle = dataWin->gen8.displayName ? safeStrdup(dataWin->gen8.displayName) : nullptr;
     runner->appSurfaceAutoDraw = true;
     runner->usingAppSurface = true;
     runner->applicationWidth = (int32_t) dataWin->gen8.defaultWindowWidth;
@@ -2423,6 +2491,11 @@ void Runner_initFirstRoom(Runner* runner) {
     int32_t firstRoomIndex = dataWin->gen8.roomOrder[0];
 
     runner->gameStartTime = nowNanos();
+
+    // GameMaker Studio (as of 2024.14) applies an offset of 1 virtual pixel to certain
+    // primitives if bit 35 is set.  Earlier versions of GameMaker or GameMaker Studio
+    // appear to apply it unconditionally.
+    runner->applyOffsetForPrimitives = !DataWin_isVersionAtLeast(dataWin, 2024, 14, 0, 0) || ((dataWin->optn.info >> 35) & 1);
 
     // Run global init scripts with the global scope instance as "self"
     // In GMS 2.3+ (BC17), GLOB scripts store function declarations on "self" via Pop.v.v
@@ -2855,8 +2928,8 @@ static void dispatchMouseEvents(Runner* runner) {
     arrsetlen(runner->instanceSnapshots, snapshotBase + instCount);
     memcpy(&runner->instanceSnapshots[snapshotBase], runner->instances, (size_t) instCount * sizeof(Instance*));
 
-    // Per-instance mouse-over flags (stack-allocated for typical room sizes, heap for large rooms)
-    bool* isOver = (bool*) alloca((size_t) instCount * sizeof(bool));
+    // Per-instance mouse-over flags
+    bool* isOver = (bool*) safeMalloc((size_t) instCount * sizeof(bool));
 
     // Compute whether the mouse is currently over each instance's mask.
     // Enter / Leave edge detection also updates inst->mouseOver here.
@@ -2878,14 +2951,14 @@ static void dispatchMouseEvents(Runner* runner) {
             int32_t codeId = ResolvedEventTable_lookup(table, inst->objectIndex, slotEnter, &ownerObjectIndex);
             if (codeId >= 0) {
                 Runner_executeResolvedEvent(runner, inst, EVENT_MOUSE, MOUSE_ENTER, codeId, ownerObjectIndex);
-                if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+                if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
             }
         } else if (!over && wasOver && slotLeave >= 0) {
             int32_t ownerObjectIndex = -1;
             int32_t codeId = ResolvedEventTable_lookup(table, inst->objectIndex, slotLeave, &ownerObjectIndex);
             if (codeId >= 0) {
                 Runner_executeResolvedEvent(runner, inst, EVENT_MOUSE, MOUSE_LEAVE, codeId, ownerObjectIndex);
-                if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+                if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
             }
         }
     }
@@ -2893,47 +2966,48 @@ static void dispatchMouseEvents(Runner* runner) {
     // Button-held local events (0-2)
     if (RunnerMouse_checkButton(mouse, GML_MB_LEFT))
         fireLocalMouseSubtype(runner, MOUSE_LEFT_BUTTON, slotLeftBtn, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButton(mouse, GML_MB_RIGHT))
         fireLocalMouseSubtype(runner, MOUSE_RIGHT_BUTTON, slotRightBtn, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButton(mouse, GML_MB_MIDDLE))
         fireLocalMouseSubtype(runner, MOUSE_MIDDLE_BUTTON, slotMiddleBtn, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     // No-button local event (3): mouse over but nothing held
     if (!RunnerMouse_checkButton(mouse, GML_MB_ANY))
         fireLocalMouseSubtype(runner, MOUSE_NO_BUTTON, slotNoBtn, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     // Button-pressed local events (4-6)
     if (RunnerMouse_checkButtonPressed(mouse, GML_MB_LEFT))
         fireLocalMouseSubtype(runner, MOUSE_LEFT_PRESSED, slotLeftPress, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButtonPressed(mouse, GML_MB_RIGHT))
         fireLocalMouseSubtype(runner, MOUSE_RIGHT_PRESSED, slotRightPress, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButtonPressed(mouse, GML_MB_MIDDLE))
         fireLocalMouseSubtype(runner, MOUSE_MIDDLE_PRESSED, slotMiddlePress, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     // Button-released local events (7-9)
     if (RunnerMouse_checkButtonReleased(mouse, GML_MB_LEFT))
         fireLocalMouseSubtype(runner, MOUSE_LEFT_RELEASED, slotLeftRel, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButtonReleased(mouse, GML_MB_RIGHT))
         fireLocalMouseSubtype(runner, MOUSE_RIGHT_RELEASED, slotRightRel, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
-    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); return; }
+    if (runner->pendingRoom >= 0) { arrsetlen(runner->instanceSnapshots, snapshotBase); free(isOver); return; }
 
     if (RunnerMouse_checkButtonReleased(mouse, GML_MB_MIDDLE))
         fireLocalMouseSubtype(runner, MOUSE_MIDDLE_RELEASED, slotMiddleRel, &runner->instanceSnapshots[snapshotBase], instCount, isOver);
 
     arrsetlen(runner->instanceSnapshots, snapshotBase);
+    free(isOver);
 }
 
 static int sortInstancesByObjectIndexThenInstanceIdAscending(const void* element1, const void* element2) {
@@ -3203,6 +3277,7 @@ static void updateViews(Runner* runner) {
             int32_t iy = (int32_t) GMLReal_floor(target->y);
             camera->viewX = followAxis(camera->viewX, camera->viewWidth, ix, camera->borderX, camera->speedX, (int32_t) room->width);
             camera->viewY = followAxis(camera->viewY, camera->viewHeight, iy, camera->borderY, camera->speedY, (int32_t) room->height);
+            Runner_updateCameraViewSimple(camera);
         }
     }
 }
@@ -3638,7 +3713,7 @@ void Runner_step(Runner* runner) {
 #ifdef ENABLE_VM_TRACING
                 GameObject* object = &runner->dataWin->objt.objects[inst->objectIndex];
                 if (shgeti(runner->vmContext->alarmsToBeTraced, "*") != -1 || shgeti(runner->vmContext->alarmsToBeTraced, object->name) != -1) {
-                    fprintf(stderr, "VM: [%s] Ticking down Alarm[%d] (instanceId=%d), current tick is %d\n", object->name, alarmIdx, inst->instanceId, inst->alarm[alarmIdx]);
+                    fprintf(stderr, "VM: [%s] Ticking down Alarm[%d] (instanceId=%d), current tick is %d\n", object->name, (int)alarmIdx, inst->instanceId, inst->alarm[alarmIdx]);
                 }
 #endif
 
@@ -3649,7 +3724,7 @@ void Runner_step(Runner* runner) {
 
 #ifdef ENABLE_VM_TRACING
                     if (shgeti(runner->vmContext->alarmsToBeTraced, "*") != -1 || shgeti(runner->vmContext->alarmsToBeTraced, object->name) != -1) {
-                        fprintf(stderr, "VM: [%s] Firing Alarm[%d] (instanceId=%d)\n", object->name, alarmIdx, inst->instanceId);
+                        fprintf(stderr, "VM: [%s] Firing Alarm[%d] (instanceId=%d)\n", object->name, (int)alarmIdx, inst->instanceId);
                     }
 #endif
 
@@ -3995,7 +4070,7 @@ void Runner_dumpState(Runner* runner) {
         repeat(GML_ALARM_COUNT, alarmIdx) {
             if (inst->alarm[alarmIdx] >= 0) {
                 if (!hasAlarm) { printf("  Alarms:"); hasAlarm = true; }
-                printf(" [%d]=%d", alarmIdx, inst->alarm[alarmIdx]);
+                printf(" [%d]=%d", (int)alarmIdx, inst->alarm[alarmIdx]);
             }
         }
         if (hasAlarm) printf("\n");
@@ -4206,7 +4281,7 @@ char* Runner_dumpStateJson(Runner* runner) {
         repeat(GML_ALARM_COUNT, alarmIdx) {
             if (inst->alarm[alarmIdx] >= 0) {
                 char alarmKey[4];
-                snprintf(alarmKey, sizeof(alarmKey), "%d", alarmIdx);
+                snprintf(alarmKey, sizeof(alarmKey), "%d", (int)alarmIdx);
                 JsonWriter_propertyInt(&w, alarmKey, inst->alarm[alarmIdx]);
             }
         }
@@ -4357,8 +4432,7 @@ void Runner_free(Runner* runner) {
     RunnerKeyboard_free(runner->keyboard);
     RunnerGamepad_free(runner->gamepads);
     RunnerMouse_free(runner->mouse);
-	if (runner->windowTitle != nullptr) {
-		free(runner->windowTitle);
-	}
+    if (runner->windowTitle)
+        free(runner->windowTitle);
     free(runner);
 }

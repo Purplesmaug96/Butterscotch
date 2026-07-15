@@ -146,8 +146,8 @@ typedef struct {
 
 typedef struct {
     bool allocated; // slot in use (default cameras: set when the room enables the view; user cameras: camera_create/destroy)
-    int32_t viewX;
-    int32_t viewY;
+    float viewX;
+    float viewY;
     int32_t viewWidth;
     int32_t viewHeight;
     uint32_t borderX;
@@ -156,9 +156,8 @@ typedef struct {
     int32_t speedY;
     int32_t objectId; // follow target (object index), -1 = none
     float viewAngle;
-    // Center derived from camera_set_view_mat; kept so set_view_mat / set_proj_mat (which arrive in either order) can both recompute the top-left viewX/viewY once the size from the proj matrix is known.
-    int32_t viewMatCenterX;
-    int32_t viewMatCenterY;
+    Matrix4f viewMatrix;
+    Matrix4f projectionMatrix;
 } GMLCamera;
 
 typedef struct {
@@ -244,6 +243,8 @@ typedef struct {
     float vSpeed;
     bool dynamic; // true = created at runtime via layer_create
     char* dynamicName; // owned
+    int32_t beginScript;
+    int32_t endScript;
     RuntimeLayerElement* elements; // stb_ds array
 } RuntimeLayer;
 
@@ -474,6 +475,8 @@ struct Runner {
     RuntimeView views[MAX_VIEWS];
     GMLCamera defaultCameras[MAX_DEFAULT_ROOM_CAMERAS];
     GMLCamera userCameras[MAX_USER_CAMERAS];
+    GMLCamera surfaceCamera;
+    GMLCamera guiCamera;
     RunnerGamepadState* gamepads;
     RuntimeBackground backgrounds[8];
     uint32_t backgroundColor;      // runtime-mutable (BGR format)
@@ -517,6 +520,7 @@ struct Runner {
     struct { char* key; int value; }* disabledObjects; // stb_ds string hashmap, nullptr = no filtering
     struct { int key; Instance* value; }* instancesById;
     bool forceDrawDepth;
+    bool applyOffsetForPrimitives;
     // Depth-sorted unified list of all drawables (instances + tiles + runtime layers) for the current room.
     // Active/visible filtering happens at draw time, so toggling those flags does not invalidate the cache.
     //
@@ -672,6 +676,9 @@ void Runner_addInstanceToObjectLists(Runner* runner, Instance* inst);
 void Runner_removeInstanceFromObjectLists(Runner* runner, Instance* inst);
 // Reset every per-object list to length 0 without releasing the backing arrays.
 void Runner_clearAllObjectLists(Runner* runner);
+
+// Update The Camera For Basic Views!
+void Runner_updateCameraViewSimple(GMLCamera* camera);
 
 // Push a snapshot of instancesByObject[targetObjIndex] onto runner->instanceSnapshots. Returns the base offset where this snapshot begins.
 // The length is arrlen(runner->instanceSnapshots) - base.
