@@ -4,7 +4,7 @@
 #include "common.h"
 #include <stdint.h>
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 #include <GLES3/gl3.h>
 #elif PLATFORM_PS3
 #include "ps3gl.h"
@@ -57,5 +57,20 @@ GLenum GLCommon_blendModeToSFactor(int mode);
 
 // Maps a bm_* mode constant to its conventional destination blend factor.
 GLenum GLCommon_blendModeToDFactor(int mode);
+
+#ifndef PLATFORM_PS3
+
+// ===[ GL version queries ]===
+
+typedef struct {
+    int major;
+    int minor;
+    bool isGLES;
+} GLVer;
+
+// Returns the parsed GL version by reading glGetString(GL_VERSION).
+GLVer GLCommon_getGLVersion(void);
+
+#endif
 
 #endif /* _BS_GL_COMMON_H_ */

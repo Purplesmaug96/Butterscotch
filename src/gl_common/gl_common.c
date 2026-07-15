@@ -8,6 +8,8 @@
 #include "utils.h"
 #include "renderer.h" // for bm_* constants
 
+#include "gl_wrappers.h"
+
 // ===[ Letterbox blit ]===
 
 void GLCommon_computeLetterbox(int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH, int32_t* outStartX, int32_t* outStartY, int32_t* outEndX, int32_t* outEndY) {
@@ -139,6 +141,28 @@ bool GLCommon_surfaceGetPixels(GLuint* surfaces, int32_t* surfaceWidth, int32_t*
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint) prevFbo);
     return true;
 }
+
+#ifndef PLATFORM_PS3
+
+// ===[ GL version queries ]===
+
+GLVer GLCommon_getGLVersion(void) {
+    GLVer v = {0, 0, false};
+    const char* ver = (const char*)glGetString(GL_VERSION);
+    if (!ver) return v;
+    if (strstr(ver, "OpenGL ES")) v.isGLES = true;
+    const char* p = ver;
+    while (*p && (*p < '0' || *p > '9')) p++;
+    if (*p) {
+        v.major = *p - '0';
+        ++p;
+        if (*p == '.') ++p;
+        v.minor = *p - '0';
+    }
+    return v;
+}
+
+#endif
 
 // ===[ Blend mode translation ]===
 

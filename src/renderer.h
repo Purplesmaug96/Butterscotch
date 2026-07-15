@@ -41,6 +41,9 @@
 #define MAX_VS_LIGHTS	8
 
 #define MAX_TEXTURE_STAGES 8
+//these 2 IDs are just IDs I simply made up, replace them with proper ones eventually oki?
+#define GUI_CAMERA 4096
+#define SURFACE_CAMERA 8192
 
 // Sentinel returned by ensureApplicationSurface on platforms that don't back the application_surface with a real entry in the renderer's surface table.
 //
@@ -66,6 +69,13 @@ typedef struct Runner Runner;
 #endif
 
 typedef struct {
+    int32_t src;
+    int32_t dst;
+    int32_t srcAlpha;
+    int32_t dstAlpha;
+} BlendFactors;
+
+typedef struct {
     void (*init)(Renderer* renderer, DataWin* dataWin);
     void (*destroy)(Renderer* renderer);
     void (*beginFrame)(Renderer* renderer, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH);
@@ -73,7 +83,7 @@ typedef struct {
     void (*endFrameEnd)(Renderer* renderer);
     void (*beginView)(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle);
     void (*endView)(Renderer* renderer);
-    void (*applyProjection)(Renderer* renderer, const Matrix4f* worldToClip);
+    void (*applyProjection)(Renderer* renderer, const Matrix4f* viewMatrix,const Matrix4f* projectionMatrix);
     // GUI pass: coordinates are (0,0)..(guiW,guiH) mapped to the current view's port rect. Called after endView.
     // targetSurfaceId is the surface the pass renders into, or RENDER_TARGET_HOST_FRAMEBUFFER.
     void (*beginGUI)(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, int32_t targetSurfaceId);
@@ -94,8 +104,10 @@ typedef struct {
     void (*clearScreen)(Renderer* renderer, uint32_t color, float alpha);
     int32_t (*createSpriteFromSurface)(Renderer* renderer, int32_t surfaceID, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig);
     void (*deleteSprite)(Renderer* renderer, int32_t spriteIndex);
+    BlendFactors (*gpuGetBlendFactors)(Renderer* renderer);
+    int32_t (*gpuGetBlendMode)(Renderer* renderer);
     void (*gpuSetBlendMode)(Renderer* renderer, int32_t mode);
-    void (*gpuSetBlendModeExt)(Renderer* renderer, int32_t sfactor, int32_t dfactor);
+    void (*gpuSetBlendModeExt)(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha);
     void (*gpuSetBlendEnable)(Renderer* renderer, bool enable);
     void (*gpuSetAlphaTestEnable)(Renderer* renderer, bool enable);
     void (*gpuSetAlphaTestRef)(Renderer* renderer, uint8_t ref);
@@ -150,6 +162,7 @@ typedef struct {
     void (*textureSetStage)(Renderer* renderer, int32_t slot, uint32_t texID);
     bool (*shaderIsCompiled)(Renderer* renderer, int32_t shader);
     bool (*shadersSupported)(void);
+    void (*setMatrix)(Renderer* renderer, int32_t matrixType, Matrix4f matrix);
 } RendererVtable;
 
 // ===[ Renderer Base Struct ]===
@@ -164,7 +177,7 @@ struct Renderer {
     int32_t drawValign;  // 0=top, 1=middle, 2=bottom
     int32_t circlePrecision; // segments used by draw_circle/draw_ellipse, clamped to [4, 64] and rounded down to multiple of 4. Default 24.
     //It's The Simplest Way I Found To Restore Previous Thingies For Rendering SORRY
-    Matrix4f previousViewMatrix;
+    Matrix4f previousViewMatrix; //when you go fix the Legacy OpenGL renderer, please remove this, as we don't need this anymore I hope
     int32_t CPortX;
     int32_t CPortY;
     int32_t CPortW;
@@ -172,6 +185,8 @@ struct Renderer {
     Runner* runner;
     Matrix4f gmlMatrices[MATRICES_MAX];
     int32_t currentShader;
+    BlendFactors blendFactors;
+    int32_t cameraCurrent;
 };
 
 // ===[ Shared Helpers (platform-agnostic) ]===

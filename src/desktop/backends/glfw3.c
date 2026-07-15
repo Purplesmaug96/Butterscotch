@@ -57,6 +57,7 @@ static GLFWwindow *tryOpenWindow(int reqW, int reqH, const char* title) {
             glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
         } else {
             glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
             if (GLCommon_versions[i].major >= 3) {
                 if (GLCommon_versions[i].major == 3 && GLCommon_versions[i].minor == 2) {
                     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -257,7 +258,7 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
 
     // init gamepad mappings
     const char* dbPath = "gamecontrollerdb.txt";
-    FILE* f = fopen(dbPath, "r");
+    FILE* f = fopen(dbPath, "rb");
     if (f != NULL) {
         fseek(f, 0, SEEK_END);
         long len = ftell(f);
