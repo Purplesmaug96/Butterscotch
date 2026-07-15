@@ -22,7 +22,7 @@
 #define D3D9_MAX_SHADER_UNIFORMS 64
 
 // Shaders
-// #define D3D9_DISABLE_SHADERS
+#define D3D9_DISABLE_SHADERS
 
 // 2bpp instead of 4
 #define D3D9_USE_16BIT_TEXTURES

@@ -174,6 +174,8 @@ else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()
 
+target_compile_definitions(butterscotch PRIVATE RUNNER)
+
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 if(AUDIO_BACKEND STREQUAL "openal")
@@ -839,7 +841,8 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()
-endif() # BUILD_RUNNER
+
+endif() # if(BUILD_RUNNER)
 
 option(ENABLE_SHADER_TRANSLATOR "Enable GLES->HLSL9 shader translation in preprocessor" OFF)
 
@@ -872,6 +875,7 @@ if(BUILD_PREPROCESSOR)
         ${CMAKE_SOURCE_DIR}/vendor/stb/image
         ${CMAKE_SOURCE_DIR}/vendor/stb/vorbis
     )
+	target_compile_definitions(butterscotch-preprocessor PRIVATE PREPROCESSOR)
     if(ENABLE_SHADER_TRANSLATOR)
         target_sources(butterscotch-preprocessor PRIVATE src/shader_translator/shader_translator.cpp)
         target_include_directories(butterscotch-preprocessor PRIVATE ${CMAKE_SOURCE_DIR}/src/shader_translator)

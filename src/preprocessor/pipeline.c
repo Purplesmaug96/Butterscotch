@@ -487,7 +487,9 @@ static bool tileKeyEquals(const TileKey* a, const TileKey* b) {
 }
 
 static int collectTile(UniqueTile** tiles, RoomTile* tile, DataWin* dw) {
-    int32_t defCount = (int32_t)(tile->useSpriteDefinition ? dw->sprt.count : dw->bgnd.count);
+	if (tile == nullptr || dw == nullptr) return -1;
+
+	int32_t defCount = (int32_t)(tile->useSpriteDefinition ? dw->sprt.count : dw->bgnd.count);
     if (0 > tile->backgroundDefinition || tile->backgroundDefinition >= defCount) return -1;
 
     TileKey key = {.useSpriteDefinition = tile->useSpriteDefinition, .bgDef = tile->backgroundDefinition,
@@ -630,6 +632,7 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
         repeat(room->tileCount, ti) collectTile(&uniqueTiles, &room->tiles[ti], dw);
         repeat(room->layerCount, li) {
             RoomLayer* layer = &room->layers[li];
+            if (layer->type != RoomLayerType_Assets) continue;
             RoomLayerAssetsData* assets = layer->assetsData;
             if (assets == nullptr) continue;
             repeat(assets->legacyTileCount, ti) collectTile(&uniqueTiles, &assets->legacyTiles[ti], dw);
