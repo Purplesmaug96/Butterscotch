@@ -284,6 +284,12 @@ static GMLArray* VM_arraySetWithCoW(VMContext* ctx, RValue* slot, int32_t index,
     GMLArray* arr = slot->array;
 
     // Case 2: CoW fork check.
+    // IMPORTANT: Make val independent BEFORE the fork, because val.string (or val.array,
+    // val.structInst, etc.) may point into the original array whose data will be freed by
+    // cowForkSlotForModificationIfNeeded or by GMLArray_decRef below.
+    // We pass this independent copy to GMLArray_set, and then free it since GMLArray_set
+    // makes its own independent copy internally.
+    RValue independentVal = RValue_makeIndependent(val);
     if (IS_WAD17_OR_HIGHER(ctx)) {
         cowForkSlotForModificationIfNeeded(ctx, slot);
         arr = slot->array;
@@ -299,7 +305,8 @@ static GMLArray* VM_arraySetWithCoW(VMContext* ctx, RValue* slot, int32_t index,
     }
 
     // Case 3: Write!
-    GMLArray_set(arr, index, val);
+    GMLArray_set(arr, index, independentVal);
+    RValue_free(&independentVal);
     return arr;
 }
 
