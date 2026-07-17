@@ -78,6 +78,7 @@ typedef struct {
 	// Bound texture cache (to avoid redundant SetTexture calls during flushBatch)
 	int32_t boundTextureIndex;
 	void* boundTexturePtr;
+	uint32_t boundTextureSlot;
 
 	// Shared GPU render-state cache. Used to avoid needlessly repeating
 	// static sampler/render-state setup work every BeginFrame.

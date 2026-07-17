@@ -818,6 +818,9 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 #endif
 }
 
+// Forward declarations used by flushBatch
+static D3D9ShaderUniform* findShaderUniform(D3D9GMLShader* shader, const char* name);
+
 // ===[ Batch Flush ]===
 
 #ifdef PLATFORM_XBOX360_XDK
@@ -871,10 +874,25 @@ static void flushBatch(D3D9Renderer* dr) {
 		}
 	}
 
-	if (dr->boundTexturePtr != desiredTex) {
-		dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
+	// Determine the correct sampler slot for the batch's main texture.
+	// When a GML shader is active, bind to the gm_BaseTexture sampler slot
+	// so it doesn't clobber other textures set via texture_set_stage.
+	uint32_t batchSlot = 0;
+	if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
+		D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
+		if (shader->compiled) {
+			D3D9ShaderUniform* baseTex = findShaderUniform(shader, "gm_BaseTexture");
+			if (baseTex && baseTex->isSampler) {
+				batchSlot = baseTex->samplerSlot;
+			}
+		}
+	}
+
+	if (dr->boundTexturePtr != desiredTex || dr->boundTextureSlot != batchSlot) {
+		dev->SetTexture(batchSlot, (IDirect3DBaseTexture9*)desiredTex);
 		dr->boundTextureIndex = bindIdx;
 		dr->boundTexturePtr = desiredTex;
+		dr->boundTextureSlot = batchSlot;
 	}
 
 	// D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
@@ -929,6 +947,20 @@ static void flushBatch(D3D9Renderer* dr) {
 		dev->SetPixelShader((IDirect3DPixelShader9*)dr->pPixelShader);
 	}
 
+	// Determine the correct sampler slot for the batch's main texture.
+	// When a GML shader is active, bind to the gm_BaseTexture sampler slot
+	// so it doesn't clobber other textures set via texture_set_stage.
+	uint32_t batchSlot = 0;
+	if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
+		D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
+		if (shader->compiled) {
+			D3D9ShaderUniform* baseTex = findShaderUniform(shader, "gm_BaseTexture");
+			if (baseTex && baseTex->isSampler) {
+				batchSlot = baseTex->samplerSlot;
+			}
+		}
+	}
+
 	// Bind texture (skip redundant SetTexture calls)
 	void* desiredTex = nullptr;
 	if (dr->batchSurfaceTex) {
@@ -942,10 +974,11 @@ static void flushBatch(D3D9Renderer* dr) {
 		desiredTex = dr->whiteTexture;
 	}
 
-	if (dr->boundTexturePtr != desiredTex) {
-		dev->SetTexture(0, (IDirect3DBaseTexture9*)desiredTex);
+	if (dr->boundTexturePtr != desiredTex || dr->boundTextureSlot != batchSlot) {
+		dev->SetTexture(batchSlot, (IDirect3DBaseTexture9*)desiredTex);
 		dr->boundTextureIndex = dr->currentTextureIndex;
 		dr->boundTexturePtr = desiredTex;
+		dr->boundTextureSlot = batchSlot;
 	}
 
 	// Submit all quads in a single indexed draw call instead of per-quad TRIANGLESTRIP.
@@ -2996,6 +3029,31 @@ static void d3d9EndView(Renderer* renderer) {
 	Dev(dr)->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 }
 
+// The D3D9 backend stores vertex positions in screen-pixel coordinates (after
+// transformPoint: out = portOffset + (in - offset) * portScale), while GL stores
+// raw world coordinates. GML shaders expect world coordinates for gm_Matrices.
+// Before uploading the projection/WVP matrices, multiply by the inverse of
+// transformPoint so that the matrix chain processes screen-pixel input correctly:
+//   clip = (P * V * W * T^(-1)) * screen_vertex  =  (P * V * W) * world_vertex
+static inline void adjustMatricesForScreenSpace(Matrix4f* upload, const D3D9Renderer* dr) {
+	if (dr->portScaleX == 1.0f && dr->portScaleY == 1.0f &&
+		dr->portOffsetX == 0.0f && dr->portOffsetY == 0.0f &&
+		dr->offsetX == 0.0f && dr->offsetY == 0.0f) {
+		return; // transformPoint is identity
+	}
+	Matrix4f scrnToWorld;
+	Matrix4f_identity(&scrnToWorld);
+	scrnToWorld.m[0] = 1.0f / dr->portScaleX;
+	scrnToWorld.m[5] = 1.0f / dr->portScaleY;
+	scrnToWorld.m[12] = dr->offsetX - dr->portOffsetX / dr->portScaleX;
+	scrnToWorld.m[13] = dr->offsetY - dr->portOffsetY / dr->portScaleY;
+	Matrix4f result;
+	Matrix4f_multiply(&result, &upload[MATRIX_PROJECTION], &scrnToWorld);
+	upload[MATRIX_PROJECTION] = result;
+	Matrix4f_multiply(&result, &upload[MATRIX_WORLD_VIEW_PROJECTION], &scrnToWorld);
+	upload[MATRIX_WORLD_VIEW_PROJECTION] = result;
+}
+
 static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, const Matrix4f* projectionMatrix) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	flushBatch(dr);
@@ -3025,10 +3083,14 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 			D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
 			if (gmMatrices != nullptr) {
 				IDirect3DDevice9* dev = Dev(dr);
+				// Copy matrices and adjust for screen-space vertex data
+				Matrix4f upload[MATRICES_MAX];
+				memcpy(upload, renderer->gmlMatrices, sizeof(upload));
+				adjustMatricesForScreenSpace(upload, dr);
 				for (int m = 0; m < 5; m++) {
 					dev->SetVertexShaderConstantF(
 						gmMatrices->registerIndex + m * 4,
-						renderer->gmlMatrices[m].m,
+						upload[m].m,
 						4);
 					dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
 				}
@@ -6173,12 +6235,16 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 		}
 		if (matricesChanged) {
 			fprintf(stderr, "D3D9: uploading gm_Matrices to register %d\n", gmMatrices->registerIndex);
-			// GML matrices use Y-down convention; D3D9 NDC uses Y-up.
-			// Flip Y for projection and WVP (matching the GL renderer).
 			Matrix4f upload[MATRICES_MAX];
 			memcpy(upload, renderer->gmlMatrices, sizeof(upload));
-			Matrix4f_flipClipY(&upload[MATRIX_PROJECTION]);
-			Matrix4f_flipClipY(&upload[MATRIX_WORLD_VIEW_PROJECTION]);
+			// Adjust projection and WVP for screen-space vertex data (see
+			// adjustMatricesForScreenSpace above). This converts the matrices from
+			// world-coordinate to screen-pixel-coordinate space to match the D3D9
+			// backend's transformPoint convention.
+			adjustMatricesForScreenSpace(upload, dr);
+			// D3D9 NDC Y at -1 = viewport top, +1 = viewport bottom; the ortho
+			// matrix from Matrix4f_viewProjection already produces correct values
+			// for this convention -- no flipClipY needed (unlike GL with Y-up NDC).
 			// ANGLE's HLSL stores matrices transposed (row-major).
 			// Our matrices are column-major, so transpose before upload
 			// so that mul(transpose(M), v) in the shader gives M * v.
@@ -6195,6 +6261,37 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 				dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
 			}
 			dr->cachedGmlMatricesValid = true;
+		}
+	}
+
+	// Set ANGLE viewport uniforms to sensible defaults.
+	// These are added by ANGLE during GLSL->HLSL translation but Butterscotch's
+	// D3D9 backend does not use ANGLE's runtime StateManager9 that normally sets them.
+	{
+		D3D9ShaderUniform* u = findShaderUniform(shader, "dx_ViewAdjust");
+		if (u && u->isVertex && !u->isSampler) {
+			float v[4] = {0, 0, 0, 0};
+			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
+		}
+		u = findShaderUniform(shader, "dx_ViewCoords");
+		if (u && !u->isSampler) {
+			float w2 = dr->viewportW * 0.5f;
+			float h2 = dr->viewportH * 0.5f;
+			float v[4] = {w2, h2, w2, h2};
+			if (u->isVertex)
+				dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
+			else
+				dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+		}
+		u = findShaderUniform(shader, "dx_DepthFront");
+		if (u && !u->isSampler && !u->isVertex) {
+			float v[4] = {0.5f, 0.5f, 1.0f, 0.0f};
+			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+		}
+		u = findShaderUniform(shader, "dx_FragCoordOffset");
+		if (u && !u->isSampler && !u->isVertex) {
+			float v[4] = {0, 0, 0, 0};
+			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
 		}
 	}
 
@@ -7046,6 +7143,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->currentTextureIndex = -1;
 	dr->boundTextureIndex = -2;
 	dr->boundTexturePtr = nullptr;
+	dr->boundTextureSlot = 0;
 
 	dr->renderStateDirty = true;
 
