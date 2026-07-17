@@ -2352,15 +2352,60 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 				regCount = 1;
 			}
 
+			// Parse optional : register(c#) or : register(s#) annotation
+			// ANGLE output uses explicit register bindings (e.g. " : register(c3)")
+			int explicitRegister = -1;
+			int samplerRegister = -1;
+			while (*p == ' ' || *p == '\t') p++;
+			if (*p == ':') {
+				p++;
+				while (*p == ' ' || *p == '\t') p++;
+				if (strncmp(p, "register", 8) == 0) {
+					p += 8;
+					while (*p == ' ' || *p == '\t') p++;
+					if (*p == '(') {
+						p++;
+						if (*p == 'c' || *p == 'C') {
+							p++;
+							char numStr[16] = {0};
+							int numI = 0;
+							while (*p >= '0' && *p <= '9' && numI < 15)
+								numStr[numI++] = *p++;
+							if (*p == ')') p++;
+							explicitRegister = atoi(numStr);
+						} else if (*p == 's' || *p == 'S') {
+							p++;
+							char numStr[16] = {0};
+							int numI = 0;
+							while (*p >= '0' && *p <= '9' && numI < 15)
+								numStr[numI++] = *p++;
+							if (*p == ')') p++;
+							samplerRegister = atoi(numStr);
+						}
+					}
+				}
+			}
+
 			// Assign register
 			uniforms[count].name = strdup(name);
-			fprintf(stderr, "D3D9: parseHLSLUniforms %s uniform '%s' type=%s reg=%d\n",
+			fprintf(stderr, "D3D9: parseHLSLUniforms %s uniform '%s' type=%s reg=%d%s\n",
 				isVertex ? "VS" : "PS", uniforms[count].name, type,
-				isVertex ? nextVertexRegister : nextPixelRegister);
+				explicitRegister >= 0 ? explicitRegister : (isVertex ? nextVertexRegister : nextPixelRegister),
+				explicitRegister >= 0 ? " (explicit)" : samplerRegister >= 0 ? " (sampler)" : "");
 			uniforms[count].isSampler = isSampler;
 			uniforms[count].isVertex = isVertex;
 
-			if (isVertex) {
+			if (explicitRegister >= 0) {
+				uniforms[count].registerIndex = explicitRegister;
+				uniforms[count].registerCount = regCount;
+				if (!isSampler) {
+					int nextReg = isVertex ? nextVertexRegister : nextPixelRegister;
+					if (explicitRegister + regCount > nextReg)
+						nextReg = explicitRegister + regCount;
+					if (isVertex) nextVertexRegister = nextReg;
+					else nextPixelRegister = nextReg;
+				}
+			} else if (isVertex) {
 				uniforms[count].registerIndex = nextVertexRegister;
 				uniforms[count].registerCount = regCount;
 				if (!isSampler) {
@@ -2373,7 +2418,7 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 					nextPixelRegister += regCount;
 				}
 			}
-			uniforms[count].samplerSlot = 0;
+			uniforms[count].samplerSlot = samplerRegister >= 0 ? samplerRegister : 0;
 
 			count++;
 		}
