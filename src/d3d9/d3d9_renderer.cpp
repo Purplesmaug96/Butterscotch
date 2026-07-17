@@ -319,12 +319,13 @@ static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
 		d3d9DiagLimited(&_d3d9_diag_limited_counter_line_##__LINE__, (limit), (fmt), ##__VA_ARGS__); \
 	} while (0)
 
+// File-level staging texture cache for Xbox 360 texture uploads.
+#ifdef PLATFORM_XBOX360_XDK
 // Forward declaration for staging texture cleanup
 void d3d9ReleaseStagingTexture(void);
 
-// File-level staging texture cache for Xbox 360 texture uploads.
 // Defined here and released at renderer destruction via d3d9ReleaseStagingTexture().
-#ifdef PLATFORM_XBOX360_XDK
+
 static IDirect3DTexture9* gStagingTex = nullptr;
 static int32_t gStagingW = 0;
 static int32_t gStagingH = 0;
@@ -2616,7 +2617,9 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
 	// Dont use setViewportEnable here because dr->boundViewportEnable should already be set to true by D3D9Renderer_create, so it wouldnt do anything
+#ifdef PLATFORM_XBOX360_XDK
 	dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
+#endif
 
 	// Allocate CPU vertex staging buffer (shared between quads and triangles)
 	dr->vertexData = (uint8_t*)safeMalloc((D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD + D3D9_MAX_TRIS * D3D9_VERTS_PER_TRI) * sizeof(SpriteVertex));
@@ -2817,7 +2820,9 @@ static void d3d9Destroy(Renderer* renderer) {
 	if (dr->whiteTexture) {
 		((IDirect3DTexture9*)dr->whiteTexture)->Release();
 	}
+#ifdef PLATFORM_XBOX360_XDK
 	d3d9ReleaseStagingTexture();
+#endif
 	releaseApplicationSurface(dr);
 	if (dr->pVertexShader) {
 		((IDirect3DVertexShader9*)dr->pVertexShader)->Release();
@@ -3095,6 +3100,20 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 					dr->cachedGmlMatrices[m] = renderer->gmlMatrices[m];
 				}
 				dr->cachedGmlMatricesValid = true;
+
+				// Update dx_WorldOffset alongside matrices, since viewport
+				// parameters used in adjustMatricesForScreenSpace may have changed.
+				{
+					D3D9ShaderUniform* wu = findShaderUniform(shader, "dx_WorldOffset");
+					if (wu && wu->isVertex && !wu->isSampler) {
+						float invSx = (dr->portScaleX != 0.0f) ? 1.0f / dr->portScaleX : 1.0f;
+						float invSy = (dr->portScaleY != 0.0f) ? 1.0f / dr->portScaleY : 1.0f;
+						float offX = dr->offsetX - dr->portOffsetX * invSx;
+						float offY = dr->offsetY - dr->portOffsetY * invSy;
+						float wv[4] = {invSx, invSy, offX, offY};
+						dev->SetVertexShaderConstantF(wu->registerIndex, wv, 1);
+					}
+				}
 			}
 		}
 	}
@@ -6163,6 +6182,40 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	char* patchedVert2 = patchVertexShaderForGenerateOutput(vertexShaderSource);
 	if (patchedVert2) { vertexShaderSource = patchedVert2; }
 
+	// Patch _v_vPosition to convert from screen-pixel coords (D3D9) to world coords (GL).
+	// On D3D9, vertex positions stored as screen-pixel coords via transformPoint;
+	// _v_vPosition is used directly from the position attribute, giving screen pixels.
+	// On GL, vertex positions are world coords, so varyings like v_vPosition differ.
+	// We inject a dx_WorldOffset uniform whose components {1/sx, 1/sy, ox-pox/sx, oy-poy/sy}
+	// convert screen-pixel (x,y) back to world coordinates.
+	// Uses `uniform` keyword so parseHLSLUniforms discovers it automatically.
+	char* patchedVert3 = NULL;
+	{
+		// Only patch shaders that use _v_vPosition in the VS
+		const char* oldPat = "(_v_vPosition = vec2_ctor(_in_Position.x, _in_Position.y));";
+		const char* vsPos = strstr(vertexShaderSource, oldPat);
+		if (vsPos) {
+			size_t patOff = (size_t)(vsPos - vertexShaderSource);
+			size_t oldLen = strlen(vertexShaderSource);
+			size_t oldPatLen = strlen(oldPat);
+			const char* newPat = "(_v_vPosition = vec2_ctor(_in_Position.x * dx_WorldOffset.x + dx_WorldOffset.z, _in_Position.y * dx_WorldOffset.y + dx_WorldOffset.w));";
+			size_t newPatLen = strlen(newPat);
+			const char* uniformLine = "uniform float4 dx_WorldOffset : register(c23);\n";
+			size_t uniformLen = strlen(uniformLine);
+			size_t newLen = uniformLen + oldLen - oldPatLen + newPatLen;
+			char* newSrc = (char*)malloc(newLen + 1);
+			if (newSrc) {
+				char* dp = newSrc;
+				memcpy(dp, uniformLine, uniformLen); dp += uniformLen;
+				memcpy(dp, vertexShaderSource, patOff); dp += patOff;
+				memcpy(dp, newPat, newPatLen); dp += newPatLen;
+				memcpy(dp, vertexShaderSource + patOff + oldPatLen, oldLen - patOff - oldPatLen + 1);
+				patchedVert3 = newSrc;
+				vertexShaderSource = patchedVert3;
+			}
+		}
+	}
+
 	// Patch fragment shader: generateOutput first (adds missing static decls like _v_vColour),
 	// then PS_INPUT struct (scans static decls), then prologue assignments.
 	char* patchedFrag2 = patchFragmentShaderForGenerateOutput(fragmentShaderSource);
@@ -6182,6 +6235,7 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	if (patchedFragPrologue) free(patchedFragPrologue);
 	if (patchedFrag1) free(patchedFrag1);
 	if (patchedFrag2) free(patchedFrag2);
+	if (patchedVert3) free(patchedVert3);
 	if (patchedVert2) free(patchedVert2);
 	if (patchedVert1) free(patchedVert1);
 }
@@ -6295,6 +6349,20 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 		}
 	}
 
+	// Set dx_WorldOffset VS uniform for _v_vPosition screen-pixel -> world
+	// coordinate conversion.  Only set if the shader was patched to include it.
+	{
+		D3D9ShaderUniform* u = findShaderUniform(shader, "dx_WorldOffset");
+		if (u && u->isVertex && !u->isSampler) {
+			float invSx = (dr->portScaleX != 0.0f) ? 1.0f / dr->portScaleX : 1.0f;
+			float invSy = (dr->portScaleY != 0.0f) ? 1.0f / dr->portScaleY : 1.0f;
+			float offX = dr->offsetX - dr->portOffsetX * invSx;
+			float offY = dr->offsetY - dr->portOffsetY * invSy;
+			float v[4] = {invSx, invSy, offX, offY};
+			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
+		}
+	}
+
 	renderer->currentShader = shaderIndex;
 }
 
@@ -6382,6 +6450,8 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 	IDirect3DDevice9* dev = Dev(dr);
 	float values[4] = { value1, value2, value3, value4 };
+	if (strcmp(u->name, "time") == 0)
+		fprintf(stderr, "D3D9: setting time uniform = %.6f (handle=%d, reg=%u, count=%u)\n", value1, handle, u->registerIndex, u->registerCount);
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
 		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
