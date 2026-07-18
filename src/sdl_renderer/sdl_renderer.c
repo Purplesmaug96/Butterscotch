@@ -416,12 +416,12 @@ static void sdlDrawRectangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
             {y1 + 1, y1 + 1, y2, y2}  // right
         };
         for (int i = 0; i < 4; i++) {
-            emitColoredQuad(sdl, sdl->whiteTexture, tx[i], ty[i], us, vs, r, g, b, alpha);
+            emitColoredQuad(sdl, nullptr, tx[i], ty[i], us, vs, r, g, b, alpha);
         }
     } else {
         float xs[4] = {x1, x2 + 1, x2 + 1, x1};
         float ys[4] = {y1, y1, y2 + 1, y2 + 1};
-        emitColoredQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, r, g, b, alpha);
+        emitColoredQuad(sdl, nullptr, xs, ys, us, vs, r, g, b, alpha);
     }
 }
 
@@ -475,7 +475,7 @@ static void sdlDrawLineColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
     float bc[4] = {b1, b1, b2, b2};
     float ac[4] = {alpha, alpha, alpha, alpha};
 
-    emitQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, rc, gc, bc, ac);
+    emitQuad(sdl, nullptr, xs, ys, us, vs, rc, gc, bc, ac);
 }
 
 static void sdlDrawTriangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
