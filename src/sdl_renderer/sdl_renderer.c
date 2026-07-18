@@ -84,13 +84,6 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
     SDL_RenderGeometry(sdl->renderer, tex, verts, 4, indices, 6);
 }
 
-static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
-    float rc[4] = {r, r, r, r};
-    float gc[4] = {g, g, g, g};
-    float bc[4] = {b, b, b, b};
-    float ac[4] = {a, a, a, a};
-    emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
-}
 
 
 // Lazy-load a texture on demand when it's first needed
@@ -295,10 +288,14 @@ static void sdlDrawTriangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float 
 
 // ===[ Drawing: Text ]===
 
-static void sdlDrawText(Renderer* renderer, const char* text,
-                        float x, float y,
-                        float xscale, float yscale,
-                        float angleDeg, float lineSeparation) {
+static void drawText(
+    Renderer* renderer, const char* text,
+    float x, float y,
+    float xscale, float yscale,
+    float angleDeg, float lineSeparation,
+    int32_t _c1, int32_t _c2, int32_t _c3, int32_t _c4,
+    float alpha
+) {
     SDLRenderer* sdl = SDL(renderer);
     DataWin* dw = renderer->dataWin;
 
@@ -322,11 +319,6 @@ static void sdlDrawText(Renderer* renderer, const char* text,
     float texW = (float) sdl->textureWidths[pageId];
     float texH = (float) sdl->textureHeights[pageId];
 
-    uint32_t color = renderer->drawColor;
-    float r = (float) BGR_R(color) / 255.0f;
-    float g = (float) BGR_G(color) / 255.0f;
-    float b = (float) BGR_B(color) / 255.0f;
-
     PreprocessedText pt = TextUtils_preprocessGmlText(text);
     const char* str = pt.text;
     int32_t textLen = (int32_t) strlen(str);
@@ -348,6 +340,9 @@ static void sdlDrawText(Renderer* renderer, const char* text,
     float cursorY = valignOffset - (float) font->ascenderOffset;
     int32_t lineStart = 0;
 
+    int32_t c1 = _c1, c2 = _c2, c3 = _c3, c4 = _c4;
+    bool needsLerpingOnTheFly = c1 != c2 || c2 != c3 || c3 != c4;
+
     for (int32_t lineIdx = 0; lineCount > lineIdx; lineIdx++) {
         int32_t lineEnd = lineStart;
         while (textLen > lineEnd && !TextUtils_isNewlineChar(str[lineEnd])) lineEnd++;
@@ -359,6 +354,7 @@ static void sdlDrawText(Renderer* renderer, const char* text,
         else if (renderer->drawHalign == 2) halignOffset = -lineWidth;
 
         float cursorX = halignOffset;
+        float gradientX = 0.0f;
         int32_t pos = 0;
 
         uint16_t ch = 0;
@@ -377,6 +373,16 @@ static void sdlDrawText(Renderer* renderer, const char* text,
 
             if (glyph != nullptr) {
                 if (glyph->sourceWidth != 0 && glyph->sourceHeight != 0) {
+                    float advance = (float) glyph->shift;
+                    float leftFrac = (lineWidth > 0.0f) ? (gradientX / lineWidth) : 0.0f;
+                    float rightFrac = (lineWidth > 0.0f) ? ((gradientX + advance) / lineWidth) : 1.0f;
+                    if (needsLerpingOnTheFly) {
+                        c1 = Color_lerp(_c1, _c2, leftFrac);
+                        c2 = Color_lerp(_c1, _c2, rightFrac);
+                        c3 = Color_lerp(_c4, _c3, rightFrac);
+                        c4 = Color_lerp(_c4, _c3, leftFrac);
+                    }
+
                     float u0 = (float) (fontTpag->sourceX + glyph->sourceX) / texW;
                     float v0 = (float) (fontTpag->sourceY + glyph->sourceY) / texH;
                     float u1 = (float) (fontTpag->sourceX + glyph->sourceX + glyph->sourceWidth) / texW;
@@ -396,12 +402,20 @@ static void sdlDrawText(Renderer* renderer, const char* text,
                     float us[4] = {u0, u1, u1, u0};
                     float vs[4] = {v0, v0, v1, v1};
 
-                    emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, renderer->drawAlpha);
+                    float rc[4] = {(float) BGR_R(c1), (float) BGR_R(c2), (float) BGR_R(c3), (float) BGR_R(c4)};
+                    float gc[4] = {(float) BGR_G(c1), (float) BGR_G(c2), (float) BGR_G(c3), (float) BGR_G(c4)};
+                    float bc[4] = {(float) BGR_B(c1), (float) BGR_B(c2), (float) BGR_B(c3), (float) BGR_B(c4)};
+
+                    for (int i = 0; i < 4; i++) { rc[i] /= 255.0f; gc[i] /= 255.0f; bc[i] /= 255.0f; }
+
+                    emitQuad(sdl, tex, xs, ys, us, vs, rc, gc, bc, (float[4]){alpha, alpha, alpha, alpha});
                 }
 
                 cursorX += glyph->shift;
+                gradientX += glyph->shift;
                 if (hasNext) {
                     cursorX += TextUtils_getKerningOffset(glyph, nextCh);
+                    gradientX += TextUtils_getKerningOffset(glyph, nextCh);
                 }
             }
 
@@ -416,13 +430,25 @@ static void sdlDrawText(Renderer* renderer, const char* text,
     PreprocessedText_free(pt);
 }
 
-static void sdlDrawTextColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED const char* text,
-                             MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                             MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                             MAYBE_UNUSED float angleDeg, MAYBE_UNUSED int32_t c1,
-                             MAYBE_UNUSED int32_t c2, MAYBE_UNUSED int32_t c3,
-                             MAYBE_UNUSED int32_t c4, MAYBE_UNUSED float alpha,
-                             MAYBE_UNUSED float lineSeparation) {
+static void sdlDrawText(Renderer* renderer, const char* text,
+                        float x, float y,
+                        float xscale, float yscale,
+                        float angleDeg, float lineSeparation) {
+    drawText(renderer, text, x, y, xscale, yscale, angleDeg, lineSeparation,
+                    renderer->drawColor, renderer->drawColor,
+                    renderer->drawColor, renderer->drawColor,
+                    renderer->drawAlpha);
+}
+
+static void sdlDrawTextColor(Renderer* renderer, const char* text,
+                             float x, float y,
+                             float xscale, float yscale,
+                             float angleDeg, int32_t c1,
+                             int32_t c2, int32_t c3,
+                             int32_t c4, float alpha,
+                             float lineSeparation) {
+    drawText(renderer, text, x, y, xscale, yscale, angleDeg, lineSeparation,
+                    c1, c2, c3, c4, alpha);
 }
 
 // ===[ Flush / Clear ]===
