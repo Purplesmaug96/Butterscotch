@@ -93,6 +93,40 @@ static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], floa
     emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
 }
 
+static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
+                    float x[3], float y[3], float u[3], float v[3],
+                    float r[3], float g[3], float b[3], float a[3]) {
+    SDL_Vertex verts[3];
+
+    for (int i = 0; i < 3; i++) {
+        float vx, vy;
+        transformWorldToView(sdl, x[i], y[i], &vx, &vy);
+
+        verts[i].position.x = vx;
+        verts[i].position.y = vy;
+        verts[i].tex_coord.x = u[i];
+        verts[i].tex_coord.y = v[i];
+
+        verts[i].color.r = r[i];
+        verts[i].color.g = g[i];
+        verts[i].color.b = b[i];
+        verts[i].color.a = a[i];
+    }
+
+    int indices[3] = {0, 1, 2};
+    SDL_RenderGeometry(sdl->renderer, tex, verts, 3, indices, 3);
+}
+
+static void emitColoredTri(SDLRenderer* sdl, SDL_Texture* tex,
+                           float x[3], float y[3], float u[3], float v[3],
+                           float r, float g, float b, float a) {
+    float rc[3] = {r, r, r};
+    float gc[3] = {g, g, g};
+    float bc[3] = {b, b, b};
+    float ac[3] = {a, a, a};
+    emitTri(sdl, tex, x, y, u, v, rc, gc, bc, ac);
+}
+
 // Lazy-load a texture on demand when it's first needed
 static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
     if (sdl->textureLoaded[pageId]) return (sdl->textureWidths[pageId] != 0);
@@ -478,12 +512,40 @@ static void sdlDrawLineColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
     emitQuad(sdl, nullptr, xs, ys, us, vs, rc, gc, bc, ac);
 }
 
-static void sdlDrawTriangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
-                            MAYBE_UNUSED float y1, MAYBE_UNUSED float x2,
-                            MAYBE_UNUSED float y2, MAYBE_UNUSED float x3,
-                            MAYBE_UNUSED float y3, MAYBE_UNUSED uint32_t color1,
-                            MAYBE_UNUSED uint32_t color2, MAYBE_UNUSED uint32_t color3,
-                            MAYBE_UNUSED float alpha, MAYBE_UNUSED bool outline) {
+static void sdlDrawTriangle(Renderer* renderer, float x1,
+                            float y1, float x2,
+                            float y2, float x3,
+                            float y3, uint32_t color1,
+                            uint32_t color2, uint32_t color3,
+                            float alpha, bool outline) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    if (outline) {
+        sdlDrawLineColor(renderer, x1, y1, x2, y2, 1, color1, color2, alpha);
+        sdlDrawLineColor(renderer, x2, y2, x3, y3, 1, color2, color3, alpha);
+        sdlDrawLineColor(renderer, x3, y3, x1, y1, 1, color3, color1, alpha);
+    } else {
+        float r1 = (float) BGR_R(color1) / 255.0f;
+        float g1 = (float) BGR_G(color1) / 255.0f;
+        float b1 = (float) BGR_B(color1) / 255.0f;
+        float r2 = (float) BGR_R(color2) / 255.0f;
+        float g2 = (float) BGR_G(color2) / 255.0f;
+        float b2 = (float) BGR_B(color2) / 255.0f;
+        float r3 = (float) BGR_R(color3) / 255.0f;
+        float g3 = (float) BGR_G(color3) / 255.0f;
+        float b3 = (float) BGR_B(color3) / 255.0f;
+
+        float xs[3] = {x1, x2, x3};
+        float ys[3] = {y1, y2, y3};
+        float us[3] = {0.5f, 0.5f, 0.5f};
+        float vs[3] = {0.5f, 0.5f, 0.5f};
+        float rc[3] = {r1, r2, r3};
+        float gc[3] = {g1, g2, g3};
+        float bc[3] = {b1, b2, b3};
+        float ac[3] = {alpha, alpha, alpha};
+
+        emitTri(sdl, nullptr, xs, ys, us, vs, rc, gc, bc, ac);
+    }
 }
 
 // ===[ Drawing: Text ]===
