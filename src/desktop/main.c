@@ -41,6 +41,9 @@
 #ifdef ENABLE_SW_RENDERER
 #include "sw_renderer.h"
 #endif
+#ifdef ENABLE_SDL_RENDERER
+#include "sdl_renderer.h"
+#endif
 #include "overlay_file_system.h"
 #if defined(USE_OPENAL)
 #include "al_audio_system.h"
@@ -511,7 +514,9 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
     args->loadType = DATAWINLOADTYPE_LOAD_IN_MEMORY_AHEAD_OF_TIME;
     // TODO: detect available driver features
     // at runtime to improve defaults.
-#if defined(ENABLE_MODERN_GL)
+#if defined(ENABLE_SDL_RENDERER)
+    args->renderer = "sdl";
+#elif defined(ENABLE_MODERN_GL)
     args->renderer = "modern-gl";
 #elif defined(ENABLE_LEGACY_GL)
     args->renderer = "legacy-gl";
@@ -1288,6 +1293,8 @@ int main(int argc, char* argv[]) {
             gfx = LEGACY_GL;
         else if (strcmp(args.renderer, "software") == 0)
             gfx = SOFTWARE;
+        else if (strcmp(args.renderer, "sdl") == 0)
+            gfx = SDL_RENDERER;
         else {
             fprintf(stderr, "Unknown renderer: %s!\n", args.renderer);
             return 1;
@@ -1308,6 +1315,12 @@ int main(int argc, char* argv[]) {
 #ifndef ENABLE_SW_RENDERER
         if (gfx == SOFTWARE) {
             fprintf(stderr, "The software renderer is not available in this build!\n");
+            return 0;
+        }
+#endif
+#ifndef ENABLE_SDL_RENDERER
+        if (gfx == SDL_RENDERER) {
+            fprintf(stderr, "The SDL renderer is not available in this build!\n");
             return 0;
         }
 #endif
@@ -1374,6 +1387,11 @@ int main(int argc, char* argv[]) {
         if (gfx == MODERN_GL) {
             renderer = GLRenderer_create();
             hostFramebuffer = &((GLRenderer *)renderer)->hostFramebuffer;
+        }
+#endif
+#ifdef ENABLE_SDL_RENDERER
+        if (gfx == SDL_RENDERER) {
+            renderer = SDLRenderer_create();
         }
 #endif
         if (!renderer) {

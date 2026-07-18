@@ -35,7 +35,7 @@ static const int SDL_TO_GML_BUTTON[SDL_GAMEPAD_BUTTON_COUNT] = {
 };
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {
-    if (gfx == SOFTWARE) {
+    if (gfx == SOFTWARE || gfx == SDL_RENDERER) {
         return SDL_CreateWindow(
             title,
             reqW,
@@ -157,18 +157,18 @@ bool platformInit(int reqW, int reqH, const char *title, bool headless) {
         openControllers[i] = NULL;
     }
 
-    Uint32 flags = (gfx == SOFTWARE ? 0 : SDL_WINDOW_OPENGL) | (headless ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE);
+    Uint32 flags = (gfx == SOFTWARE || gfx == SDL_RENDERER ? 0 : SDL_WINDOW_OPENGL) | (headless ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE);
     fbWidth = reqW;
     fbHeight = reqH;
 
     window = tryOpenWindow(fbWidth, fbHeight, title, flags);
     
-    if (!window && gfx != SOFTWARE) {
+    if (!window && gfx != SOFTWARE && gfx != SDL_RENDERER) {
         fprintf(stderr, "Fatal: Could not open window: %s\n", SDL_GetError());
         return false;
     }
     
-    if (!window && gfx == SOFTWARE) {
+    if (!window && (gfx == SOFTWARE || gfx == SDL_RENDERER)) {
         const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
         if (mode != NULL) {
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, 
@@ -185,9 +185,9 @@ bool platformInit(int reqW, int reqH, const char *title, bool headless) {
         fprintf(stderr, "Fatal: Could not set any video mode: %s\n", SDL_GetError());
         return false;
     }
-    if (gfx != SOFTWARE) {
+    if (gfx != SOFTWARE && gfx != SDL_RENDERER) {
         SDL_GL_SetSwapInterval(0); // disable vsync
-    } else
+    } else if (gfx == SOFTWARE)
         scr = SDL_GetWindowSurface(window);
 
     return true;
@@ -426,7 +426,7 @@ bool platformHandleEvents(void) {
             case SDL_EVENT_WINDOW_RESIZED:
                 fbWidth = e.window.data1;
                 fbHeight = e.window.data2;
-                if (gfx == SOFTWARE)
+                if (gfx == SOFTWARE || gfx == SDL_RENDERER)
                     scr = SDL_GetWindowSurface(window);
                 break;
             case SDL_EVENT_GAMEPAD_ADDED: {

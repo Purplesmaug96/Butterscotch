@@ -23,7 +23,8 @@ void platformSleepUntil(uint64_t time);
 enum GraphicsAPI {
     SOFTWARE,
     MODERN_GL,
-    LEGACY_GL
+    LEGACY_GL,
+    SDL_RENDERER
 };
 
 extern enum GraphicsAPI gfx;

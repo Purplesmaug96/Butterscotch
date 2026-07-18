@@ -1,11 +1,11 @@
-#ifndef _BS_GL_RENDERER_H_
-#define _BS_GL_RENDERER_H_
+#ifndef _BS_SDL_RENDERER_H_
+#define _BS_SDL_RENDERER_H_
 
 #include "common.h"
 #include "renderer.h"
 #include "runner.h"
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 // Exposed in the header so platform-specific code (main.c) can access FBO fields for screenshots.
 typedef struct {
@@ -37,8 +37,8 @@ typedef struct {
     uint32_t originalTexturePageCount;
     uint32_t originalTpagCount;
     uint32_t originalSpriteCount;
-    GLuint* surfaces;
-    GLuint* surfaceTexture;
+    SDL_Texture* surfaces;
+    SDL_Texture* surfaceTexture;
     int32_t* surfaceWidth;
     int32_t* surfaceHeight;
     uint32_t surfaceCount;
