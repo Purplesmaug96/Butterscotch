@@ -150,7 +150,33 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     fprintf(stderr, "SDL: Renderer initialized (%u texture pages)\n", sdl->textureCount);
 }
 
-static void sdlDestroy(MAYBE_UNUSED Renderer* renderer) {
+static void sdlDestroy(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    if (sdl->whiteTexture) SDL_DestroyTexture(sdl->whiteTexture);
+
+    if (sdl->sdlTextures) {
+        repeat(sdl->textureCount, i) {
+            if (sdl->sdlTextures[i]) SDL_DestroyTexture(sdl->sdlTextures[i]);
+        }
+        free(sdl->sdlTextures);
+    }
+    free(sdl->textureWidths);
+    free(sdl->textureHeights);
+    free(sdl->textureLoaded);
+
+    repeat(sdl->surfaceCount, i) {
+        if (sdl->surfaces[i]) SDL_DestroyTexture(sdl->surfaces[i]);
+        if (sdl->surfaceTexture[i]) SDL_DestroyTexture(sdl->surfaceTexture[i]);
+    }
+    free(sdl->surfaces);
+    free(sdl->surfaceTexture);
+    free(sdl->surfaceWidth);
+    free(sdl->surfaceHeight);
+
+    if (sdl->renderer) SDL_DestroyRenderer(sdl->renderer);
+
+    free(sdl);
 }
 
 // ===[ Frame ]===
