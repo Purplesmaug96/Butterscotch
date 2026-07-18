@@ -74,10 +74,11 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
-        verts[i].color.r = (uint8_t)(r[i] * 255.0f);
-        verts[i].color.g = (uint8_t)(g[i] * 255.0f);
-        verts[i].color.b = (uint8_t)(b[i] * 255.0f);
-        verts[i].color.a = (uint8_t)(a[i] * 255.0f);
+		// SDL3 uses float colours, sdl2 doesnt
+        verts[i].color.r = r[i];
+        verts[i].color.g = g[i];
+        verts[i].color.b = b[i];
+        verts[i].color.a = a[i];
     }
 
     int indices[6] = {0, 1, 2, 2, 3, 0};
@@ -117,7 +118,7 @@ static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
     sdl->textureHeights[pageId] = h;
 
     sdl->sdlTextures[pageId] = SDL_CreateTexture(
-        sdl->renderer, SDL_PIXELFORMAT_ARGB8888,
+        sdl->renderer, SDL_PIXELFORMAT_ABGR8888,
         SDL_TEXTUREACCESS_STATIC, w, h);
     if (sdl->sdlTextures[pageId]) {
         SDL_UpdateTexture(sdl->sdlTextures[pageId], NULL, pixels, w * 4);
@@ -255,12 +256,12 @@ static void sdlEndGUI(MAYBE_UNUSED Renderer* renderer) {
 
 // ===[ Drawing: Sprites ]===
 
-static void sdlDrawSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
-                          MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                          MAYBE_UNUSED float originX, MAYBE_UNUSED float originY,
-                          MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                          MAYBE_UNUSED float angleDeg, MAYBE_UNUSED uint32_t color,
-                          MAYBE_UNUSED float alpha) {
+static void sdlDrawSprite(Renderer* renderer, int32_t tpagIndex,
+                          float x, float y,
+                          float originX, float originY,
+                          float xscale, float yscale,
+                          float angleDeg, uint32_t color,
+                          float alpha) {
 	SDLRenderer* sdl = SDL(renderer);
     DataWin* dw = renderer->dataWin;
 
@@ -269,14 +270,13 @@ static void sdlDrawSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t 
     int16_t pageId = tpag->texturePageId;
     if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
 
-    // Lazy-load texture on demand
-    ensureTextureLoaded(sdl, dw, pageId);
+    ensureTextureLoaded(sdl, dw, (uint32_t) pageId);
 
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
-    float texW = (float)sdl->textureWidths[pageId];
-    float texH = (float)sdl->textureHeights[pageId];
+    float texW = (float) sdl->textureWidths[pageId];
+    float texH = (float) sdl->textureHeights[pageId];
 
     float u0 = (float) tpag->sourceX / texW;
     float v0 = (float) tpag->sourceY / texH;
@@ -285,18 +285,18 @@ static void sdlDrawSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t 
 
     float localX0 = (float) tpag->targetX - originX;
     float localY0 = (float) tpag->targetY - originY;
-    float localX1 = localX0 + (float) tpag->sourceWidth;
-    float localY1 = localY0 + (float) tpag->sourceHeight;
+    float localX1 = localX0 + (float) tpag->targetWidth;
+    float localY1 = localY0 + (float) tpag->targetHeight;
 
     float angleRad = -angleDeg * ((float) M_PI / 180.0f);
     Matrix4f transform;
     Matrix4f_setTransform2D(&transform, x, y, xscale, yscale, angleRad);
 
     float xs[4], ys[4];
-    Matrix4f_transformPoint(&transform, localX0, localY0, &xs[0], &ys[0]); // top-left
-    Matrix4f_transformPoint(&transform, localX1, localY0, &xs[1], &ys[1]); // top-right
-    Matrix4f_transformPoint(&transform, localX1, localY1, &xs[2], &ys[2]); // bottom-right
-    Matrix4f_transformPoint(&transform, localX0, localY1, &xs[3], &ys[3]); // bottom-left
+    Matrix4f_transformPoint(&transform, localX0, localY0, &xs[0], &ys[0]);
+    Matrix4f_transformPoint(&transform, localX1, localY0, &xs[1], &ys[1]);
+    Matrix4f_transformPoint(&transform, localX1, localY1, &xs[2], &ys[2]);
+    Matrix4f_transformPoint(&transform, localX0, localY1, &xs[3], &ys[3]);
 
     float us[4] = {u0, u1, u1, u0};
     float vs[4] = {v0, v0, v1, v1};
@@ -308,14 +308,14 @@ static void sdlDrawSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t 
     emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
-static void sdlDrawSpritePart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
-                              MAYBE_UNUSED int32_t srcOffX, MAYBE_UNUSED int32_t srcOffY,
-                              MAYBE_UNUSED int32_t srcW, MAYBE_UNUSED int32_t srcH,
-                              MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                              MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                              MAYBE_UNUSED float angleDeg, MAYBE_UNUSED float pivotX,
-                              MAYBE_UNUSED float pivotY, MAYBE_UNUSED uint32_t color,
-                              MAYBE_UNUSED float alpha) {
+static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex,
+                              int32_t srcOffX, int32_t srcOffY,
+                              int32_t srcW, int32_t srcH,
+                              float x, float y,
+                              float xscale, float yscale,
+                              float angleDeg, float pivotX,
+                              float pivotY, uint32_t color,
+                              float alpha) {
 	SDLRenderer* sdl = SDL(renderer);
     DataWin* dw = renderer->dataWin;
 
@@ -324,24 +324,44 @@ static void sdlDrawSpritePart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int3
     int16_t pageId = tpag->texturePageId;
     if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
 
-    // Lazy-load texture on demand
-    ensureTextureLoaded(sdl, dw, pageId);
+    ensureTextureLoaded(sdl, dw, (uint32_t) pageId);
 
     SDL_Texture* tex = sdl->sdlTextures[pageId];
     if (!tex) return;
 
-    float texW = (float)sdl->textureWidths[pageId];
-    float texH = (float)sdl->textureHeights[pageId];
+    float texW = (float) sdl->textureWidths[pageId];
+    float texH = (float) sdl->textureHeights[pageId];
 
     float u0 = (float) (tpag->sourceX + srcOffX) / texW;
     float v0 = (float) (tpag->sourceY + srcOffY) / texH;
     float u1 = (float) (tpag->sourceX + srcOffX + srcW) / texW;
     float v1 = (float) (tpag->sourceY + srcOffY + srcH) / texH;
 
-    float xs[4] = { x, x + srcW * xscale, x + srcW * xscale, x };
-    float ys[4] = { y, y, y + srcH * yscale, y + srcH * yscale };
-    float us[4] = { u0, u1, u1, u0 };
-    float vs[4] = { v0, v0, v1, v1 };
+    float cx0, cy0, cx1, cy1, cx2, cy2, cx3, cy3;
+    if (angleDeg == 0.0f) {
+        cx0 = x;                         cy0 = y;
+        cx1 = x + (float) srcW * xscale; cy1 = y;
+        cx2 = x + (float) srcW * xscale; cy2 = y + (float) srcH * yscale;
+        cx3 = x;                         cy3 = y + (float) srcH * yscale;
+    } else {
+        float angleRad = -angleDeg * ((float) M_PI / 180.0f);
+        float cosA = cosf(angleRad);
+        float sinA = sinf(angleRad);
+        float qx0 = x,                         qy0 = y;
+        float qx1 = x + (float) srcW * xscale, qy1 = y;
+        float qx2 = x + (float) srcW * xscale, qy2 = y + (float) srcH * yscale;
+        float qx3 = x,                         qy3 = y + (float) srcH * yscale;
+        float dx, dy;
+        dx = qx0 - pivotX; dy = qy0 - pivotY; cx0 = cosA * dx - sinA * dy + pivotX; cy0 = sinA * dx + cosA * dy + pivotY;
+        dx = qx1 - pivotX; dy = qy1 - pivotY; cx1 = cosA * dx - sinA * dy + pivotX; cy1 = sinA * dx + cosA * dy + pivotY;
+        dx = qx2 - pivotX; dy = qy2 - pivotY; cx2 = cosA * dx - sinA * dy + pivotX; cy2 = sinA * dx + cosA * dy + pivotY;
+        dx = qx3 - pivotX; dy = qy3 - pivotY; cx3 = cosA * dx - sinA * dy + pivotX; cy3 = sinA * dx + cosA * dy + pivotY;
+    }
+
+    float xs[4] = {cx0, cx1, cx2, cx3};
+    float ys[4] = {cy0, cy1, cy2, cy3};
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
 
     float r = (float) BGR_R(color) / 255.0f;
     float g = (float) BGR_G(color) / 255.0f;
