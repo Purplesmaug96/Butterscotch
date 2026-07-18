@@ -117,16 +117,6 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
     SDL_RenderGeometry(sdl->renderer, tex, verts, 3, indices, 3);
 }
 
-static void emitColoredTri(SDLRenderer* sdl, SDL_Texture* tex,
-                           float x[3], float y[3], float u[3], float v[3],
-                           float r, float g, float b, float a) {
-    float rc[3] = {r, r, r};
-    float gc[3] = {g, g, g};
-    float bc[3] = {b, b, b};
-    float ac[3] = {a, a, a};
-    emitTri(sdl, tex, x, y, u, v, rc, gc, bc, ac);
-}
-
 // Lazy-load a texture on demand when it's first needed
 static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
     if (sdl->textureLoaded[pageId]) return (sdl->textureWidths[pageId] != 0);
@@ -414,12 +404,32 @@ static void sdlDrawSpritePart(Renderer* renderer, int32_t tpagIndex,
     emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
-static void sdlDrawSpritePos(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
-                             MAYBE_UNUSED float x1, MAYBE_UNUSED float y1,
-                             MAYBE_UNUSED float x2, MAYBE_UNUSED float y2,
-                             MAYBE_UNUSED float x3, MAYBE_UNUSED float y3,
-                             MAYBE_UNUSED float x4, MAYBE_UNUSED float y4,
-                             MAYBE_UNUSED float alpha) {
+static void sdlDrawSpritePos(Renderer* renderer, int32_t tpagIndex,
+                             float x1, float y1,
+                             float x2, float y2,
+                             float x3, float y3,
+                             float x4, float y4,
+                             float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
+    ensureTextureLoaded(sdl, dw, (uint32_t) pageId);
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+    float texW = (float) sdl->textureWidths[pageId];
+    float texH = (float) sdl->textureHeights[pageId];
+    float u0 = (float) tpag->sourceX / texW;
+    float v0 = (float) tpag->sourceY / texH;
+    float u1 = (float) (tpag->sourceX + tpag->sourceWidth) / texW;
+    float v1 = (float) (tpag->sourceY + tpag->sourceHeight) / texH;
+    float xs[4] = {x1, x2, x3, x4};
+    float ys[4] = {y1, y2, y3, y4};
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
+    emitColoredQuad(sdl, tex, xs, ys, us, vs, 1.0f, 1.0f, 1.0f, alpha);
 }
 
 // ===[ Drawing: Primitives ]===
@@ -730,21 +740,153 @@ static void sdlClearScreen(Renderer* renderer, uint32_t color, float alpha) {
 
 // ===[ Sprite Management ]===
 
-static int32_t sdlCreateSpriteFromSurface(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
-                                          MAYBE_UNUSED int32_t x, MAYBE_UNUSED int32_t y,
-                                          MAYBE_UNUSED int32_t w, MAYBE_UNUSED int32_t h,
-                                          MAYBE_UNUSED bool removeback, MAYBE_UNUSED bool smooth,
-                                          MAYBE_UNUSED int32_t xorig, MAYBE_UNUSED int32_t yorig) {
-    return -1;
+static uint32_t sdlFindOrAllocTexturePageSlot(SDLRenderer* sdl) {
+    for (uint32_t i = sdl->originalTexturePageCount; sdl->textureCount > i; i++) {
+        if (sdl->sdlTextures[i] == nullptr) return i;
+    }
+    uint32_t newPageId = sdl->textureCount;
+    sdl->textureCount++;
+    sdl->sdlTextures     = (SDL_Texture**)safeRealloc(sdl->sdlTextures,     sdl->textureCount * sizeof(SDL_Texture*));
+    sdl->textureWidths   = (int32_t*)safeRealloc(sdl->textureWidths,       sdl->textureCount * sizeof(int32_t));
+    sdl->textureHeights  = (int32_t*)safeRealloc(sdl->textureHeights,      sdl->textureCount * sizeof(int32_t));
+    sdl->textureLoaded   = (bool*)safeRealloc(sdl->textureLoaded,          sdl->textureCount * sizeof(bool));
+    sdl->sdlTextures[newPageId]     = nullptr;
+    sdl->textureWidths[newPageId]   = 0;
+    sdl->textureHeights[newPageId]  = 0;
+    sdl->textureLoaded[newPageId]   = false;
+    return newPageId;
 }
 
-static void sdlDeleteSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t spriteIndex) {
+static int32_t sdlCreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID,
+                                          int32_t x, int32_t y,
+                                          int32_t w, int32_t h,
+                                          MAYBE_UNUSED bool removeback, MAYBE_UNUSED bool smooth,
+                                          int32_t xorig, int32_t yorig) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+
+    if (w <= 0 || h <= 0) return -1;
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return -1;
+    if (!sdl->surfaces[surfaceID]) return -1;
+
+    // Read pixels from the surface
+    SDL_Texture* prevTarget = SDL_GetRenderTarget(sdl->renderer);
+    SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[surfaceID]);
+
+    SDL_Rect readRect = {x, y, w, h};
+    SDL_Surface* readSurf = SDL_RenderReadPixels(sdl->renderer, &readRect);
+    SDL_SetRenderTarget(sdl->renderer, prevTarget);
+    if (!readSurf) return -1;
+
+    uint8_t* pixels = (uint8_t*)safeMalloc((size_t)w * (size_t)h * 4);
+    if (!pixels) {
+        SDL_DestroySurface(readSurf);
+        return -1;
+    }
+    memcpy(pixels, readSurf->pixels, (size_t)w * (size_t)h * 4);
+    SDL_DestroySurface(readSurf);
+
+    // Create SDL texture from the captured pixels
+    SDL_Texture* newTex = SDL_CreateTexture(sdl->renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (!newTex) {
+        free(pixels);
+        return -1;
+    }
+    SDL_UpdateTexture(newTex, NULL, pixels, w * 4);
+    SDL_SetTextureScaleMode(newTex, SDL_SCALEMODE_NEAREST);
+    SDL_SetTextureBlendMode(newTex, SDL_BLENDMODE_BLEND);
+    free(pixels);
+
+    // Find or allocate texture page slot
+    uint32_t pageId = sdlFindOrAllocTexturePageSlot(sdl);
+    sdl->sdlTextures[pageId] = newTex;
+    sdl->textureWidths[pageId] = w;
+    sdl->textureHeights[pageId] = h;
+    sdl->textureLoaded[pageId] = true;
+
+    // Find or allocate TPAG slot
+    uint32_t tpagIndex;
+    for (tpagIndex = sdl->originalTpagCount; dw->tpag.count > tpagIndex; tpagIndex++) {
+        if (dw->tpag.items[tpagIndex].texturePageId == -1) break;
+    }
+    if (tpagIndex >= dw->tpag.count) {
+        tpagIndex = dw->tpag.count;
+        dw->tpag.count++;
+        dw->tpag.items = (TexturePageItem*)safeRealloc(dw->tpag.items, dw->tpag.count * sizeof(TexturePageItem));
+        memset(&dw->tpag.items[tpagIndex], 0, sizeof(TexturePageItem));
+    }
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    tpag->sourceX = 0;
+    tpag->sourceY = 0;
+    tpag->sourceWidth = (uint16_t)w;
+    tpag->sourceHeight = (uint16_t)h;
+    tpag->targetX = 0;
+    tpag->targetY = 0;
+    tpag->targetWidth = (uint16_t)w;
+    tpag->targetHeight = (uint16_t)h;
+    tpag->boundingWidth = (uint16_t)w;
+    tpag->boundingHeight = (uint16_t)h;
+    tpag->texturePageId = (int16_t)pageId;
+
+    // Allocate sprite slot
+    uint32_t spriteIndex = DataWin_allocSpriteSlot(dw, sdl->originalSpriteCount);
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    sprite->width = (uint32_t)w;
+    sprite->height = (uint32_t)h;
+    sprite->originX = xorig;
+    sprite->originY = yorig;
+    sprite->textureCount = 1;
+    sprite->tpagIndices = (int32_t*)safeMalloc(sizeof(int32_t));
+    sprite->tpagIndices[0] = (int32_t)tpagIndex;
+    sprite->maskCount = 0;
+    sprite->masks = nullptr;
+
+    fprintf(stderr, "SDL: Created dynamic sprite %u (%dx%d) from surface %d at (%d,%d)\n", spriteIndex, w, h, surfaceID, x, y);
+    return (int32_t)spriteIndex;
+}
+
+static void sdlDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+
+    if (spriteIndex < 0 || dw->sprt.count <= (uint32_t)spriteIndex) return;
+
+    if (sdl->originalSpriteCount > (uint32_t)spriteIndex) {
+        fprintf(stderr, "SDL: Cannot delete data.win sprite %d\n", spriteIndex);
+        return;
+    }
+
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    if (sprite->textureCount == 0) return;
+
+    repeat(sprite->textureCount, i) {
+        int32_t tpagIdx = sprite->tpagIndices[i];
+        if (tpagIdx >= 0 && (uint32_t)tpagIdx >= sdl->originalTpagCount) {
+            TexturePageItem* tpag = &dw->tpag.items[tpagIdx];
+            int16_t pageId = tpag->texturePageId;
+            if (pageId >= 0 && sdl->textureCount > (uint32_t)pageId) {
+                if (sdl->sdlTextures[pageId]) {
+                    SDL_DestroyTexture(sdl->sdlTextures[pageId]);
+                    sdl->sdlTextures[pageId] = nullptr;
+                }
+            }
+            tpag->texturePageId = -1;
+        }
+    }
+
+    free(sprite->tpagIndices);
+    const char* keepName = sprite->name;
+    memset(sprite, 0, sizeof(Sprite));
+    sprite->name = keepName;
+
+    fprintf(stderr, "SDL: Deleted sprite %d\n", spriteIndex);
 }
 
 // ===[ Blend / GPU State ]===
 
-static BlendFactors sdlGpuGetBlendFactors(MAYBE_UNUSED Renderer* renderer) {
-    return (BlendFactors){0, 0, 0, 0};
+static BlendFactors sdlGpuGetBlendFactors(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+    return (BlendFactors){sdl->currentSFactor, sdl->currentDFactor, sdl->currentSFactorAlpha, sdl->currentDFactorAlpha};
 }
 
 static int32_t sdlGpuGetBlendMode(Renderer* renderer) {
@@ -771,8 +913,11 @@ static void sdlGpuSetBlendEnable(Renderer* renderer, bool enable) {
     SDL_SetRenderDrawBlendMode(sdl->renderer, enable ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
 }
 
-static bool sdlGpuGetBlendEnable(MAYBE_UNUSED Renderer* renderer) {
-    return true;
+static bool sdlGpuGetBlendEnable(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+    SDL_BlendMode mode;
+    SDL_GetRenderDrawBlendMode(sdl->renderer, &mode);
+    return mode != SDL_BLENDMODE_NONE;
 }
 
 static void sdlGpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
@@ -809,21 +954,143 @@ static void sdlGpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
 
 // ===[ Tile Rendering ]===
 
-static void sdlDrawSpriteTiled(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
-                               MAYBE_UNUSED float originX, MAYBE_UNUSED float originY,
-                               MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                               MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                               MAYBE_UNUSED bool tileX, MAYBE_UNUSED bool tileY,
-                               MAYBE_UNUSED float roomW, MAYBE_UNUSED float roomH,
-                               MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha) {
+static void sdlDrawTiled(
+    SDLRenderer* sdl, SDL_Texture* tex,
+    float gridX, float gridY,
+    float tileW, float tileH,
+    bool tileX, bool tileY,
+    float roomW, float roomH,
+    float quadOffX0, float quadW,
+    float quadOffY0, float quadH,
+    float u0, float v0, float u1, float v1,
+    float r, float g, float b, float alpha
+) {
+    if (tileW <= 0.0f || tileH <= 0.0f) return;
+
+    float startX, endX, startY, endY;
+    if (tileX) {
+        startX = fmodf(gridX, tileW);
+        if (startX > 0) startX -= tileW;
+        endX = roomW;
+    } else {
+        startX = gridX;
+        endX = startX + tileW;
+    }
+    if (tileY) {
+        startY = fmodf(gridY, tileH);
+        if (startY > 0) startY -= tileH;
+        endY = roomH;
+    } else {
+        startY = gridY;
+        endY = startY + tileH;
+    }
+
+    if (startX >= endX || startY >= endY) return;
+
+    int32_t tilesX = (int32_t)((endX - startX) / tileW) + 1;
+    int32_t tilesY = (int32_t)((endY - startY) / tileH) + 1;
+    if (tilesX <= 0 || tilesY <= 0) return;
+
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
+
+    for (int32_t iy = 0; iy < tilesY; iy++) {
+        float dy = startY + (float)iy * tileH;
+        if (dy >= endY) break;
+        float vy0 = dy + quadOffY0;
+        float vy1 = vy0 + quadH;
+        for (int32_t ix = 0; ix < tilesX; ix++) {
+            float dx = startX + (float)ix * tileW;
+            if (dx >= endX) break;
+            float vx0 = dx + quadOffX0;
+            float vx1 = vx0 + quadW;
+            float xs[4] = {vx0, vx1, vx1, vx0};
+            float ys[4] = {vy0, vy0, vy1, vy1};
+            emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
+        }
+    }
 }
 
-static void sdlDrawTiledPart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
-                             MAYBE_UNUSED int32_t srcX, MAYBE_UNUSED int32_t srcY,
-                             MAYBE_UNUSED int32_t srcW, MAYBE_UNUSED int32_t srcH,
-                             MAYBE_UNUSED float dstX, MAYBE_UNUSED float dstY,
-                             MAYBE_UNUSED float dstW, MAYBE_UNUSED float dstH,
-                             MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha) {
+static void sdlDrawSpriteTiled(Renderer* renderer, int32_t tpagIndex,
+                               float originX, float originY,
+                               float x, float y,
+                               float xscale, float yscale,
+                               bool tileX, bool tileY,
+                               float roomW, float roomH,
+                               uint32_t color, float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t)tpagIndex) return;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t)pageId) return;
+    ensureTextureLoaded(sdl, dw, (uint32_t)pageId);
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+
+    float texW = (float)sdl->textureWidths[pageId];
+    float texH = (float)sdl->textureHeights[pageId];
+    float u0 = (float)tpag->sourceX / texW;
+    float v0 = (float)tpag->sourceY / texH;
+    float u1 = (float)(tpag->sourceX + tpag->sourceWidth) / texW;
+    float v1 = (float)(tpag->sourceY + tpag->sourceHeight) / texH;
+
+    float axScale = fabsf(xscale);
+    float ayScale = fabsf(yscale);
+    float tileW = (float)tpag->boundingWidth * axScale;
+    float tileH = (float)tpag->boundingHeight * ayScale;
+
+    float localX0 = (float)tpag->targetX - originX;
+    float localY0 = (float)tpag->targetY - originY;
+    float quadOffX0 = originX * axScale + xscale * localX0;
+    float quadOffY0 = originY * ayScale + yscale * localY0;
+    float quadW = xscale * (float)tpag->targetWidth;
+    float quadH = yscale * (float)tpag->targetHeight;
+
+    float r = (float)BGR_R(color) / 255.0f;
+    float g = (float)BGR_G(color) / 255.0f;
+    float b = (float)BGR_B(color) / 255.0f;
+
+    sdlDrawTiled(sdl, tex,
+        x - originX * axScale, y - originY * ayScale,
+        tileW, tileH, tileX, tileY, roomW, roomH,
+        quadOffX0, quadW, quadOffY0, quadH,
+        u0, v0, u1, v1, r, g, b, alpha);
+}
+
+static void sdlDrawTiledPart(Renderer* renderer, int32_t tpagIndex,
+                             int32_t srcX, int32_t srcY,
+                             int32_t srcW, int32_t srcH,
+                             float dstX, float dstY,
+                             float dstW, float dstH,
+                             uint32_t color, float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t)tpagIndex) return;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t)pageId) return;
+    ensureTextureLoaded(sdl, dw, (uint32_t)pageId);
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+
+    float texW = (float)sdl->textureWidths[pageId];
+    float texH = (float)sdl->textureHeights[pageId];
+
+    float u0 = (float)(tpag->sourceX + srcX) / texW;
+    float v0 = (float)(tpag->sourceY + srcY) / texH;
+    float u1 = (float)(tpag->sourceX + srcX + srcW) / texW;
+    float v1 = (float)(tpag->sourceY + srcY + srcH) / texH;
+
+    float r = (float)BGR_R(color) / 255.0f;
+    float g = (float)BGR_G(color) / 255.0f;
+    float b = (float)BGR_B(color) / 255.0f;
+
+    sdlDrawTiled(sdl, tex,
+        dstX, dstY, (float)srcW, (float)srcH,
+        true, true, dstX + dstW, dstY + dstH,
+        0.0f, (float)srcW, 0.0f, (float)srcH,
+        u0, v0, u1, v1, r, g, b, alpha);
 }
 
 // ===[ Surface Functions ]===
@@ -891,20 +1158,78 @@ static float sdlGetSurfaceHeight(Renderer* renderer, int32_t surfaceID) {
     return 0.0f;
 }
 
-static void sdlDrawSurface(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
-                           MAYBE_UNUSED int32_t srcLeft, MAYBE_UNUSED int32_t srcTop,
-                           MAYBE_UNUSED int32_t srcWidth, MAYBE_UNUSED int32_t srcHeight,
-                           MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                           MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                           MAYBE_UNUSED float angleDeg, MAYBE_UNUSED uint32_t color,
-                           MAYBE_UNUSED float alpha) {
+static void sdlDrawSurface(Renderer* renderer, int32_t surfaceID,
+                           int32_t srcLeft, int32_t srcTop,
+                           int32_t srcWidth, int32_t srcHeight,
+                           float x, float y,
+                           float xscale, float yscale,
+                           float angleDeg, uint32_t color,
+                           float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return;
+    SDL_Texture* tex = sdl->surfaceTexture[surfaceID];
+    if (!tex) return;
+    int32_t texW = sdl->surfaceWidth[surfaceID];
+    int32_t texH = sdl->surfaceHeight[surfaceID];
+    if (texW <= 0 || texH <= 0) return;
+
+    if (srcWidth < 0) { srcLeft = 0; srcTop = 0; srcWidth = texW; srcHeight = texH; }
+
+    float u0 = (float)srcLeft / (float)texW;
+    float v0 = (float)srcTop / (float)texH;
+    float u1 = (float)(srcLeft + srcWidth) / (float)texW;
+    float v1 = (float)(srcTop + srcHeight) / (float)texH;
+
+    float angleRad = -angleDeg * ((float)M_PI / 180.0f);
+    Matrix4f transform;
+    Matrix4f_setTransform2D(&transform, x, y, xscale, yscale, angleRad);
+
+    float localX1 = (float)srcWidth;
+    float localY1 = (float)srcHeight;
+
+    float xs[4], ys[4];
+    Matrix4f_transformPoint(&transform, 0.0f, 0.0f, &xs[0], &ys[0]);
+    Matrix4f_transformPoint(&transform, localX1, 0.0f, &xs[1], &ys[1]);
+    Matrix4f_transformPoint(&transform, localX1, localY1, &xs[2], &ys[2]);
+    Matrix4f_transformPoint(&transform, 0.0f, localY1, &xs[3], &ys[3]);
+
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
+
+    float r = (float)BGR_R(color) / 255.0f;
+    float g = (float)BGR_G(color) / 255.0f;
+    float b = (float)BGR_B(color) / 255.0f;
+
+    emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
-static void sdlDrawSurfaceTiled(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
-                                MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                                MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                                MAYBE_UNUSED float roomW, MAYBE_UNUSED float roomH,
-                                MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha) {
+static void sdlDrawSurfaceTiled(Renderer* renderer, int32_t surfaceID,
+                                float x, float y,
+                                float xscale, float yscale,
+                                float roomW, float roomH,
+                                uint32_t color, float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return;
+    SDL_Texture* tex = sdl->surfaceTexture[surfaceID];
+    if (!tex) return;
+    int32_t texW = sdl->surfaceWidth[surfaceID];
+    int32_t texH = sdl->surfaceHeight[surfaceID];
+    if (texW <= 0 || texH <= 0) return;
+
+    float tileW = (float)texW * fabsf(xscale);
+    float tileH = (float)texH * fabsf(yscale);
+
+    float r = (float)BGR_R(color) / 255.0f;
+    float g = (float)BGR_G(color) / 255.0f;
+    float b = (float)BGR_B(color) / 255.0f;
+
+    sdlDrawTiled(sdl, tex,
+        x, y, tileW, tileH,
+        true, true, roomW, roomH,
+        0.0f, xscale * (float)texW,
+        0.0f, yscale * (float)texH,
+        0.0f, 0.0f, 1.0f, 1.0f,
+        r, g, b, alpha);
 }
 
 static void sdlSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width, int32_t height) {
@@ -931,16 +1256,104 @@ static void sdlSurfaceFree(Renderer* renderer, int32_t surfaceID) {
     }
 }
 
-static void sdlSurfaceCopy(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t destSurfaceID,
-                           MAYBE_UNUSED int32_t destX, MAYBE_UNUSED int32_t destY,
-                           MAYBE_UNUSED int32_t srcSurfaceID, MAYBE_UNUSED int32_t srcX,
-                           MAYBE_UNUSED int32_t srcY, MAYBE_UNUSED int32_t srcW,
-                           MAYBE_UNUSED int32_t srcH, MAYBE_UNUSED bool part) {
+static void sdlSurfaceCopy(Renderer* renderer, int32_t destSurfaceID,
+                           int32_t destX, int32_t destY,
+                           int32_t srcSurfaceID, int32_t srcX,
+                           int32_t srcY, int32_t srcW,
+                           int32_t srcH, bool part) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (destSurfaceID < 0 || (uint32_t)destSurfaceID >= sdl->surfaceCount) return;
+    if (srcSurfaceID < 0 || (uint32_t)srcSurfaceID >= sdl->surfaceCount) return;
+    if (!sdl->surfaces[destSurfaceID] || !sdl->surfaceTexture[srcSurfaceID]) return;
+
+    SDL_Texture* srcTex = sdl->surfaceTexture[srcSurfaceID];
+    int32_t srcTexW = sdl->surfaceWidth[srcSurfaceID];
+    int32_t srcTexH = sdl->surfaceHeight[srcSurfaceID];
+    int32_t destW = sdl->surfaceWidth[destSurfaceID];
+    int32_t destH = sdl->surfaceHeight[destSurfaceID];
+
+    int32_t sX = part ? srcX : 0;
+    int32_t sY = part ? srcY : 0;
+    int32_t sW = part ? srcW : srcTexW;
+    int32_t sH = part ? srcH : srcTexH;
+
+    float u0 = (float)sX / (float)srcTexW;
+    float v0 = (float)sY / (float)srcTexH;
+    float u1 = (float)(sX + sW) / (float)srcTexW;
+    float v1 = (float)(sY + sH) / (float)srcTexH;
+
+    SDL_Texture* prevTarget = SDL_GetRenderTarget(sdl->renderer);
+    SDL_Rect prevViewport;
+    SDL_GetRenderViewport(sdl->renderer, &prevViewport);
+
+    float savedVX = sdl->currentViewX;
+    float savedVY = sdl->currentViewY;
+    float savedVW = sdl->currentViewW;
+    float savedVH = sdl->currentViewH;
+    float savedVA = sdl->currentViewAngle;
+    int32_t savedPX = sdl->currentPortX;
+    int32_t savedPY = sdl->currentPortY;
+    int32_t savedPW = sdl->currentPortW;
+    int32_t savedPH = sdl->currentPortH;
+
+    SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[destSurfaceID]);
+    SDL_Rect fullRect = {0, 0, destW, destH};
+    SDL_SetRenderViewport(sdl->renderer, &fullRect);
+
+    sdl->currentViewX = 0;
+    sdl->currentViewY = 0;
+    sdl->currentViewW = (float)destW;
+    sdl->currentViewH = (float)destH;
+    sdl->currentViewAngle = 0;
+    sdl->currentPortX = 0;
+    sdl->currentPortY = 0;
+    sdl->currentPortW = destW;
+    sdl->currentPortH = destH;
+
+    float xs[4] = {(float)destX, (float)(destX + sW), (float)(destX + sW), (float)destX};
+    float ys[4] = {(float)destY, (float)destY, (float)(destY + sH), (float)(destY + sH)};
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
+
+    emitColoredQuad(sdl, srcTex, xs, ys, us, vs, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    SDL_SetRenderTarget(sdl->renderer, prevTarget);
+    SDL_SetRenderViewport(sdl->renderer, &prevViewport);
+    sdl->currentViewX = savedVX;
+    sdl->currentViewY = savedVY;
+    sdl->currentViewW = savedVW;
+    sdl->currentViewH = savedVH;
+    sdl->currentViewAngle = savedVA;
+    sdl->currentPortX = savedPX;
+    sdl->currentPortY = savedPY;
+    sdl->currentPortW = savedPW;
+    sdl->currentPortH = savedPH;
 }
 
-static bool sdlSurfaceGetPixels(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
-                                MAYBE_UNUSED uint8_t* outRGBA) {
-    return false;
+static bool sdlSurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t* outRGBA) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return false;
+    if (!sdl->surfaces[surfaceID]) return false;
+
+    int32_t w = sdl->surfaceWidth[surfaceID];
+    int32_t h = sdl->surfaceHeight[surfaceID];
+    if (w <= 0 || h <= 0) return false;
+
+    SDL_Texture* prevTarget = SDL_GetRenderTarget(sdl->renderer);
+    SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[surfaceID]);
+
+    SDL_Rect fullRect = {0, 0, w, h};
+    SDL_Surface* surf = SDL_RenderReadPixels(sdl->renderer, &fullRect);
+    if (!surf) {
+        SDL_SetRenderTarget(sdl->renderer, prevTarget);
+        return false;
+    }
+
+    memcpy(outRGBA, surf->pixels, (size_t)w * (size_t)h * 4);
+    SDL_DestroySurface(surf);
+
+    SDL_SetRenderTarget(sdl->renderer, prevTarget);
+    return true;
 }
 
 // ===[ Shader Functions ]===
@@ -979,12 +1392,21 @@ static void sdlShaderSetUniformI(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED i
 
 // ===[ Texture Access ]===
 
-static uint32_t sdlSpriteGetTexture(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex) {
-    return 0;
+static uint32_t sdlSpriteGetTexture(Renderer* renderer, int32_t tpagIndex) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return 0;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return 0;
+    return (uint32_t)(tpagIndex + 1);
 }
 
-static uint32_t sdlSurfaceGetTexture(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID) {
-    return 0;
+static uint32_t sdlSurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return 0;
+    if (!sdl->surfaceTexture[surfaceID]) return 0;
+    return 0x40000000u | (uint32_t)surfaceID;
 }
 
 static float sdlTextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
@@ -1003,13 +1425,55 @@ static float sdlTextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
     return 0.0f;
 }
 
-static bool sdlTextureGetUVs(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED uint32_t texID,
-                             MAYBE_UNUSED float* outUVs) {
-    return false;
+static bool sdlTextureGetUVs(Renderer* renderer, uint32_t texHandle, float* outUVs) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (texHandle == 0) return false;
+    if (texHandle & 0x40000000u) {
+        uint32_t sid = texHandle & ~0x40000000u;
+        if (sid >= sdl->surfaceCount || !sdl->surfaceTexture[sid]) return false;
+        outUVs[0] = 0.0f; outUVs[1] = 0.0f; outUVs[2] = 1.0f; outUVs[3] = 1.0f;
+        return true;
+    }
+    int32_t tpagIndex = (int32_t)texHandle - 1;
+    if (0 > tpagIndex) return false;
+    DataWin* dw = renderer->dataWin;
+    if (dw->tpag.count <= (uint32_t)tpagIndex) return false;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t)pageId) return false;
+    float w = (float)sdl->textureWidths[pageId];
+    float h = (float)sdl->textureHeights[pageId];
+    if (w <= 0.0f || h <= 0.0f) return false;
+    outUVs[0] = (float)tpag->sourceX / w;
+    outUVs[1] = (float)tpag->sourceY / h;
+    outUVs[2] = outUVs[0] + (float)tpag->sourceWidth / w;
+    outUVs[3] = outUVs[1] + (float)tpag->sourceHeight / h;
+    return true;
 }
 
-static void sdlTextureSetStage(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t slot,
-                               MAYBE_UNUSED uint32_t texID) {
+static void sdlTextureSetStage(Renderer* renderer, int32_t slot, uint32_t texHandle) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (slot < 0) return;
+    SDL_Texture* tex = nullptr;
+    if (texHandle != 0) {
+        if (texHandle & 0x40000000u) {
+            uint32_t sid = texHandle & ~0x40000000u;
+            if (sid < sdl->surfaceCount) tex = sdl->surfaceTexture[sid];
+        } else {
+            int32_t tpagIndex = (int32_t)texHandle - 1;
+            if (tpagIndex >= 0) {
+                DataWin* dw = renderer->dataWin;
+                if (dw->tpag.count > (uint32_t)tpagIndex) {
+                    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+                    int16_t pageId = tpag->texturePageId;
+                    if (pageId >= 0 && sdl->textureCount > (uint32_t)pageId)
+                        tex = sdl->sdlTextures[pageId];
+                }
+            }
+        }
+    }
+    if (tex && slot < 8)
+        sdl->textureStages[slot] = tex;
 }
 
 // ===[ Shader Queries ]===
@@ -1139,6 +1603,8 @@ Renderer* SDLRenderer_create(void) {
     sdl->textureWidths         = nullptr;
     sdl->textureHeights        = nullptr;
     sdl->textureLoaded         = nullptr;
+
+    memset(sdl->textureStages, 0, sizeof(sdl->textureStages));
 
     sdl->originalTexturePageCount = 0;
     sdl->originalTpagCount        = 0;
