@@ -84,7 +84,13 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
     SDL_RenderGeometry(sdl->renderer, tex, verts, 4, indices, 6);
 }
 
-
+static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
+    float rc[4] = {r, r, r, r};
+    float gc[4] = {g, g, g, g};
+    float bc[4] = {b, b, b, b};
+    float ac[4] = {a, a, a, a};
+    emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
+}
 
 // Lazy-load a texture on demand when it's first needed
 static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
@@ -255,6 +261,51 @@ static void sdlDrawSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t 
                           MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
                           MAYBE_UNUSED float angleDeg, MAYBE_UNUSED uint32_t color,
                           MAYBE_UNUSED float alpha) {
+	SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
+
+    // Lazy-load texture on demand
+    ensureTextureLoaded(sdl, dw, pageId);
+
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+
+    float texW = (float)sdl->textureWidths[pageId];
+    float texH = (float)sdl->textureHeights[pageId];
+
+    float u0 = (float) tpag->sourceX / texW;
+    float v0 = (float) tpag->sourceY / texH;
+    float u1 = (float) (tpag->sourceX + tpag->sourceWidth) / texW;
+    float v1 = (float) (tpag->sourceY + tpag->sourceHeight) / texH;
+
+    float localX0 = (float) tpag->targetX - originX;
+    float localY0 = (float) tpag->targetY - originY;
+    float localX1 = localX0 + (float) tpag->sourceWidth;
+    float localY1 = localY0 + (float) tpag->sourceHeight;
+
+    float angleRad = -angleDeg * ((float) M_PI / 180.0f);
+    Matrix4f transform;
+    Matrix4f_setTransform2D(&transform, x, y, xscale, yscale, angleRad);
+
+    float xs[4], ys[4];
+    Matrix4f_transformPoint(&transform, localX0, localY0, &xs[0], &ys[0]); // top-left
+    Matrix4f_transformPoint(&transform, localX1, localY0, &xs[1], &ys[1]); // top-right
+    Matrix4f_transformPoint(&transform, localX1, localY1, &xs[2], &ys[2]); // bottom-right
+    Matrix4f_transformPoint(&transform, localX0, localY1, &xs[3], &ys[3]); // bottom-left
+
+    float us[4] = {u0, u1, u1, u0};
+    float vs[4] = {v0, v0, v1, v1};
+
+    float r = (float) BGR_R(color) / 255.0f;
+    float g = (float) BGR_G(color) / 255.0f;
+    float b = (float) BGR_B(color) / 255.0f;
+
+    emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
 static void sdlDrawSpritePart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
@@ -265,6 +316,38 @@ static void sdlDrawSpritePart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int3
                               MAYBE_UNUSED float angleDeg, MAYBE_UNUSED float pivotX,
                               MAYBE_UNUSED float pivotY, MAYBE_UNUSED uint32_t color,
                               MAYBE_UNUSED float alpha) {
+	SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
+
+    // Lazy-load texture on demand
+    ensureTextureLoaded(sdl, dw, pageId);
+
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+
+    float texW = (float)sdl->textureWidths[pageId];
+    float texH = (float)sdl->textureHeights[pageId];
+
+    float u0 = (float) (tpag->sourceX + srcOffX) / texW;
+    float v0 = (float) (tpag->sourceY + srcOffY) / texH;
+    float u1 = (float) (tpag->sourceX + srcOffX + srcW) / texW;
+    float v1 = (float) (tpag->sourceY + srcOffY + srcH) / texH;
+
+    float xs[4] = { x, x + srcW * xscale, x + srcW * xscale, x };
+    float ys[4] = { y, y, y + srcH * yscale, y + srcH * yscale };
+    float us[4] = { u0, u1, u1, u0 };
+    float vs[4] = { v0, v0, v1, v1 };
+
+    float r = (float) BGR_R(color) / 255.0f;
+    float g = (float) BGR_G(color) / 255.0f;
+    float b = (float) BGR_B(color) / 255.0f;
+
+    emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, alpha);
 }
 
 static void sdlDrawSpritePos(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t tpagIndex,
