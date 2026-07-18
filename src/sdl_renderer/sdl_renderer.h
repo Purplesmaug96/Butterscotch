@@ -51,6 +51,8 @@ typedef struct {
     int32_t currentDFactor;
     int32_t currentSFactorAlpha;
     int32_t currentDFactorAlpha;
+    SDL_BlendMode sdlBlendMode;       // composed SDL blend mode
+    bool sdlBlendEnabled;             // whether blending is currently active
 
     // Current view / port (set by sdlBeginView)
     float currentViewX;

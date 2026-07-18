@@ -60,10 +60,24 @@ static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx
     *vy = ly * (sdl->currentPortH / sdl->currentViewH) + (float)sdl->currentPortY;
 }
 
+static void applyFogToColors(SDLRenderer* sdl, float* r, float* g, float* b, int count) {
+    if (!sdl->fogEnable) return;
+    float fr = (float)BGR_R(sdl->fogColor) / 255.0f;
+    float fg = (float)BGR_G(sdl->fogColor) / 255.0f;
+    float fb = (float)BGR_B(sdl->fogColor) / 255.0f;
+    for (int i = 0; i < count; i++) {
+        r[i] = fr;
+        g[i] = fg;
+        b[i] = fb;
+    }
+}
+
 static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4],
                      float r[4], float g[4], float b[4], float a[4]) {
     SDL_Vertex verts[4];
+
+    applyFogToColors(sdl, r, g, b, 4);
 
     for (int i = 0; i < 4; i++) {
         float vx, vy;
@@ -97,6 +111,8 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
                     float x[3], float y[3], float u[3], float v[3],
                     float r[3], float g[3], float b[3], float a[3]) {
     SDL_Vertex verts[3];
+
+    applyFogToColors(sdl, r, g, b, 3);
 
     for (int i = 0; i < 3; i++) {
         float vx, vy;
@@ -884,6 +900,75 @@ static void sdlDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 
 // ===[ Blend / GPU State ]===
 
+static SDL_BlendFactor blendFactorToSDL(int factor) {
+    switch (factor) {
+        case bm_zero:             return SDL_BLENDFACTOR_ZERO;
+        case bm_one:              return SDL_BLENDFACTOR_ONE;
+        case bm_src_color:        return SDL_BLENDFACTOR_SRC_COLOR;
+        case bm_inv_src_color:    return SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR;
+        case bm_src_alpha:        return SDL_BLENDFACTOR_SRC_ALPHA;
+        case bm_inv_src_alpha:    return SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        case bm_dest_alpha:       return SDL_BLENDFACTOR_DST_ALPHA;
+        case bm_inv_dest_alpha:   return SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA;
+        case bm_dest_color:       return SDL_BLENDFACTOR_DST_COLOR;
+        case bm_inv_dest_color:   return SDL_BLENDFACTOR_ONE_MINUS_DST_COLOR;
+        case bm_src_alpha_sat:    return SDL_BLENDFACTOR_SRC_ALPHA;
+        default:                  return SDL_BLENDFACTOR_SRC_ALPHA;
+    }
+}
+
+static void sdlApplyBlendMode(SDLRenderer* sdl) {
+    SDL_BlendOperation colorOp;
+    switch (sdl->currentBlendMode) {
+        case bm_reverse_subtract: colorOp = SDL_BLENDOPERATION_REV_SUBTRACT; break;
+        case bm_min:              colorOp = SDL_BLENDOPERATION_MINIMUM;      break;
+        default:                  colorOp = SDL_BLENDOPERATION_ADD;          break;
+    }
+
+    sdl->sdlBlendMode = SDL_ComposeCustomBlendMode(
+        blendFactorToSDL(sdl->currentSFactor),
+        blendFactorToSDL(sdl->currentDFactor),
+        colorOp,
+        blendFactorToSDL(sdl->currentSFactorAlpha),
+        blendFactorToSDL(sdl->currentDFactorAlpha),
+        colorOp);
+
+    SDL_SetRenderDrawBlendMode(sdl->renderer,
+        sdl->sdlBlendEnabled ? sdl->sdlBlendMode : SDL_BLENDMODE_NONE);
+}
+
+static void sdlBlendModeSetFactors(SDLRenderer* sdl, int32_t mode) {
+    switch (mode) {
+        default:
+        case bm_normal:
+            sdl->currentSFactor = bm_src_alpha;
+            sdl->currentDFactor = bm_inv_src_alpha;
+            break;
+        case bm_add:
+            sdl->currentSFactor = bm_src_alpha;
+            sdl->currentDFactor = bm_one;
+            break;
+        case bm_subtract:
+            sdl->currentSFactor = bm_zero;
+            sdl->currentDFactor = bm_inv_src_color;
+            break;
+        case bm_reverse_subtract:
+            sdl->currentSFactor = bm_src_alpha;
+            sdl->currentDFactor = bm_one;
+            break;
+        case bm_min:
+            sdl->currentSFactor = bm_one;
+            sdl->currentDFactor = bm_one;
+            break;
+        case bm_max:
+            sdl->currentSFactor = bm_src_alpha;
+            sdl->currentDFactor = bm_inv_src_color;
+            break;
+    }
+    sdl->currentSFactorAlpha = sdl->currentSFactor;
+    sdl->currentDFactorAlpha = sdl->currentDFactor;
+}
+
 static BlendFactors sdlGpuGetBlendFactors(Renderer* renderer) {
     SDLRenderer* sdl = SDL(renderer);
     return (BlendFactors){sdl->currentSFactor, sdl->currentDFactor, sdl->currentSFactorAlpha, sdl->currentDFactorAlpha};
@@ -896,21 +981,27 @@ static int32_t sdlGpuGetBlendMode(Renderer* renderer) {
 
 static void sdlGpuSetBlendMode(Renderer* renderer, int32_t mode) {
     SDLRenderer* sdl = SDL(renderer);
+    if (sdl->currentBlendMode == mode) return;
     sdl->currentBlendMode = mode;
+    sdlBlendModeSetFactors(sdl, mode);
+    sdlApplyBlendMode(sdl);
 }
 
 static void sdlGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor,
                                   int32_t sfactor_alpha, int32_t dfactor_alpha) {
     SDLRenderer* sdl = SDL(renderer);
+    sdl->currentBlendMode = bm_complex;
     sdl->currentSFactor = sfactor;
     sdl->currentDFactor = dfactor;
     sdl->currentSFactorAlpha = sfactor_alpha;
     sdl->currentDFactorAlpha = dfactor_alpha;
+    sdlApplyBlendMode(sdl);
 }
 
 static void sdlGpuSetBlendEnable(Renderer* renderer, bool enable) {
     SDLRenderer* sdl = SDL(renderer);
-    SDL_SetRenderDrawBlendMode(sdl->renderer, enable ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
+    sdl->sdlBlendEnabled = enable;
+    SDL_SetRenderDrawBlendMode(sdl->renderer, enable ? sdl->sdlBlendMode : SDL_BLENDMODE_NONE);
 }
 
 static bool sdlGpuGetBlendEnable(Renderer* renderer) {
@@ -922,12 +1013,15 @@ static bool sdlGpuGetBlendEnable(Renderer* renderer) {
 
 static void sdlGpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
     SDLRenderer* sdl = SDL(renderer);
+    if (sdl->alphaTestEnable == enable) return;
     sdl->alphaTestEnable = enable;
 }
 
 static void sdlGpuSetAlphaTestRef(Renderer* renderer, uint8_t ref) {
     SDLRenderer* sdl = SDL(renderer);
-    sdl->alphaTestRef = (float)ref / 255.0f;
+    float refF = (float)ref / 255.0f;
+    if (sdl->alphaTestRef == refF) return;
+    sdl->alphaTestRef = refF;
 }
 
 static void sdlGpuSetColorWriteEnable(Renderer* renderer, bool red, bool green, bool blue, bool alpha) {
@@ -948,6 +1042,7 @@ static void sdlGpuGetColorWriteEnable(Renderer* renderer, bool* red, bool* green
 
 static void sdlGpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
     SDLRenderer* sdl = SDL(renderer);
+    if (sdl->fogEnable == enable && sdl->fogColor == color) return;
     sdl->fogEnable = enable;
     sdl->fogColor = color;
 }
@@ -1616,10 +1711,12 @@ Renderer* SDLRenderer_create(void) {
     sdl->surfaceCount             = 0;
 
     sdl->currentBlendMode     = 0;
-    sdl->currentSFactor       = 0;
-    sdl->currentDFactor       = 0;
-    sdl->currentSFactorAlpha  = 0;
-    sdl->currentDFactorAlpha  = 0;
+    sdl->currentSFactor       = bm_src_alpha;
+    sdl->currentDFactor       = bm_inv_src_alpha;
+    sdl->currentSFactorAlpha  = bm_src_alpha;
+    sdl->currentDFactorAlpha  = bm_inv_src_alpha;
+    sdl->sdlBlendMode         = SDL_BLENDMODE_BLEND;
+    sdl->sdlBlendEnabled      = true;
 
     return (Renderer*)sdl;
 }
