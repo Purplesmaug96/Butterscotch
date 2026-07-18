@@ -62,7 +62,7 @@ static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx
     *vy = ly * (sdl->currentPortH / sdl->currentViewH) + (float)sdl->currentPortY;
 }
 
-SDL_Texture* CreateWhiteTextureCopy(SDL_Renderer* renderer, SDL_Texture* orig_texture) {
+static SDL_Texture* CreateWhiteTextureCopy(SDL_Renderer* renderer, SDL_Texture* orig_texture) {
     float w, h;
     if (!SDL_GetTextureSize(orig_texture, &w, &h)) {
         return NULL;
