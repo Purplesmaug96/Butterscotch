@@ -7,6 +7,7 @@
 #include "stb_ds.h"
 #include "math_compat.h"
 
+#include <SDL2/SDL_render.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,47 @@ static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx
     *vy = ly * (sdl->currentPortH / sdl->currentViewH) + (float)sdl->currentPortY;
 }
 
+SDL_Texture* CreateWhiteTextureCopy(SDL_Renderer* renderer, SDL_Texture* orig_texture) {
+    float w, h;
+    if (!SDL_GetTextureSize(orig_texture, &w, &h)) {
+        return NULL;
+    }
+
+    SDL_Texture* white_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
+                                                   SDL_TEXTUREACCESS_TARGET, (int)w, (int)h);
+    if (!white_texture) {
+        return NULL;
+    }
+
+    SDL_BlendMode maskMode = SDL_ComposeCustomBlendMode(
+        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD,
+        SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ZERO, SDL_BLENDOPERATION_ADD
+    );
+
+    SDL_Texture* old_target = SDL_GetRenderTarget(renderer);
+    SDL_SetRenderTarget(renderer, white_texture);
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 0);
+    SDL_RenderClear(renderer);
+
+    SDL_BlendMode old_blend;
+    SDL_GetTextureBlendMode(orig_texture, &old_blend);
+    SDL_SetTextureBlendMode(orig_texture, maskMode);
+
+    SDL_RenderTexture(renderer, orig_texture, NULL, NULL);
+
+    SDL_SetTextureBlendMode(orig_texture, old_blend);
+    SDL_SetRenderTarget(renderer, old_target);
+
+    SDL_SetTextureBlendMode(white_texture, SDL_BLENDMODE_BLEND);
+
+    SDL_ScaleMode orig_scale_mode;
+    if (SDL_GetTextureScaleMode(orig_texture, &orig_scale_mode)) {
+        SDL_SetTextureScaleMode(white_texture, orig_scale_mode);
+    }
+
+    return white_texture;
+}
 
 static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4],
@@ -76,15 +118,21 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
-		// Probably not the right way to implement fog
-        verts[i].color.r = sdl->fogEnable ? (BGR_R(sdl->fogColor) * 4096) : r[i];
-        verts[i].color.g = sdl->fogEnable ? (BGR_G(sdl->fogColor) * 4096) : g[i];
-        verts[i].color.b = sdl->fogEnable ? (BGR_B(sdl->fogColor) * 4096) : b[i];
+        verts[i].color.r = sdl->fogEnable ? BGR_R(sdl->fogColor) : r[i];
+        verts[i].color.g = sdl->fogEnable ? BGR_G(sdl->fogColor) : g[i];
+        verts[i].color.b = sdl->fogEnable ? BGR_B(sdl->fogColor) : b[i];
         verts[i].color.a = a[i];
     }
 
+	// TODO: Implement cache, this will surely tremendously increase performance
+	if (sdl->fogEnable && tex != nullptr) {
+		tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+	}
+
     int indices[6] = {0, 1, 2, 2, 3, 0};
     SDL_RenderGeometry(sdl->renderer, tex, verts, 4, indices, 6);
+
+	if (sdl->fogEnable && tex != nullptr) SDL_DestroyTexture(tex);
 }
 
 static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
@@ -109,14 +157,21 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
-        verts[i].color.r = r[i];
-        verts[i].color.g = g[i];
-        verts[i].color.b = b[i];
+        verts[i].color.r = sdl->fogEnable ? BGR_R(sdl->fogColor) : r[i];
+        verts[i].color.g = sdl->fogEnable ? BGR_G(sdl->fogColor) : g[i];
+        verts[i].color.b = sdl->fogEnable ? BGR_B(sdl->fogColor) : b[i];
         verts[i].color.a = a[i];
     }
 
+	// TODO: Implement cache, this will surely tremendously increase performance
+	if (sdl->fogEnable && tex != nullptr) {
+		tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+	}
+
     int indices[3] = {0, 1, 2};
     SDL_RenderGeometry(sdl->renderer, tex, verts, 3, indices, 3);
+
+	if (sdl->fogEnable && tex != nullptr) SDL_DestroyTexture(tex);
 }
 
 // Lazy-load a texture on demand when it's first needed
