@@ -384,6 +384,35 @@ static void sdlDrawRectangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
                              MAYBE_UNUSED float y1, MAYBE_UNUSED float x2,
                              MAYBE_UNUSED float y2, MAYBE_UNUSED uint32_t color,
                              MAYBE_UNUSED float alpha, MAYBE_UNUSED bool outline) {
+	SDLRenderer* sdl = SDL(renderer);
+
+    float r = (float) BGR_R(color) / 255.0f;
+    float g = (float) BGR_G(color) / 255.0f;
+    float b = (float) BGR_B(color) / 255.0f;
+    float us[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+    float vs[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+
+    if (outline) {
+        float tx[4][4] = {
+            {x1, x2 + 1, x2 + 1, x1}, // top
+            {x1, x2 + 1, x2 + 1, x1}, // bottom
+            {x1, x1 + 1, x1 + 1, x1}, // left
+            {x2, x2 + 1, x2 + 1, x2}  // right
+        };
+        float ty[4][4] = {
+            {y1, y1, y1 + 1, y1 + 1}, // top
+            {y2, y2, y2 + 1, y2 + 1}, // bottom
+            {y1 + 1, y1 + 1, y2, y2}, // left
+            {y1 + 1, y1 + 1, y2, y2}  // right
+        };
+        for (int i = 0; i < 4; i++) {
+            emitColoredQuad(sdl, sdl->whiteTexture, tx[i], ty[i], us, vs, r, g, b, alpha);
+        }
+    } else {
+        float xs[4] = {x1, x2 + 1, x2 + 1, x1};
+        float ys[4] = {y1, y1, y2 + 1, y2 + 1};
+        emitColoredQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, r, g, b, alpha);
+    }
 }
 
 static void sdlDrawRectangleColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
@@ -392,12 +421,14 @@ static void sdlDrawRectangleColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED 
                                   MAYBE_UNUSED uint32_t color2, MAYBE_UNUSED uint32_t color3,
                                   MAYBE_UNUSED uint32_t color4, MAYBE_UNUSED float alpha,
                                   MAYBE_UNUSED bool outline) {
+	sdlDrawRectangle(renderer, x1, y1, x2, y2, color1, alpha, outline);
 }
 
 static void sdlDrawLine(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
                         MAYBE_UNUSED float y1, MAYBE_UNUSED float x2,
                         MAYBE_UNUSED float y2, MAYBE_UNUSED float width,
                         MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha) {
+	renderer->vtable->drawLineColor(renderer, x1, y1, x2, y2, width, color, color, alpha);
 }
 
 static void sdlDrawLineColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
@@ -405,6 +436,36 @@ static void sdlDrawLineColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
                              MAYBE_UNUSED float y2, MAYBE_UNUSED float width,
                              MAYBE_UNUSED uint32_t color1, MAYBE_UNUSED uint32_t color2,
                              MAYBE_UNUSED float alpha) {
+	SDLRenderer* sdl = SDL(renderer);
+
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (0.0001f > len) return;
+
+    float halfW = width * 0.5f;
+    float px = (-dy / len) * halfW;
+    float py = (dx / len) * halfW;
+
+    float xs[4] = {x1 + px, x1 - px, x2 - px, x2 + px};
+    float ys[4] = {y1 + py, y1 - py, y2 - py, y2 + py};
+    float us[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+    float vs[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+
+    float r1 = (float) BGR_R(color1) / 255.0f;
+    float g1 = (float) BGR_G(color1) / 255.0f;
+    float b1 = (float) BGR_B(color1) / 255.0f;
+
+    float r2 = (float) BGR_R(color2) / 255.0f;
+    float g2 = (float) BGR_G(color2) / 255.0f;
+    float b2 = (float) BGR_B(color2) / 255.0f;
+
+    float rc[4] = {r1, r1, r2, r2};
+    float gc[4] = {g1, g1, g2, g2};
+    float bc[4] = {b1, b1, b2, b2};
+    float ac[4] = {alpha, alpha, alpha, alpha};
+
+    emitQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, rc, gc, bc, ac);
 }
 
 static void sdlDrawTriangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
