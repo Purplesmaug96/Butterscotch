@@ -5,6 +5,7 @@
 #include "image_decoder.h"
 #include "utils.h"
 #include "stb_ds.h"
+#include "math_compat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,24 +61,11 @@ static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx
     *vy = ly * (sdl->currentPortH / sdl->currentViewH) + (float)sdl->currentPortY;
 }
 
-static void applyFogToColors(SDLRenderer* sdl, float* r, float* g, float* b, int count) {
-    if (!sdl->fogEnable) return;
-    float fr = (float)BGR_R(sdl->fogColor) / 255.0f;
-    float fg = (float)BGR_G(sdl->fogColor) / 255.0f;
-    float fb = (float)BGR_B(sdl->fogColor) / 255.0f;
-    for (int i = 0; i < count; i++) {
-        r[i] = fr;
-        g[i] = fg;
-        b[i] = fb;
-    }
-}
 
 static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
                      float x[4], float y[4], float u[4], float v[4],
                      float r[4], float g[4], float b[4], float a[4]) {
     SDL_Vertex verts[4];
-
-    applyFogToColors(sdl, r, g, b, 4);
 
     for (int i = 0; i < 4; i++) {
         float vx, vy;
@@ -88,10 +76,10 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
-		// SDL3 uses float colours, sdl2 doesnt
-        verts[i].color.r = r[i];
-        verts[i].color.g = g[i];
-        verts[i].color.b = b[i];
+		// Probably not the right way to implement fog
+        verts[i].color.r = sdl->fogEnable ? (BGR_R(sdl->fogColor) * 4096) : r[i];
+        verts[i].color.g = sdl->fogEnable ? (BGR_G(sdl->fogColor) * 4096) : g[i];
+        verts[i].color.b = sdl->fogEnable ? (BGR_B(sdl->fogColor) * 4096) : b[i];
         verts[i].color.a = a[i];
     }
 
@@ -111,8 +99,6 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
                     float x[3], float y[3], float u[3], float v[3],
                     float r[3], float g[3], float b[3], float a[3]) {
     SDL_Vertex verts[3];
-
-    applyFogToColors(sdl, r, g, b, 3);
 
     for (int i = 0; i < 3; i++) {
         float vx, vy;
@@ -164,6 +150,7 @@ static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
         SDL_UpdateTexture(sdl->sdlTextures[pageId], NULL, pixels, w * 4);
         SDL_SetTextureScaleMode(sdl->sdlTextures[pageId], SDL_SCALEMODE_NEAREST);
         SDL_SetTextureBlendMode(sdl->sdlTextures[pageId], SDL_BLENDMODE_BLEND);
+
     }
 
     free(pixels);
@@ -199,6 +186,7 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     if (sdl->whiteTexture) {
         uint32_t white = 0xFFFFFFFF;
         SDL_UpdateTexture(sdl->whiteTexture, NULL, &white, sizeof(uint32_t));
+        SDL_SetTextureScaleMode(sdl->whiteTexture, SDL_SCALEMODE_NEAREST);
         SDL_SetTextureBlendMode(sdl->whiteTexture, SDL_BLENDMODE_BLEND);
     }
 
@@ -245,21 +233,75 @@ static void sdlBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int3
     sdl->windowW = windowW;
     sdl->windowH = windowH;
 
-    SDL_SetRenderTarget(sdl->renderer, NULL);
-    SDL_SetRenderDrawColor(sdl->renderer, 255, 0, 255, 255);
-    SDL_RenderClear(sdl->renderer);
+    // Bind the application surface (matches glBeginFrame)
+    int32_t appId = renderer->runner->applicationSurfaceId;
+    if (appId >= 0 && (uint32_t) appId < sdl->surfaceCount && sdl->surfaces[appId] != nullptr) {
+        SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[appId]);
+    } else {
+        SDL_SetRenderTarget(sdl->renderer, NULL);
+    }
+
+    SDL_Rect fullRect = { 0, 0, gameW, gameH };
+    SDL_SetRenderViewport(sdl->renderer, &fullRect);
+    sdl->base.CPortX = 0;
+    sdl->base.CPortY = 0;
+    sdl->base.CPortW = gameW;
+    sdl->base.CPortH = gameH;
 }
 
-static void sdlEndFrameInit(MAYBE_UNUSED Renderer* renderer) {
-}
-
-static void sdlEndFrameEnd(MAYBE_UNUSED Renderer* renderer) {
+static void sdlEndFrameInit(Renderer* renderer) {
     SDLRenderer* sdl = SDL(renderer);
+    if (renderer->runner->usingAppSurface && !renderer->runner->appSurfaceAutoDraw) {
+        SDL_SetRenderTarget(sdl->renderer, NULL);
+        return;
+    }
+}
+
+static void sdlEndFrameEnd(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    // If using app surface and not auto-draw, the render target was already set to NULL
+    // by endFrameInit and GUI drew directly to the window. Just present.
+    if (renderer->runner->usingAppSurface && !renderer->runner->appSurfaceAutoDraw) {
+        SDL_RenderPresent(sdl->renderer);
+        return;
+    }
+
+    // Draw app surface to window with letterboxing
+    int32_t appId = renderer->runner->applicationSurfaceId;
+
     SDL_SetRenderTarget(sdl->renderer, NULL);
+    SDL_SetRenderViewport(sdl->renderer, NULL);
+    SDL_SetRenderClipRect(sdl->renderer, NULL);
+    SDL_SetRenderDrawColor(sdl->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(sdl->renderer);
+
+    if (appId >= 0 && (uint32_t) appId < sdl->surfaceCount && sdl->surfaces[appId] != nullptr) {
+        // Compute letterbox: fit game aspect ratio into window
+        float gameAspect = (float) sdl->gameW / (float) sdl->gameH;
+        float windowAspect = (float) sdl->windowW / (float) sdl->windowH;
+        int32_t drawW, drawH;
+        if (windowAspect > gameAspect) {
+            drawH = sdl->windowH;
+            drawW = (int32_t) ((float) drawH * gameAspect);
+        } else {
+            drawW = sdl->windowW;
+            drawH = (int32_t) ((float) drawW / gameAspect);
+        }
+        int32_t offX = (sdl->windowW - drawW) / 2;
+        int32_t offY = (sdl->windowH - drawH) / 2;
+
+        SDL_FRect dstRect = { (float)offX, (float)offY, (float)drawW, (float)drawH };
+        SDL_RenderTexture(sdl->renderer, sdl->surfaces[appId], NULL, &dstRect);
+    }
+
     SDL_RenderPresent(sdl->renderer);
 }
 
 // ===[ View / Camera ]===
+
+static void sdlApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix,
+                               const Matrix4f* projectionMatrix);
 
 static void sdlBeginView(Renderer* renderer, int32_t viewX, int32_t viewY,
                          int32_t viewW, int32_t viewH,
@@ -277,31 +319,155 @@ static void sdlBeginView(Renderer* renderer, int32_t viewX, int32_t viewY,
     sdl->currentPortW = portW;
     sdl->currentPortH = portH;
 
+    // Set viewport and scissor rect
     SDL_Rect portRect = { portX, portY, portW, portH };
     SDL_SetRenderViewport(sdl->renderer, &portRect);
+    SDL_SetRenderClipRect(sdl->renderer, &portRect);
+
+    // Set up camera and projection (matches glBeginView)
+    int32_t viewCurrent = 0;
+    if (renderer->runner->viewsEnabled) {
+        viewCurrent = renderer->runner->viewCurrent;
+    }
+    RuntimeView* view = &renderer->runner->views[viewCurrent];
+    sdl->base.cameraCurrent = view->cameraId;
+    GMLCamera* camera = Runner_getCameraById(renderer->runner, sdl->base.cameraCurrent);
+    sdlApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
 }
 
-static void sdlEndView(MAYBE_UNUSED Renderer* renderer) {
+static void sdlApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix,
+                               const Matrix4f* projectionMatrix) {
+    Matrix4f world = renderer->gmlMatrices[MATRIX_WORLD];
+    Matrix4f view = *viewMatrix;
+    Matrix4f projection = *projectionMatrix;
+
+    Matrix4f worldView;
+    Matrix4f_multiply(&worldView, &view, &world);
+
+    Matrix4f worldViewProjection;
+    Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
+
+    renderer->gmlMatrices[MATRIX_VIEW] = view;
+    renderer->gmlMatrices[MATRIX_PROJECTION] = projection;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
 }
 
-static void sdlApplyProjection(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED const Matrix4f* viewMatrix,
-                               MAYBE_UNUSED const Matrix4f* projectionMatrix) {
+static void sdlEndView(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+    SDL_SetRenderClipRect(sdl->renderer, NULL);
 }
 
 // ===[ GUI ]===
 
-static void sdlBeginGUI(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t guiW, MAYBE_UNUSED int32_t guiH,
-                        MAYBE_UNUSED int32_t portX, MAYBE_UNUSED int32_t portY,
-                        MAYBE_UNUSED int32_t portW, MAYBE_UNUSED int32_t portH,
-                        MAYBE_UNUSED int32_t targetSurfaceId) {
+static void sdlBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH,
+                        int32_t portX, int32_t portY,
+                        int32_t portW, int32_t portH,
+                        int32_t targetSurfaceId) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    // Update view transform parameters for transformWorldToView to use during GUI draws
+    sdl->currentViewX = 0.0f;
+    sdl->currentViewY = 0.0f;
+    sdl->currentViewW = (float) guiW;
+    sdl->currentViewH = (float) guiH;
+    sdl->currentViewAngle = 0.0f;
+    sdl->currentPortX = 0;
+    sdl->currentPortY = 0;
+    sdl->currentPortW = portW;
+    sdl->currentPortH = portH;
+
+    if (targetSurfaceId == RENDER_TARGET_HOST_FRAMEBUFFER) {
+        SDL_SetRenderTarget(sdl->renderer, NULL);
+        SDL_Rect rect = { 0, 0, portW, portH };
+        SDL_SetRenderViewport(sdl->renderer, &rect);
+        SDL_SetRenderClipRect(sdl->renderer, &rect);
+    } else {
+        require(targetSurfaceId >= 0 && (uint32_t) targetSurfaceId < sdl->surfaceCount);
+        require(sdl->surfaces[targetSurfaceId] != nullptr);
+        SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[targetSurfaceId]);
+        SDL_Rect rect = { portX, portY, portW, portH };
+        SDL_SetRenderViewport(sdl->renderer, &rect);
+        SDL_SetRenderClipRect(sdl->renderer, &rect);
+    }
+
+    // Set up GUI camera (matches glBeginGUI)
+    sdl->base.cameraCurrent = GUI_CAMERA;
+    GMLCamera* camera = &renderer->runner->guiCamera;
+    camera->allocated = true;
+    camera->viewX = 0.0;
+    camera->viewY = 0.0;
+    camera->viewWidth = guiW;
+    camera->viewHeight = guiH;
+    camera->borderX = 0;
+    camera->borderY = 0;
+    camera->speedX = 0;
+    camera->speedY = 0;
+    camera->objectId = -1;
+    camera->viewAngle = 0;
+
+    Matrix4f projectionMatrix;
+    Matrix4f_Orthographic(&projectionMatrix, (float) guiW, (float) guiH, 32000.0, 0.0);
+
+    Matrix4f viewMatrix;
+    float x = (float) guiW * 0.5f;
+    float y = (float) guiH * 0.5f;
+    Matrix4f_identity(&viewMatrix);
+    Matrix4f_LookAt(&viewMatrix, x, y, -16000.0, x, y, 16000.0, 0.0, 1.0, 0.0);
+    camera->viewMatrix = viewMatrix;
+    camera->projectionMatrix = projectionMatrix;
+
+    sdlApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
 }
 
-static void sdlSetGuiProjection(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t guiW,
-                                MAYBE_UNUSED int32_t guiH, MAYBE_UNUSED int32_t portW,
-                                MAYBE_UNUSED int32_t portH, MAYBE_UNUSED bool renderingToUserSurface) {
+static void sdlSetGuiProjection(Renderer* renderer, int32_t guiW,
+                                int32_t guiH, int32_t portW,
+                                int32_t portH, bool renderingToUserSurface) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    // Update view transform parameters for transformWorldToView
+    sdl->currentViewX = 0.0f;
+    sdl->currentViewY = 0.0f;
+    sdl->currentViewW = (float) guiW;
+    sdl->currentViewH = (float) guiH;
+    sdl->currentViewAngle = 0.0f;
+    sdl->currentPortX = 0;
+    sdl->currentPortY = 0;
+    sdl->currentPortW = portW;
+    sdl->currentPortH = portH;
+
+    sdl->base.cameraCurrent = GUI_CAMERA;
+    GMLCamera* camera = &renderer->runner->guiCamera;
+    camera->allocated = true;
+    camera->viewX = 0.0;
+    camera->viewY = 0.0;
+    camera->viewWidth = guiW;
+    camera->viewHeight = guiH;
+    camera->borderX = 0;
+    camera->borderY = 0;
+    camera->speedX = 0;
+    camera->speedY = 0;
+    camera->objectId = -1;
+    camera->viewAngle = 0;
+
+    Matrix4f projectionMatrix;
+    Matrix4f_Orthographic(&projectionMatrix, (float) guiW, (float) guiH, 32000.0, 0.0);
+    if (renderingToUserSurface) Matrix4f_flipClipY(&projectionMatrix);
+
+    Matrix4f viewMatrix;
+    float x = (float) guiW * 0.5f;
+    float y = (float) guiH * 0.5f;
+    Matrix4f_identity(&viewMatrix);
+    Matrix4f_LookAt(&viewMatrix, x, y, -16000.0, x, y, 16000.0, 0.0, 1.0, 0.0);
+    camera->viewMatrix = viewMatrix;
+    camera->projectionMatrix = projectionMatrix;
+
+    sdlApplyProjection(renderer, &camera->viewMatrix, &camera->projectionMatrix);
 }
 
-static void sdlEndGUI(MAYBE_UNUSED Renderer* renderer) {
+static void sdlEndGUI(Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+    SDL_SetRenderClipRect(sdl->renderer, NULL);
 }
 
 // ===[ Drawing: Sprites ]===
@@ -476,22 +642,49 @@ static void sdlDrawRectangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
             {y1 + 1, y1 + 1, y2, y2}  // right
         };
         for (int i = 0; i < 4; i++) {
-            emitColoredQuad(sdl, nullptr, tx[i], ty[i], us, vs, r, g, b, alpha);
+            emitColoredQuad(sdl, sdl->whiteTexture, tx[i], ty[i], us, vs, r, g, b, alpha);
         }
     } else {
         float xs[4] = {x1, x2 + 1, x2 + 1, x1};
         float ys[4] = {y1, y1, y2 + 1, y2 + 1};
-        emitColoredQuad(sdl, nullptr, xs, ys, us, vs, r, g, b, alpha);
+        emitColoredQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, r, g, b, alpha);
     }
 }
 
-static void sdlDrawRectangleColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
-                                  MAYBE_UNUSED float y1, MAYBE_UNUSED float x2,
-                                  MAYBE_UNUSED float y2, MAYBE_UNUSED uint32_t color1,
-                                  MAYBE_UNUSED uint32_t color2, MAYBE_UNUSED uint32_t color3,
-                                  MAYBE_UNUSED uint32_t color4, MAYBE_UNUSED float alpha,
-                                  MAYBE_UNUSED bool outline) {
-	sdlDrawRectangle(renderer, x1, y1, x2, y2, color1, alpha, outline);
+static void sdlDrawLineColor(Renderer* renderer, float x1, float y1,
+                             float x2, float y2, float width,
+                             uint32_t color1, uint32_t color2, float alpha);
+
+static void sdlDrawRectangleColor(Renderer* renderer, float x1,
+                                  float y1, float x2,
+                                  float y2, uint32_t color1,
+                                  uint32_t color2, uint32_t color3,
+                                  uint32_t color4, float alpha,
+                                  bool outline) {
+    SDLRenderer* sdl = SDL(renderer);
+
+    uint8_t r1 = (uint8_t) BGR_R(color1), g1 = (uint8_t) BGR_G(color1), b1 = (uint8_t) BGR_B(color1);
+    uint8_t r2 = (uint8_t) BGR_R(color2), g2 = (uint8_t) BGR_G(color2), b2 = (uint8_t) BGR_B(color2);
+    uint8_t r3 = (uint8_t) BGR_R(color3), g3 = (uint8_t) BGR_G(color3), b3 = (uint8_t) BGR_B(color3);
+    uint8_t r4 = (uint8_t) BGR_R(color4), g4 = (uint8_t) BGR_G(color4), b4 = (uint8_t) BGR_B(color4);
+
+    float us[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+    float vs[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+
+    if (outline) {
+        sdlDrawLineColor(renderer, x1, y1, x2, y1, 1.0f, color1, color2, alpha);
+        sdlDrawLineColor(renderer, x2, y1, x2, y2, 1.0f, color2, color3, alpha);
+        sdlDrawLineColor(renderer, x2, y2, x1, y2, 1.0f, color3, color4, alpha);
+        sdlDrawLineColor(renderer, x1, y2, x1, y1, 1.0f, color4, color1, alpha);
+    } else {
+        float rc[4] = {r1 / 255.0f, r2 / 255.0f, r3 / 255.0f, r4 / 255.0f};
+        float gc[4] = {g1 / 255.0f, g2 / 255.0f, g3 / 255.0f, g4 / 255.0f};
+        float bc[4] = {b1 / 255.0f, b2 / 255.0f, b3 / 255.0f, b4 / 255.0f};
+        float ac[4] = {alpha, alpha, alpha, alpha};
+        float xs[4] = {x1, x2 + 1, x2 + 1, x1};
+        float ys[4] = {y1, y1, y2 + 1, y2 + 1};
+        emitQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, rc, gc, bc, ac);
+    }
 }
 
 static void sdlDrawLine(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float x1,
@@ -535,7 +728,7 @@ static void sdlDrawLineColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float
     float bc[4] = {b1, b1, b2, b2};
     float ac[4] = {alpha, alpha, alpha, alpha};
 
-    emitQuad(sdl, nullptr, xs, ys, us, vs, rc, gc, bc, ac);
+    emitQuad(sdl, sdl->whiteTexture, xs, ys, us, vs, rc, gc, bc, ac);
 }
 
 static void sdlDrawTriangle(Renderer* renderer, float x1,
@@ -570,7 +763,7 @@ static void sdlDrawTriangle(Renderer* renderer, float x1,
         float bc[3] = {b1, b2, b3};
         float ac[3] = {alpha, alpha, alpha};
 
-        emitTri(sdl, nullptr, xs, ys, us, vs, rc, gc, bc, ac);
+        emitTri(sdl, sdl->whiteTexture, xs, ys, us, vs, rc, gc, bc, ac);
     }
 }
 
@@ -1342,6 +1535,7 @@ static void sdlSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t widt
 static void sdlSurfaceFree(Renderer* renderer, int32_t surfaceID) {
     SDLRenderer* sdl = SDL(renderer);
     if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return;
+    if (surfaceID == renderer->runner->applicationSurfaceId) return;
     if (sdl->surfaces[surfaceID]) {
         SDL_DestroyTexture(sdl->surfaces[surfaceID]);
         sdl->surfaces[surfaceID] = nullptr;
@@ -1504,20 +1698,40 @@ static uint32_t sdlSurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
     return 0x40000000u | (uint32_t)surfaceID;
 }
 
+// Resolve a texture handle to its pixel dimensions. Returns false if unresolvable.
+static bool sdlResolveTextureHandle(SDLRenderer* sdl, uint32_t texHandle, int32_t* outW, int32_t* outH) {
+    if (texHandle == 0) return false;
+    if (texHandle & 0x40000000u) {
+        uint32_t sid = texHandle & ~0x40000000u;
+        if (sid >= sdl->surfaceCount || sdl->surfaceTexture[sid] == nullptr) return false;
+        *outW = sdl->surfaceWidth[sid];
+        *outH = sdl->surfaceHeight[sid];
+        return true;
+    }
+    int32_t tpagIndex = (int32_t) texHandle - 1;
+    if (0 > tpagIndex) return false;
+    DataWin* dw = sdl->base.dataWin;
+    if (dw->tpag.count <= (uint32_t) tpagIndex) return false;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return false;
+    *outW = sdl->textureWidths[pageId];
+    *outH = sdl->textureHeights[pageId];
+    return true;
+}
+
 static float sdlTextureGetTexelWidth(Renderer* renderer, uint32_t texID) {
     SDLRenderer* sdl = SDL(renderer);
-    if (texID < sdl->textureCount && sdl->textureWidths) {
-        return (float)sdl->textureWidths[texID];
-    }
-    return 0.0f;
+    int32_t w = 0, h = 0;
+    if (!sdlResolveTextureHandle(sdl, texID, &w, &h) || 0 >= w) return 1.0f;
+    return 1.0f / (float) w;
 }
 
 static float sdlTextureGetTexelHeight(Renderer* renderer, uint32_t texID) {
     SDLRenderer* sdl = SDL(renderer);
-    if (texID < sdl->textureCount && sdl->textureHeights) {
-        return (float)sdl->textureHeights[texID];
-    }
-    return 0.0f;
+    int32_t w = 0, h = 0;
+    if (!sdlResolveTextureHandle(sdl, texID, &w, &h) || 0 >= h) return 1.0f;
+    return 1.0f / (float) h;
 }
 
 static bool sdlTextureGetUVs(Renderer* renderer, uint32_t texHandle, float* outUVs) {
@@ -1539,16 +1753,25 @@ static bool sdlTextureGetUVs(Renderer* renderer, uint32_t texHandle, float* outU
     float w = (float)sdl->textureWidths[pageId];
     float h = (float)sdl->textureHeights[pageId];
     if (w <= 0.0f || h <= 0.0f) return false;
-    outUVs[0] = (float)tpag->sourceX / w;
-    outUVs[1] = (float)tpag->sourceY / h;
-    outUVs[2] = outUVs[0] + (float)tpag->sourceWidth / w;
-    outUVs[3] = outUVs[1] + (float)tpag->sourceHeight / h;
+    float divW = 1.0f / w;
+    float divH = 1.0f / h;
+    outUVs[0] = (float)tpag->sourceX * divW;
+    outUVs[1] = (float)tpag->sourceY * divH;
+    outUVs[2] = outUVs[0] + (float)tpag->sourceWidth * divW;
+    outUVs[3] = outUVs[1] + (float)tpag->sourceHeight * divH;
     return true;
 }
 
 static void sdlTextureSetStage(Renderer* renderer, int32_t slot, uint32_t texHandle) {
     SDLRenderer* sdl = SDL(renderer);
-    if (slot < 0) return;
+    if (slot < 0) {
+        fprintf(stderr, "SDL: Invalid Texture Stage\n");
+        return;
+    }
+    if (slot > MAX_TEXTURE_STAGES) {
+        fprintf(stderr, "SDL: Texture Stage Higher Than Max\n");
+        return;
+    }
     SDL_Texture* tex = nullptr;
     if (texHandle != 0) {
         if (texHandle & 0x40000000u) {
@@ -1567,8 +1790,7 @@ static void sdlTextureSetStage(Renderer* renderer, int32_t slot, uint32_t texHan
             }
         }
     }
-    if (tex && slot < 8)
-        sdl->textureStages[slot] = tex;
+    sdl->textureStages[slot] = tex;
 }
 
 // ===[ Shader Queries ]===
@@ -1583,8 +1805,21 @@ static bool sdlShadersSupported(void) {
 
 // ===[ Matrix ]===
 
-static void sdlSetMatrix(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t matrixType,
-                         MAYBE_UNUSED Matrix4f matrix) {
+static void sdlSetMatrix(Renderer* renderer, int32_t matrixType, Matrix4f matrix) {
+    renderer->gmlMatrices[matrixType] = matrix;
+
+    Matrix4f world = renderer->gmlMatrices[MATRIX_WORLD];
+    Matrix4f view = renderer->gmlMatrices[MATRIX_VIEW];
+    Matrix4f projection = renderer->gmlMatrices[MATRIX_PROJECTION];
+
+    Matrix4f worldView;
+    Matrix4f_multiply(&worldView, &view, &world);
+
+    Matrix4f worldViewProjection;
+    Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
+
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
 }
 
 // ===[ Vtable ]===
