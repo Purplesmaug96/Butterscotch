@@ -123,6 +123,7 @@ static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) 
     if (sdl->sdlTextures[pageId]) {
         SDL_UpdateTexture(sdl->sdlTextures[pageId], NULL, pixels, w * 4);
         SDL_SetTextureScaleMode(sdl->sdlTextures[pageId], SDL_SCALEMODE_NEAREST);
+        SDL_SetTextureBlendMode(sdl->sdlTextures[pageId], SDL_BLENDMODE_BLEND);
     }
 
     free(pixels);
@@ -153,6 +154,15 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     sdl->textureWidths  = (int32_t*)safeCalloc(sdl->textureCount, sizeof(int32_t));
     sdl->textureHeights = (int32_t*)safeCalloc(sdl->textureCount, sizeof(int32_t));
     sdl->textureLoaded  = (bool*)safeCalloc(sdl->textureCount, sizeof(bool));
+
+    sdl->whiteTexture = SDL_CreateTexture(sdl->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, 1);
+    if (sdl->whiteTexture) {
+        uint32_t white = 0xFFFFFFFF;
+        SDL_UpdateTexture(sdl->whiteTexture, NULL, &white, sizeof(uint32_t));
+        SDL_SetTextureBlendMode(sdl->whiteTexture, SDL_BLENDMODE_BLEND);
+    }
+
+    SDL_SetRenderDrawBlendMode(sdl->renderer, SDL_BLENDMODE_BLEND);
 
     fprintf(stderr, "SDL: Renderer initialized (%u texture pages)\n", sdl->textureCount);
 }
@@ -694,7 +704,9 @@ static void sdlGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t d
     sdl->currentDFactorAlpha = dfactor_alpha;
 }
 
-static void sdlGpuSetBlendEnable(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED bool enable) {
+static void sdlGpuSetBlendEnable(Renderer* renderer, bool enable) {
+    SDLRenderer* sdl = SDL(renderer);
+    SDL_SetRenderDrawBlendMode(sdl->renderer, enable ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
 }
 
 static bool sdlGpuGetBlendEnable(MAYBE_UNUSED Renderer* renderer) {
