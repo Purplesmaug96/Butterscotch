@@ -49,6 +49,17 @@ typedef struct {
     int32_t currentDFactor;
     int32_t currentSFactorAlpha;
     int32_t currentDFactorAlpha;
+
+    // Current view / port (set by sdlBeginView)
+    float currentViewX;
+    float currentViewY;
+    float currentViewW;
+    float currentViewH;
+    float currentViewAngle;
+    int32_t currentPortX;
+    int32_t currentPortY;
+    int32_t currentPortW;
+    int32_t currentPortH;
 } SDLRenderer;
 
 bool SDLRenderer_ensureTextureLoaded(SDLRenderer* sdl, uint32_t pageId);

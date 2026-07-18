@@ -2,12 +2,14 @@
 #include "platformdefs.h"
 #include "matrix_math.h"
 #include "text_utils.h"
+#include "image_decoder.h"
 #include "utils.h"
 #include "stb_ds.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 // ===[ Helper ]===
 
@@ -32,6 +34,103 @@ static uint32_t findOrAllocateSurfaceSlot(SDLRenderer* sdl) {
     return newIndex;
 }
 
+static void transformWorldToView(SDLRenderer* sdl, float wx, float wy, float* vx, float* vy) {
+    float lx = wx - sdl->currentViewX;
+    float ly = wy - sdl->currentViewY;
+
+    if (sdl->currentViewAngle != 0.0f) {
+        float cx = sdl->currentViewW / 2.0f;
+        float cy = sdl->currentViewH / 2.0f;
+
+        lx -= cx;
+        ly -= cy;
+
+        float angleRad = -sdl->currentViewAngle * ((float) M_PI / 180.0f);
+        float cosA = cosf(angleRad);
+        float sinA = sinf(angleRad);
+
+        float nx = lx * cosA - ly * sinA;
+        float ny = lx * sinA + ly * cosA;
+
+        lx = nx + cx;
+        ly = ny + cy;
+    }
+
+    *vx = lx * (sdl->currentPortW / sdl->currentViewW) + (float)sdl->currentPortX;
+    *vy = ly * (sdl->currentPortH / sdl->currentViewH) + (float)sdl->currentPortY;
+}
+
+static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
+                     float x[4], float y[4], float u[4], float v[4],
+                     float r[4], float g[4], float b[4], float a[4]) {
+    SDL_Vertex verts[4];
+
+    for (int i = 0; i < 4; i++) {
+        float vx, vy;
+        transformWorldToView(sdl, x[i], y[i], &vx, &vy);
+
+        verts[i].position.x = vx;
+        verts[i].position.y = vy;
+        verts[i].tex_coord.x = u[i];
+        verts[i].tex_coord.y = v[i];
+
+        verts[i].color.r = (uint8_t)(r[i] * 255.0f);
+        verts[i].color.g = (uint8_t)(g[i] * 255.0f);
+        verts[i].color.b = (uint8_t)(b[i] * 255.0f);
+        verts[i].color.a = (uint8_t)(a[i] * 255.0f);
+    }
+
+    int indices[6] = {0, 1, 2, 2, 3, 0};
+    SDL_RenderGeometry(sdl->renderer, tex, verts, 4, indices, 6);
+}
+
+static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
+    float rc[4] = {r, r, r, r};
+    float gc[4] = {g, g, g, g};
+    float bc[4] = {b, b, b, b};
+    float ac[4] = {a, a, a, a};
+    emitQuad(sdl, tex, x, y, u, v, rc, gc, bc, ac);
+}
+
+
+// Lazy-load a texture on demand when it's first needed
+static bool ensureTextureLoaded(SDLRenderer* sdl, DataWin* dw, uint32_t pageId) {
+    if (sdl->textureLoaded[pageId]) return (sdl->textureWidths[pageId] != 0);
+
+    sdl->textureLoaded[pageId] = true;
+
+    Texture* txtr = &dw->txtr.textures[pageId];
+    DataWin_loadTxtrIfNeeded(dw, pageId);
+
+    int w, h;
+    bool gm2022_5 = DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0);
+    uint8_t* pixels = ImageDecoder_decodeToRgba(txtr->blobData, (size_t)txtr->blobSize, gm2022_5, &w, &h);
+    if (pixels == nullptr) {
+        fprintf(stderr, "SDL: Failed to decode TXTR page %u\n", pageId);
+        return false;
+    }
+    if (!txtr->mapped) {
+        free(txtr->blobData);
+        txtr->blobData = nullptr;
+    }
+
+    sdl->textureWidths[pageId] = w;
+    sdl->textureHeights[pageId] = h;
+
+    sdl->sdlTextures[pageId] = SDL_CreateTexture(
+        sdl->renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STATIC, w, h);
+    if (sdl->sdlTextures[pageId]) {
+        SDL_UpdateTexture(sdl->sdlTextures[pageId], NULL, pixels, w * 4);
+        SDL_SetTextureScaleMode(sdl->sdlTextures[pageId], SDL_SCALEMODE_NEAREST);
+    }
+
+    free(pixels);
+
+    fprintf(stderr, "SDL: Loaded TXTR page %u (%dx%d)\n", pageId, w, h);
+    return sdl->sdlTextures[pageId] != nullptr;
+}
+
 // ===[ Lifecycle ]===
 
 static void sdlInit(Renderer* renderer, DataWin* dataWin) {
@@ -49,7 +148,13 @@ static void sdlInit(Renderer* renderer, DataWin* dataWin) {
     sdl->originalTpagCount = dataWin->tpag.count;
     sdl->originalSpriteCount = dataWin->sprt.count;
 
-    fprintf(stderr, "SDL: Renderer initialized\n");
+    sdl->textureCount = dataWin->txtr.count;
+    sdl->sdlTextures   = (SDL_Texture**)safeCalloc(sdl->textureCount, sizeof(SDL_Texture*));
+    sdl->textureWidths  = (int32_t*)safeCalloc(sdl->textureCount, sizeof(int32_t));
+    sdl->textureHeights = (int32_t*)safeCalloc(sdl->textureCount, sizeof(int32_t));
+    sdl->textureLoaded  = (bool*)safeCalloc(sdl->textureCount, sizeof(bool));
+
+    fprintf(stderr, "SDL: Renderer initialized (%u texture pages)\n", sdl->textureCount);
 }
 
 static void sdlDestroy(MAYBE_UNUSED Renderer* renderer) {
@@ -80,11 +185,24 @@ static void sdlEndFrameEnd(MAYBE_UNUSED Renderer* renderer) {
 
 // ===[ View / Camera ]===
 
-static void sdlBeginView(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t viewX, MAYBE_UNUSED int32_t viewY,
-                         MAYBE_UNUSED int32_t viewW, MAYBE_UNUSED int32_t viewH,
-                         MAYBE_UNUSED int32_t portX, MAYBE_UNUSED int32_t portY,
-                         MAYBE_UNUSED int32_t portW, MAYBE_UNUSED int32_t portH,
-                         MAYBE_UNUSED float viewAngle) {
+static void sdlBeginView(Renderer* renderer, int32_t viewX, int32_t viewY,
+                         int32_t viewW, int32_t viewH,
+                         int32_t portX, int32_t portY,
+                         int32_t portW, int32_t portH,
+                         float viewAngle) {
+    SDLRenderer* sdl = SDL(renderer);
+    sdl->currentViewX = (float)viewX;
+    sdl->currentViewY = (float)viewY;
+    sdl->currentViewW = (float)viewW;
+    sdl->currentViewH = (float)viewH;
+    sdl->currentViewAngle = viewAngle;
+    sdl->currentPortX = portX;
+    sdl->currentPortY = portY;
+    sdl->currentPortW = portW;
+    sdl->currentPortH = portH;
+
+    SDL_Rect portRect = { portX, portY, portW, portH };
+    SDL_SetRenderViewport(sdl->renderer, &portRect);
 }
 
 static void sdlEndView(MAYBE_UNUSED Renderer* renderer) {
@@ -177,10 +295,125 @@ static void sdlDrawTriangle(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED float 
 
 // ===[ Drawing: Text ]===
 
-static void sdlDrawText(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED const char* text,
-                        MAYBE_UNUSED float x, MAYBE_UNUSED float y,
-                        MAYBE_UNUSED float xscale, MAYBE_UNUSED float yscale,
-                        MAYBE_UNUSED float angleDeg, MAYBE_UNUSED float lineSeparation) {
+static void sdlDrawText(Renderer* renderer, const char* text,
+                        float x, float y,
+                        float xscale, float yscale,
+                        float angleDeg, float lineSeparation) {
+    SDLRenderer* sdl = SDL(renderer);
+    DataWin* dw = renderer->dataWin;
+
+    int32_t fontIndex = renderer->drawFont;
+    if (0 > fontIndex || dw->font.count <= (uint32_t) fontIndex) return;
+
+    Font* font = &dw->font.fonts[fontIndex];
+
+    int32_t fontTpagIndex = font->tpagIndex;
+    if (0 > fontTpagIndex) return;
+
+    TexturePageItem* fontTpag = &dw->tpag.items[fontTpagIndex];
+    int16_t pageId = fontTpag->texturePageId;
+    if (0 > pageId || sdl->textureCount <= (uint32_t) pageId) return;
+
+    ensureTextureLoaded(sdl, dw, (uint32_t) pageId);
+
+    SDL_Texture* tex = sdl->sdlTextures[pageId];
+    if (!tex) return;
+
+    float texW = (float) sdl->textureWidths[pageId];
+    float texH = (float) sdl->textureHeights[pageId];
+
+    uint32_t color = renderer->drawColor;
+    float r = (float) BGR_R(color) / 255.0f;
+    float g = (float) BGR_G(color) / 255.0f;
+    float b = (float) BGR_B(color) / 255.0f;
+
+    PreprocessedText pt = TextUtils_preprocessGmlText(text);
+    const char* str = pt.text;
+    int32_t textLen = (int32_t) strlen(str);
+    int32_t lineCount = TextUtils_countLines(str, textLen);
+
+    float lineStride = (0.0f > lineSeparation)
+        ? TextUtils_lineStride(font)
+        : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
+
+    float totalHeight = (float) lineCount * lineStride;
+    float valignOffset = 0;
+    if (renderer->drawValign == 1) valignOffset = -totalHeight / 2.0f;
+    else if (renderer->drawValign == 2) valignOffset = -totalHeight;
+
+    float angleRad = -angleDeg * ((float) M_PI / 180.0f);
+    Matrix4f transform;
+    Matrix4f_setTransform2D(&transform, x, y, xscale * font->scaleX, yscale * font->scaleY, angleRad);
+
+    float cursorY = valignOffset - (float) font->ascenderOffset;
+    int32_t lineStart = 0;
+
+    for (int32_t lineIdx = 0; lineCount > lineIdx; lineIdx++) {
+        int32_t lineEnd = lineStart;
+        while (textLen > lineEnd && !TextUtils_isNewlineChar(str[lineEnd])) lineEnd++;
+        int32_t lineLen = lineEnd - lineStart;
+
+        float lineWidth = TextUtils_measureLineWidth(font, str + lineStart, lineLen);
+        float halignOffset = 0;
+        if (renderer->drawHalign == 1) halignOffset = -lineWidth / 2.0f;
+        else if (renderer->drawHalign == 2) halignOffset = -lineWidth;
+
+        float cursorX = halignOffset;
+        int32_t pos = 0;
+
+        uint16_t ch = 0;
+        bool hasCh = false;
+        if (lineLen > pos) {
+            ch = TextUtils_decodeUtf8(str + lineStart, lineLen, &pos);
+            hasCh = true;
+        }
+
+        while (hasCh) {
+            FontGlyph* glyph = TextUtils_findGlyph(font, ch);
+
+            uint16_t nextCh = 0;
+            bool hasNext = lineLen > pos;
+            if (hasNext) nextCh = TextUtils_decodeUtf8(str + lineStart, lineLen, &pos);
+
+            if (glyph != nullptr) {
+                if (glyph->sourceWidth != 0 && glyph->sourceHeight != 0) {
+                    float u0 = (float) (fontTpag->sourceX + glyph->sourceX) / texW;
+                    float v0 = (float) (fontTpag->sourceY + glyph->sourceY) / texH;
+                    float u1 = (float) (fontTpag->sourceX + glyph->sourceX + glyph->sourceWidth) / texW;
+                    float v1 = (float) (fontTpag->sourceY + glyph->sourceY + glyph->sourceHeight) / texH;
+
+                    float localX0 = cursorX + glyph->offset;
+                    float localY0 = cursorY;
+                    float localX1 = localX0 + (float) glyph->sourceWidth;
+                    float localY1 = localY0 + (float) glyph->sourceHeight;
+
+                    float xs[4], ys[4];
+                    Matrix4f_transformPoint(&transform, localX0, localY0, &xs[0], &ys[0]);
+                    Matrix4f_transformPoint(&transform, localX1, localY0, &xs[1], &ys[1]);
+                    Matrix4f_transformPoint(&transform, localX1, localY1, &xs[2], &ys[2]);
+                    Matrix4f_transformPoint(&transform, localX0, localY1, &xs[3], &ys[3]);
+
+                    float us[4] = {u0, u1, u1, u0};
+                    float vs[4] = {v0, v0, v1, v1};
+
+                    emitColoredQuad(sdl, tex, xs, ys, us, vs, r, g, b, renderer->drawAlpha);
+                }
+
+                cursorX += glyph->shift;
+                if (hasNext) {
+                    cursorX += TextUtils_getKerningOffset(glyph, nextCh);
+                }
+            }
+
+            ch = nextCh;
+            hasCh = hasNext;
+        }
+
+        cursorY += lineStride;
+        if (textLen > lineEnd) lineStart = TextUtils_skipNewline(str, lineEnd, textLen);
+        else lineStart = lineEnd;
+    }
+    PreprocessedText_free(pt);
 }
 
 static void sdlDrawTextColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED const char* text,
@@ -511,8 +744,9 @@ static RendererVtable sdlVtable;
 
 // ===[ Public API ]===
 
-bool SDLRenderer_ensureTextureLoaded(MAYBE_UNUSED SDLRenderer* sdl, MAYBE_UNUSED uint32_t pageId) {
-    return false;
+bool SDLRenderer_ensureTextureLoaded(SDLRenderer* sdl, uint32_t pageId) {
+    if (pageId >= sdl->textureCount) return false;
+    return ensureTextureLoaded(sdl, sdl->base.dataWin, pageId);
 }
 
 Renderer* SDLRenderer_create(void) {
