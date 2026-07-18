@@ -290,6 +290,10 @@ bool platformHandleEvents(void) {
     return false;
 }
 
+void* platformGetWindow(void) {
+    return nullptr;
+}
+
 void platformSleepUntil(uint64_t time) {
     double remaining = ((int64_t)time - nowNanos()) / 1000000000.0;
     if (remaining > 0.002) // glfwSleep takes seconds as a double

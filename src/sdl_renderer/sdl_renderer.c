@@ -1,4 +1,5 @@
 #include "sdl_renderer.h"
+#include "platformdefs.h"
 #include "matrix_math.h"
 #include "text_utils.h"
 #include "utils.h"
@@ -14,9 +15,41 @@ static SDLRenderer* SDL(Renderer* r) {
     return (SDLRenderer*)r;
 }
 
+static uint32_t findOrAllocateSurfaceSlot(SDLRenderer* sdl) {
+    repeat(sdl->surfaceCount, i) {
+        if (sdl->surfaces[i] == nullptr)
+            return i;
+    }
+    uint32_t newIndex = sdl->surfaceCount++;
+    sdl->surfaces       = (SDL_Texture**)safeRealloc(sdl->surfaces,       sdl->surfaceCount * sizeof(SDL_Texture*));
+    sdl->surfaceTexture = (SDL_Texture**)safeRealloc(sdl->surfaceTexture, sdl->surfaceCount * sizeof(SDL_Texture*));
+    sdl->surfaceWidth   = (int32_t*)safeRealloc(sdl->surfaceWidth,        sdl->surfaceCount * sizeof(int32_t));
+    sdl->surfaceHeight  = (int32_t*)safeRealloc(sdl->surfaceHeight,       sdl->surfaceCount * sizeof(int32_t));
+    sdl->surfaces[newIndex]       = nullptr;
+    sdl->surfaceTexture[newIndex] = nullptr;
+    sdl->surfaceWidth[newIndex]   = 0;
+    sdl->surfaceHeight[newIndex]  = 0;
+    return newIndex;
+}
+
 // ===[ Lifecycle ]===
 
-static void sdlInit(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED DataWin* dataWin) {
+static void sdlInit(Renderer* renderer, DataWin* dataWin) {
+    renderer->dataWin = dataWin;
+    SDLRenderer* sdl = SDL(renderer);
+
+    sdl->window = (SDL_Window*)platformGetWindow();
+    sdl->renderer = SDL_CreateRenderer(sdl->window, NULL);
+    if (!sdl->renderer) {
+        fprintf(stderr, "SDL: Failed to create renderer: %s\n", SDL_GetError());
+        abort();
+    }
+
+    sdl->originalTexturePageCount = dataWin->txtr.count;
+    sdl->originalTpagCount = dataWin->tpag.count;
+    sdl->originalSpriteCount = dataWin->sprt.count;
+
+    fprintf(stderr, "SDL: Renderer initialized\n");
 }
 
 static void sdlDestroy(MAYBE_UNUSED Renderer* renderer) {
@@ -30,12 +63,19 @@ static void sdlBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int3
     sdl->gameH = gameH;
     sdl->windowW = windowW;
     sdl->windowH = windowH;
+
+    SDL_SetRenderTarget(sdl->renderer, NULL);
+    SDL_SetRenderDrawColor(sdl->renderer, 255, 0, 255, 255);
+    SDL_RenderClear(sdl->renderer);
 }
 
 static void sdlEndFrameInit(MAYBE_UNUSED Renderer* renderer) {
 }
 
 static void sdlEndFrameEnd(MAYBE_UNUSED Renderer* renderer) {
+    SDLRenderer* sdl = SDL(renderer);
+    SDL_SetRenderTarget(sdl->renderer, NULL);
+    SDL_RenderPresent(sdl->renderer);
 }
 
 // ===[ View / Camera ]===
@@ -157,8 +197,14 @@ static void sdlDrawTextColor(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED const
 static void sdlFlush(MAYBE_UNUSED Renderer* renderer) {
 }
 
-static void sdlClearScreen(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED uint32_t color,
-                           MAYBE_UNUSED float alpha) {
+static void sdlClearScreen(Renderer* renderer, uint32_t color, float alpha) {
+    SDLRenderer* sdl = SDL(renderer);
+    uint8_t r = BGR_R(color);
+    uint8_t g = BGR_G(color);
+    uint8_t b = BGR_B(color);
+    uint8_t a = (uint8_t)(alpha * 255.0f);
+    SDL_SetRenderDrawColor(sdl->renderer, r, g, b, a);
+    SDL_RenderClear(sdl->renderer);
 }
 
 // ===[ Sprite Management ]===
@@ -259,23 +305,51 @@ static void sdlDrawTiledPart(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32
 
 // ===[ Surface Functions ]===
 
-static int32_t sdlCreateSurface(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t width,
-                                MAYBE_UNUSED int32_t height) {
-    return -1;
+static int32_t sdlCreateSurface(Renderer* renderer, int32_t width, int32_t height) {
+    SDLRenderer* sdl = SDL(renderer);
+    uint32_t idx = findOrAllocateSurfaceSlot(sdl);
+
+    sdl->surfaceTexture[idx] = SDL_CreateTexture(
+        sdl->renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, width, height);
+    sdl->surfaces[idx] = sdl->surfaceTexture[idx];
+    sdl->surfaceWidth[idx] = width;
+    sdl->surfaceHeight[idx] = height;
+
+    fprintf(stderr, "SDL: Created surface %u with size (%dx%d)\n", idx, width, height);
+    return (int32_t)idx;
 }
 
-static bool sdlSurfaceExists(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID) {
-    return false;
+static bool sdlSurfaceExists(Renderer* renderer, int32_t surfaceID) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return false;
+    return sdl->surfaces[surfaceID] != nullptr;
 }
 
-static bool sdlSetRenderTarget(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
+static bool sdlSetRenderTarget(Renderer* renderer, int32_t surfaceID,
                                MAYBE_UNUSED bool implicitApplicationSurface) {
-    return false;
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return false;
+    if (sdl->surfaces[surfaceID] == nullptr) return false;
+    SDL_SetRenderTarget(sdl->renderer, sdl->surfaces[surfaceID]);
+    return true;
 }
 
-static int32_t sdlEnsureApplicationSurface(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t width,
-                                           MAYBE_UNUSED int32_t height) {
-    return -1;
+static int32_t sdlEnsureApplicationSurface(Renderer* renderer, int32_t width, int32_t height) {
+    SDLRenderer* sdl = SDL(renderer);
+    int32_t id = renderer->runner->applicationSurfaceId;
+
+    bool needsCreate = (id < 0) || ((uint32_t)id >= sdl->surfaceCount) || (sdl->surfaces[id] == nullptr);
+    if (needsCreate) {
+        id = sdlCreateSurface(renderer, width, height);
+        renderer->runner->applicationSurfaceId = id;
+        return id;
+    }
+
+    if (sdl->surfaceWidth[id] != width || sdl->surfaceHeight[id] != height) {
+        renderer->vtable->surfaceResize(renderer, id, width, height);
+    }
+    return id;
 }
 
 static float sdlGetSurfaceWidth(Renderer* renderer, int32_t surfaceID) {
@@ -310,11 +384,28 @@ static void sdlDrawSurfaceTiled(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED in
                                 MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha) {
 }
 
-static void sdlSurfaceResize(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID,
-                             MAYBE_UNUSED int32_t width, MAYBE_UNUSED int32_t height) {
+static void sdlSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width, int32_t height) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return;
+    if (sdl->surfaces[surfaceID]) SDL_DestroyTexture(sdl->surfaces[surfaceID]);
+    sdl->surfaces[surfaceID] = SDL_CreateTexture(
+        sdl->renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, width, height);
+    sdl->surfaceTexture[surfaceID] = sdl->surfaces[surfaceID];
+    sdl->surfaceWidth[surfaceID] = width;
+    sdl->surfaceHeight[surfaceID] = height;
 }
 
-static void sdlSurfaceFree(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t surfaceID) {
+static void sdlSurfaceFree(Renderer* renderer, int32_t surfaceID) {
+    SDLRenderer* sdl = SDL(renderer);
+    if (surfaceID < 0 || (uint32_t)surfaceID >= sdl->surfaceCount) return;
+    if (sdl->surfaces[surfaceID]) {
+        SDL_DestroyTexture(sdl->surfaces[surfaceID]);
+        sdl->surfaces[surfaceID] = nullptr;
+        sdl->surfaceTexture[surfaceID] = nullptr;
+        sdl->surfaceWidth[surfaceID] = 0;
+        sdl->surfaceHeight[surfaceID] = 0;
+    }
 }
 
 static void sdlSurfaceCopy(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t destSurfaceID,

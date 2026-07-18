@@ -20,13 +20,13 @@ typedef struct {
     bool fogEnable;
     uint32_t fogColor; // BGR
 
-    SDL_Texture* sdlTextures;       // one SDL texture per TXTR page
+    SDL_Texture** sdlTextures;       // one SDL texture per TXTR page
     int32_t* textureWidths;   // needed for UV normalization
     int32_t* textureHeights;
     bool* textureLoaded;      // lazy loading: true once PNG decoded and uploaded
     uint32_t textureCount;
 
-    SDL_Texture whiteTexture; // 1x1 white pixel for drawing primitives (rectangles, lines, etc.)
+    SDL_Texture* whiteTexture; // 1x1 white pixel for drawing primitives (rectangles, lines, etc.)
 
     int32_t windowW; // stored from beginFrame for endFrame blit
     int32_t windowH;
@@ -37,8 +37,8 @@ typedef struct {
     uint32_t originalTexturePageCount;
     uint32_t originalTpagCount;
     uint32_t originalSpriteCount;
-    SDL_Texture* surfaces;
-    SDL_Texture* surfaceTexture;
+    SDL_Texture** surfaces;
+    SDL_Texture** surfaceTexture;
     int32_t* surfaceWidth;
     int32_t* surfaceHeight;
     uint32_t surfaceCount;

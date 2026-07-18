@@ -514,6 +514,10 @@ bool platformHandleEvents(void) {
     return should_exit;
 }
 
+void* platformGetWindow(void) {
+    return window;
+}
+
 void platformSleepUntil(uint64_t time) {
     int64_t remaining = time - nowNanos();
     if (remaining > 0) {
