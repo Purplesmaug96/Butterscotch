@@ -65,7 +65,7 @@ static std::string postProcessHLSL(const std::string& code, bool isVertex) {
         std::string vertexAttrs =
             "struct VS_INPUT\n"
             "{\n";
-        
+
         // Check which attributes are used by looking at the static declarations
         if (result.find("_in_Position") != std::string::npos) {
             vertexAttrs += "    float3 in_Position : POSITION;\n";
@@ -77,7 +77,7 @@ static std::string postProcessHLSL(const std::string& code, bool isVertex) {
             vertexAttrs += "    float2 in_TextureCoord : TEXCOORD0;\n";
         }
         vertexAttrs += "};\n\n";
-        
+
         result.replace(pos, strlen("@@ VERTEX ATTRIBUTES @@"), vertexAttrs);
     }
 
@@ -161,6 +161,47 @@ static std::string postProcessHLSL(const std::string& code, bool isVertex) {
     return result;
 }
 
+// Workaround for ANGLE HLSL compiler: when gl_FragColor is fully assigned then
+// gl_FragColor.a is overwritten, ANGLE may incorrectly optimize away the RGB
+// computation of mix()/lerp().  Split into explicit .rgb and .a assignments.
+static std::string preprocessGLES(const std::string& source) {
+    std::string result = source;
+    // Find patterns like:  gl_FragColor = ... ;  followed by gl_FragColor.a = ... ;
+    size_t pos = 0;
+    bool foundAny = false;
+    while ((pos = result.find("gl_FragColor", pos)) != std::string::npos) {
+        foundAny = true;
+        size_t assignPos = result.find('=', pos);
+        if (assignPos == std::string::npos || assignPos - pos > 20) { pos++; continue; }
+        // Check this is a full assignment "gl_FragColor = expr;" not "gl_FragColor.a = ..."
+        size_t afterVar = pos + 11; // strlen("gl_FragColor")
+        while (afterVar < assignPos && (result[afterVar] == ' ' || result[afterVar] == '\t')) afterVar++;
+        if (afterVar < assignPos) { pos = assignPos + 1; continue; } // skip .a/.w/.rgb swizzled write
+        // Find the semicolon ending this statement
+        size_t semi = result.find(';', assignPos);
+        if (semi == std::string::npos) break;
+        // Check if the next statement is gl_FragColor.a =
+        size_t next = semi + 1;
+        while (next < result.size() && (result[next] == ' ' || result[next] == '\t' || result[next] == '\n' || result[next] == '\r')) next++;
+        if (next + 13 < result.size() &&
+            result.compare(next, 13, "gl_FragColor.") == 0 &&
+            (result[next + 13] == 'a' || result[next + 13] == 'w') &&
+            next + 14 < result.size() && result[next + 14] == ' ') {
+            // Found pattern: gl_FragColor = <expr> ;  gl_FragColor.a = ...
+            // Insert ".rgb" after the expression on the first line, before the semicolon
+            result.insert(semi, ".rgb");
+            pos = semi + 4; // skip past our insertion
+            fprintf(stderr, "preprocessGLES: MATCH - split gl_FragColor = ... ; gl_FragColor.<%c>\n", result[next + 13]);
+        } else {
+            pos = semi + 1;
+        }
+    }
+    if (!foundAny) {
+        fprintf(stderr, "preprocessGLES: NO gl_FragColor found in source (first 200 chars):\n%.200s\n", source.c_str());
+    }
+    return result;
+}
+
 // Translates GLSL ES source to the specified output format.
 // Returns the HLSL source string on success (caller must free), NULL on failure.
 static char* translateGLES(
@@ -216,14 +257,18 @@ static char* translateGLES(
     ShCompileOptions compileOptions = {};
     compileOptions.objectCode             = 1;
     compileOptions.initializeUninitializedLocals = true;
+    compileOptions.skipFoldExpressions          = true;
+    compileOptions.skipPruneNoOps               = false;
+    compileOptions.skipRemoveUnreferencedVariables = false;
 
     // For HLSL output, we want to select view in vertex shader disabled
     if (outputFormat == SH_HLSL_3_0_OUTPUT || outputFormat == SH_HLSL_4_1_OUTPUT) {
         compileOptions.selectViewInNvGLSLVertexShader = false;
     }
 
-    // Compile
-    const char* sourceStrings[] = { glesSource };
+    // Compile (with pre-processing to work around ANGLE HLSL bugs)
+    std::string preprocessed = preprocessGLES(glesSource);
+    const char* sourceStrings[] = { preprocessed.c_str() };
     bool compiled = sh::Compile(compiler, sourceStrings, 1, compileOptions);
 
     char* result = NULL;

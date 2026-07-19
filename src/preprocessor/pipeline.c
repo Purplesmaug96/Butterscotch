@@ -531,6 +531,11 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
     printf("Parsed: %u sprites, %u backgrounds, %u fonts, %u textures, %u TPAG items\n",
         dw->sprt.count, dw->bgnd.count, dw->font.count, dw->txtr.count, dw->tpag.count);
 
+    if (options->onlyShaders) {
+        printf("Only processing shaders (--only-shaders). Skipping texture/audio steps.\n");
+        goto process_shaders_only;
+    }
+
     bool gm2022_5 = DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0);
 
     // Decode texture pages as PixelImages
@@ -1039,6 +1044,8 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
     free(musSizes);
     free(sondIdxToAudoIndex);
 
+process_shaders_only:
+
     // Step 9: Process shaders (translate GLSL ES to HLSL9 for D3D9 platforms)
     printf("Processing shaders...\n");
     size_t shadersSize = 0;
@@ -1054,7 +1061,22 @@ ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options) {
         printf("  No shaders found in data.win\n");
     }
 
-    // Build the result
+    // Build the result (only shaders; everything else is zero)
+    ProcessingResult _result = {0};
+    const char* _gameName = dw->gen8.displayName ? dw->gen8.displayName : (dw->gen8.name ? dw->gen8.name : "GAME");
+    _result.gameName = safeStrdup(_gameName);
+    _result.shadersBin = shadersBin;
+    _result.shadersSize = shadersSize;
+
+    if (options->onlyShaders) {
+        printf("Done! (--only-shaders, only SHADERS.BIN was written)\n");
+        DataWin_free(dw);
+        return _result;
+    }
+
+	free(_result.gameName);
+
+    // Fall through to the normal path when --only-shaders is NOT active
     ProcessingResult result = {0};
     const char* gameName = dw->gen8.displayName ? dw->gen8.displayName : (dw->gen8.name ? dw->gen8.name : "GAME");
     result.gameName = safeStrdup(gameName);

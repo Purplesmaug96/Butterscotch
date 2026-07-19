@@ -185,12 +185,14 @@ static void usage(const char* prog) {
         "  --force-4bpp <regex>             Force images matching this POSIX regex to 4bpp. Repeatable.\n"
 		"  --no-music                       Disable preprocessing of music.\n"
         "  --force-translate-glsl-to-hlsl9  Force translation of GLSL ES shaders to HLSL9.\n"
+        "  --only-shaders                   Only process shaders, skip textures/audio.\n"
         "  -h, --help                       Show this help.\n",
         prog);
 }
 
 bool gForceTranslateGLSLESToHLSL9 = false; // global override for testing shader translation
 bool gDisableMusic = false;
+bool gOnlyShaders = false;
 
 
 int main(int argc, char** argv) {
@@ -222,6 +224,11 @@ int main(int argc, char** argv) {
         if (strcmp(a, "--force-translate-glsl-to-hlsl9") == 0) {
 			fprintf(stderr, "Shaders will always be translated to hlsl9 even if there is an already-existing hlsl9 shader in the data.win\n");
             gForceTranslateGLSLESToHLSL9 = true;
+            continue;
+        }
+        if (strcmp(a, "--only-shaders") == 0) {
+            printf("Only processing shaders.\n");
+            gOnlyShaders = true;
             continue;
         }
         if (a[0] == '-') {
@@ -276,6 +283,7 @@ int main(int argc, char** argv) {
         .musFileCount = musFileCount,
         .force4bppPatterns = force4bppPatterns,
         .force4bppPatternCount = (size_t) arrlen(force4bppPatterns),
+        .onlyShaders = gOnlyShaders,
     };
 
     ProcessingResult result = Pipeline_processDataWin(&opts);

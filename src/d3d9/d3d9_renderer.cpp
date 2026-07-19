@@ -898,6 +898,12 @@ static void flushBatch(D3D9Renderer* dr) {
 
 	// D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
 	if (quadCount > 0) {
+		if (renderer->currentShader >= 0 && renderer->dataWin &&
+			(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
+			strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+			fprintf(stderr, "D3D9: flushBatch %u quads batchSlot=%d tex=%p\n",
+				quadCount, batchSlot, desiredTex);
+		}
 		dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
 		dr->quadCount = 0;
 	}
@@ -991,6 +997,18 @@ static void flushBatch(D3D9Renderer* dr) {
 	// Generate a temporary index buffer for quad->triangle conversion.
 	// Each quad (4 vertices) maps to 2 triangles (6 indices): {0,1,2, 2,3,0}
 	if (quadCount > 0) {
+		if (renderer->currentShader >= 0 && renderer->dataWin &&
+			(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
+			strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+			IDirect3DBaseTexture9* tex0 = nullptr;
+			IDirect3DBaseTexture9* tex1 = nullptr;
+			dev->GetTexture(0, &tex0);
+			dev->GetTexture(1, &tex1);
+			fprintf(stderr, "D3D9: flushBatch %u quads batchSlot=%d batchTex=%p texIdx=%d | stage0=%p stage1=%p\n",
+				quadCount, batchSlot, desiredTex, dr->currentTextureIndex, tex0, tex1);
+			if (tex0) tex0->Release();
+			if (tex1) tex1->Release();
+		}
 		uint32_t totalIndices = quadCount * 6;
 		uint16_t* indices = (uint16_t*)safeMalloc(totalIndices * sizeof(uint16_t));
 		if (indices) {
@@ -2560,7 +2578,12 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 	uint32_t nextSamplerSlot = 0;
 	for (uint32_t i = 0; i < gmlShader->uniformCount; i++) {
 		if (gmlShader->uniforms[i].isSampler) {
-			gmlShader->uniforms[i].samplerSlot = nextSamplerSlot++;
+			gmlShader->uniforms[i].samplerSlot = nextSamplerSlot;
+			fprintf(stderr, "D3D9:   sampler[%u] '%s' registerIndex=%d -> assigned slot=%d (isVertex=%d)\n",
+				nextSamplerSlot, gmlShader->uniforms[i].name,
+				gmlShader->uniforms[i].registerIndex,
+				nextSamplerSlot, gmlShader->uniforms[i].isVertex);
+			nextSamplerSlot++;
 			// For samplers, set up the device to use that slot
 			dev->SetVertexShaderConstantF(gmlShader->uniforms[i].registerIndex, nullptr, 0);
 		}
@@ -3282,6 +3305,13 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+
+	if (renderer->currentShader >= 0 && renderer->dataWin &&
+		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
+		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+		fprintf(stderr, "D3D9: drawSprite color=BGR(0x%06X) alpha=%.3f -> RGBA(%.3f,%.3f,%.3f,%.3f) pos=(%.1f,%.1f) scale=(%.2f,%.2f)\n",
+			color, alpha, cr, cg, cb, ca, x, y, xscale, yscale);
+	}
 
 	// Build 4 corners
 	float cx[4], cy[4];
@@ -6276,10 +6306,15 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 
 	// Set built-in uniforms
 	if (dr->base.dataWin && (uint32_t)shaderIndex < dr->base.dataWin->shdr.count) {
-		fprintf(stderr, "D3D9: gpuSetShader %s uniforms:", dr->base.dataWin->shdr.shaders[shaderIndex].name);
-		for (uint32_t ui = 0; ui < shader->uniformCount; ui++)
-			fprintf(stderr, " %s%s", shader->uniforms[ui].name, shader->uniforms[ui].isSampler ? "(s)" : "");
-		fprintf(stderr, "\n");
+		const char* sname = dr->base.dataWin->shdr.shaders[shaderIndex].name;
+		fprintf(stderr, "D3D9: gpuSetShader %s uniforms (%u total):\n", sname, shader->uniformCount);
+		for (uint32_t ui = 0; ui < shader->uniformCount; ui++) {
+			D3D9ShaderUniform* u = &shader->uniforms[ui];
+			fprintf(stderr, "D3D9:   [%u] %s reg=%d slot=%d %s%s\n",
+				ui, u->name, u->registerIndex, u->samplerSlot,
+				u->isSampler ? "sampler " : "",
+				u->isVertex ? "VS" : "PS");
+		}
 	}
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
 	if (gmMatrices != nullptr) {
@@ -6459,8 +6494,14 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 	IDirect3DDevice9* dev = Dev(dr);
 	float values[4] = { value1, value2, value3, value4 };
-	if (strcmp(u->name, "time") == 0)
-		fprintf(stderr, "D3D9: setting time uniform = %.6f (handle=%d, reg=%u, count=%u)\n", value1, handle, u->registerIndex, u->registerCount);
+	if (renderer->currentShader >= 0 && renderer->dataWin &&
+		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
+		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+		fprintf(stderr, "D3D9: setUniform '%s' = {%.6f, %.6f, %.6f, %.6f} (handle=%d, reg=%d, count=%u, %s)\n",
+			u->name, values[0], values[1], values[2], values[3],
+			handle, u->registerIndex, u->registerCount,
+			u->isVertex ? "VS" : "PS");
+	}
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
 		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
@@ -6718,9 +6759,9 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 		return;
 	}
 
-	if (slot == 1 || (renderer->currentShader >= 0 && dr->base.dataWin &&
-		(uint32_t)renderer->currentShader < dr->dataWin->shdr.count &&
-		strcmp(dr->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0)) {
+	if (slot == 1 || (renderer->currentShader >= 0 && renderer->dataWin &&
+		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
+		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0)) {
 		fprintf(stderr, "D3D9: textureSetStage slot=%d texID=%u\n", slot, texID);
 	}
 

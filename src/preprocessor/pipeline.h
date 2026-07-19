@@ -39,6 +39,7 @@ typedef struct {
     size_t musFileCount;
     char** force4bppPatterns; // POSIX regex patterns
     size_t force4bppPatternCount;
+    bool onlyShaders; // If true, skip all processing except shader translation
 } ProcessingOptions;
 
 ProcessingResult Pipeline_processDataWin(const ProcessingOptions* options);
