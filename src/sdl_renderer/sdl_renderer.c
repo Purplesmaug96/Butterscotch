@@ -121,15 +121,18 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].color.a = a[i];
     }
 
-	// TODO: Implement cache, this will surely tremendously increase performance
-	if (sdl->fogEnable && tex != nullptr) {
-		tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+	if (sdl->fogEnable) {
+		if (sdl->preFogTex != tex && tex != nullptr) {
+			sdl->preFogTex = tex;
+			tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+			if (sdl->fogTex) SDL_DestroyTexture(sdl->fogTex);
+			sdl->fogTex = tex;
+		}
+		else if (sdl->preFogTex == tex) tex = sdl->fogTex;
 	}
 
     int indices[6] = {0, 1, 2, 2, 3, 0};
     SDL_RenderGeometry(sdl->renderer, tex, verts, 4, indices, 6);
-
-	if (sdl->fogEnable && tex != nullptr) SDL_DestroyTexture(tex);
 }
 
 static void emitColoredQuad(SDLRenderer* sdl, SDL_Texture* tex, float x[4], float y[4], float u[4], float v[4], float r, float g, float b, float a) {
@@ -157,15 +160,18 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
         verts[i].color.a = a[i];
     }
 
-	// TODO: Implement cache, this will surely tremendously increase performance
-	if (sdl->fogEnable && tex != nullptr) {
-		tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+	if (sdl->fogEnable) {
+		if (sdl->preFogTex != tex && tex != nullptr) {
+			sdl->preFogTex = tex;
+			tex = CreateWhiteTextureCopy(sdl->renderer, tex);
+			if (sdl->fogTex) SDL_DestroyTexture(sdl->fogTex);
+			sdl->fogTex = tex;
+		}
+		else if (sdl->preFogTex == tex) tex = sdl->fogTex;
 	}
 
     int indices[3] = {0, 1, 2};
     SDL_RenderGeometry(sdl->renderer, tex, verts, 3, indices, 3);
-
-	if (sdl->fogEnable && tex != nullptr) SDL_DestroyTexture(tex);
 }
 
 // Lazy-load a texture on demand when it's first needed
@@ -248,6 +254,8 @@ static void sdlDestroy(Renderer* renderer) {
     SDLRenderer* sdl = SDL(renderer);
 
     if (sdl->whiteTexture) SDL_DestroyTexture(sdl->whiteTexture);
+
+	if (sdl->fogTex) SDL_DestroyTexture(sdl->fogTex);
 
     if (sdl->sdlTextures) {
         repeat(sdl->textureCount, i) {
@@ -1971,6 +1979,8 @@ Renderer* SDLRenderer_create(void) {
     sdl->colorWriteA     = true;
     sdl->fogEnable       = false;
     sdl->fogColor        = 0;
+	sdl->preFogTex       = nullptr;
+	sdl->fogTex          = nullptr;
 
     sdl->windowW = 0;
     sdl->windowH = 0;

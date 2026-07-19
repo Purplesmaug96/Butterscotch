@@ -19,6 +19,8 @@ typedef struct {
     bool colorWriteR, colorWriteG, colorWriteB, colorWriteA;
     bool fogEnable;
     uint32_t fogColor; // BGR
+	SDL_Texture* preFogTex;
+	SDL_Texture* fogTex;
 
     SDL_Texture** sdlTextures;       // one SDL texture per TXTR page
     int32_t* textureWidths;   // needed for UV normalization
