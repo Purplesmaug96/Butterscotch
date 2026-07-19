@@ -110,11 +110,8 @@ static void emitQuad(SDLRenderer* sdl, SDL_Texture* tex,
     SDL_Vertex verts[4];
 
     for (int i = 0; i < 4; i++) {
-        float vx, vy;
-        transformWorldToView(sdl, x[i], y[i], &vx, &vy);
+        transformWorldToView(sdl, x[i], y[i], &verts[i].position.x, &verts[i].position.y);
 
-        verts[i].position.x = vx;
-        verts[i].position.y = vy;
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
@@ -149,11 +146,8 @@ static void emitTri(SDLRenderer* sdl, SDL_Texture* tex,
     SDL_Vertex verts[3];
 
     for (int i = 0; i < 3; i++) {
-        float vx, vy;
-        transformWorldToView(sdl, x[i], y[i], &vx, &vy);
+        transformWorldToView(sdl, x[i], y[i], &verts[i].position.x, &verts[i].position.x);
 
-        verts[i].position.x = vx;
-        verts[i].position.y = vy;
         verts[i].tex_coord.x = u[i];
         verts[i].tex_coord.y = v[i];
 
