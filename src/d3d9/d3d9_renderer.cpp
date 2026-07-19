@@ -980,6 +980,11 @@ static void flushBatch(D3D9Renderer* dr) {
 		dr->boundTextureIndex = dr->currentTextureIndex;
 		dr->boundTexturePtr = desiredTex;
 		dr->boundTextureSlot = batchSlot;
+		if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->dataWin->shdr.count &&
+			strcmp(dr->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+			fprintf(stderr, "D3D9: flushBatch bound texture=%p slot=%d (texIdx=%d)\n",
+				desiredTex, batchSlot, dr->currentTextureIndex);
+		}
 	}
 
 	// Submit all quads in a single indexed draw call instead of per-quad TRIANGLESTRIP.
@@ -6194,6 +6199,8 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		// Only patch shaders that use _v_vPosition in the VS
 		const char* oldPat = "(_v_vPosition = vec2_ctor(_in_Position.x, _in_Position.y));";
 		const char* vsPos = strstr(vertexShaderSource, oldPat);
+		fprintf(stderr, "D3D9: _v_vPosition pattern %s in %s\n",
+			vsPos ? "FOUND" : "NOT FOUND", shdr->name);
 		if (vsPos) {
 			size_t patOff = (size_t)(vsPos - vertexShaderSource);
 			size_t oldLen = strlen(vertexShaderSource);
@@ -6359,6 +6366,8 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			float offX = dr->offsetX - dr->portOffsetX * invSx;
 			float offY = dr->offsetY - dr->portOffsetY * invSy;
 			float v[4] = {invSx, invSy, offX, offY};
+			fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
+				u->registerIndex, v[0], v[1], v[2], v[3]);
 			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
 		}
 	}
@@ -6707,6 +6716,12 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 
 	if (slot < 0 || slot >= 8) {
 		return;
+	}
+
+	if (slot == 1 || (renderer->currentShader >= 0 && dr->base.dataWin &&
+		(uint32_t)renderer->currentShader < dr->dataWin->shdr.count &&
+		strcmp(dr->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0)) {
+		fprintf(stderr, "D3D9: textureSetStage slot=%d texID=%u\n", slot, texID);
 	}
 
 	IDirect3DDevice9* dev = Dev(dr);
