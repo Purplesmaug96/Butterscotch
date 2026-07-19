@@ -1,6 +1,7 @@
 #include "gl_legacy_renderer.h"
 #include "matrix_math.h"
 #include "text_utils.h"
+#include "gl_wrappers.h"
 
 
 #ifdef PLATFORM_PS3
@@ -45,6 +46,15 @@ static inline int32_t nextPow2(int32_t v) {
     return r;
 }
 
+#include "stb_image.h"
+#include "stb_ds.h"
+#include "utils.h"
+#include "image_decoder.h"
+#include "gl_common.h"
+#include "gl_wrappers.h"
+
+// ===[ Runtime OpenGL extension checks ]===
+
 // Checks whether an OpenGL extension is available. Uses the modern
 // (glGetStringi + GL_NUM_EXTENSIONS) path when glGetStringi is non-null
 // (GL 3.0+), otherwise falls back to the legacy glGetString(GL_EXTENSIONS)
@@ -72,23 +82,13 @@ static bool hasGLExtension(const char* name) {
 }
 #endif
 
-#include "stb_image.h"
-#include "stb_ds.h"
-#include "utils.h"
-#include "image_decoder.h"
-#include "gl_common.h"
-
-// ===[ Runtime OpenGL extension checks ]===
-
 static bool hasFBO() {
 #ifdef PLATFORM_PS3
     return true;
 #else
-    return (glGenFramebuffers || (glGenFramebuffersEXT && glBlitFramebufferEXT));
+    return (glGenFramebuffers && glBlitFramebuffer);
 #endif
 }
-
-#include "gl_wrappers.h"
 
 // ===[ Helpers ]===
 
@@ -143,6 +143,10 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
         fprintf(stderr, "GL: The legacy-gl renderer requires FBO support!\n");
         abort();
     }
+
+#ifndef PLATFORM_PS3
+    gl_init_wrappers();
+#endif
 
     // GL 2.0+ has NPOT textures as core; older GL (1.x) may or may not have
     // GL_ARB_texture_non_power_of_two. Only round up to power-of-two on GPUs
