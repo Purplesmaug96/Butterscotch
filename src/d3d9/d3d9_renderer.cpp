@@ -6754,12 +6754,6 @@ static void d3d9TextureSetStage(Renderer* renderer, int32_t slot, uint32_t texID
 		return;
 	}
 
-	if (slot == 1 || (renderer->currentShader >= 0 && renderer->dataWin &&
-		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
-		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0)) {
-		fprintf(stderr, "D3D9: textureSetStage slot=%d texID=%u\n", slot, texID);
-	}
-
 	IDirect3DDevice9* dev = Dev(dr);
 
 	dr->renderStateDirty = true;
