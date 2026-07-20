@@ -2737,7 +2737,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	// Initialize GML shader support — compile lazily on first use
 #ifndef D3D9_DISABLE_SHADERS
-	dr->gmlShaders = (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader));
+	dr->gmlShaders = dataWin->shdr.count > 0 ? (D3D9GMLShader*)safeCalloc(dataWin->shdr.count, sizeof(D3D9GMLShader)) : nullptr;
 	dr->gmlShaderCount = dataWin->shdr.count;
 	fprintf(stderr, "D3D9: %u Shaders found (will compile on demand)\n", dataWin->shdr.count);
 #else
@@ -6271,6 +6271,7 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return;
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		renderer->currentShader = -1;
 		return;
@@ -6409,6 +6410,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 
 static void d3d9GpuResetShader(Renderer* renderer) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return;
 	flushBatch(dr);
 	setShaders(dr, dr->pVertexShader, dr->pPixelShader);
 
@@ -6420,6 +6422,7 @@ static void d3d9GpuResetShader(Renderer* renderer) {
 
 static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return -1;
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		return -1;
 	}
@@ -6443,6 +6446,7 @@ static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, cha
 
 static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return -1;
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		return -1;
 	}
@@ -6465,6 +6469,7 @@ static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex
 
 static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return;
 	if (handle <= 0) {
 		return;
 	}
@@ -6507,6 +6512,7 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return;
 	if (handle <= 0) {
 		return;
 	}
@@ -6543,6 +6549,7 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
 
 static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float* values, uint32_t count) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
+	if (dr->gmlShaderCount == 0) return;
 	if (handle <= 0) {
 		return;
 	}
