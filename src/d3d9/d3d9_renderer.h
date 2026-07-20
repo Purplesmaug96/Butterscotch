@@ -25,7 +25,8 @@
 // #define D3D9_DISABLE_SHADERS
 
 // 2bpp instead of 4
-#define D3D9_USE_16BIT_TEXTURES
+// Helps on xenia, but not real hw?
+// #define D3D9_USE_16BIT_TEXTURES
 
 typedef struct {
 	char* name;			   // owned
