@@ -181,11 +181,7 @@ static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, flo
 	uint8_t g = floatToByteClamped(cg);
 	uint8_t b = floatToByteClamped(cb);
 	uint8_t a = floatToByteClamped(ca);
-	// D3DCOLOR_ARGB packs as a<<24 | r<<16 | g<<8 | b; in little-endian memory this
-	// is byte[0]=b, [1]=g, [2]=r, [3]=a. D3DDECLTYPE_D3DCOLOR expands byte[0] as RED,
-	// so the default D3DCOLOR_ARGB(a,r,g,b) produces (B,G,R,A) vertex color.
-	// Swap r↔b so vertex shader receives (R,G,B,A) matching GL's RGBA convention.
-	sv->color = D3DCOLOR_ARGB(a, b, g, r);
+	sv->color = D3DCOLOR_ARGB(a, r, g, b);
 }
 
 // ===[ HLSL Shader Source ]===
@@ -3334,11 +3330,10 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		transformPoint(dr, x + cx[i], y + cy[i], &sx, &sy);
 		v[i].x = sx - 0.5f;
 		v[i].y = sy - 0.5f;
-		// D3DCOLOR_ARGB(a,r,g,b) produces (B,G,R,A); swap r↔b for (R,G,B,A).
 		v[i].color = D3DCOLOR_ARGB(floatToByteClamped(ca),
-			floatToByteClamped(cb),
+			floatToByteClamped(cr),
 			floatToByteClamped(cg),
-			floatToByteClamped(cr));
+			floatToByteClamped(cb));
 	}
 	v[0].u = u0;
 	v[0].v = v0;
@@ -3941,21 +3936,21 @@ SpriteVertex* v = allocQuad(dr);
 					}
 					// Per-vertex colors: TL=0, TR=1, BR=2, BL=3
 					v[0].color = D3DCOLOR_ARGB(floatToByteClamped(vTLa),
-						floatToByteClamped(vTLb),
+						floatToByteClamped(vTLr),
 						floatToByteClamped(vTLg),
-						floatToByteClamped(vTLr));
+						floatToByteClamped(vTLb));
 					v[1].color = D3DCOLOR_ARGB(floatToByteClamped(vTRa),
-						floatToByteClamped(vTRb),
+						floatToByteClamped(vTRr),
 						floatToByteClamped(vTRg),
-						floatToByteClamped(vTRr));
+						floatToByteClamped(vTRb));
 					v[2].color = D3DCOLOR_ARGB(floatToByteClamped(vBRa),
-						floatToByteClamped(vBRb),
+						floatToByteClamped(vBRr),
 						floatToByteClamped(vBRg),
-						floatToByteClamped(vBRr));
+						floatToByteClamped(vBRb));
 					v[3].color = D3DCOLOR_ARGB(floatToByteClamped(vBLa),
-						floatToByteClamped(vBLb),
+						floatToByteClamped(vBLr),
 						floatToByteClamped(vBLg),
-						floatToByteClamped(vBLr));
+						floatToByteClamped(vBLb));
 					v[0].u = gU0;
 					v[0].v = gV0;
 					v[1].u = gU1;
