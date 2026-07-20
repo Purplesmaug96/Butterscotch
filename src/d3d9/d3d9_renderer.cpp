@@ -369,6 +369,35 @@ void d3d9ReleaseStagingTexture(void) {
 	gStagingW = 0;
 	gStagingH = 0;
 }
+
+// Allocate a WC-backed GPU texture using XGSetTextureHeader + XPhysicalAlloc.
+// Returns the D3D texture (must be freed with 'delete', not Release())
+// and writes the WC memory pointer to *outWCAlloc (freed with XPhysicalFree).
+// Returns nullptr on failure.
+static IDirect3DTexture9* createXGTexture(uint32_t w, uint32_t h, D3DFORMAT fmt, void** outWCAlloc) {
+	IDirect3DTexture9* tex = new IDirect3DTexture9;
+	if (!tex) return nullptr;
+
+	UINT size = XGSetTextureHeader(
+		D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1,
+		D3DUSAGE_CPU_CACHED_MEMORY,
+		fmt,
+		D3DPOOL_DEFAULT,
+		0,
+		XGHEADER_CONTIGUOUS_MIP_OFFSET,
+		0,
+		tex, nullptr, nullptr);
+
+	void* wcMem = XPhysicalAlloc(size, MAXULONG_PTR, 0, PAGE_READWRITE);
+	if (!wcMem) {
+		delete tex;
+		return nullptr;
+	}
+
+	XGOffsetResourceAddress(tex, wcMem);
+	*outWCAlloc = wcMem;
+	return tex;
+}
 #endif
 
 static DWORD gmlBlendFactorToD3D(int32_t factor) {
@@ -1113,7 +1142,15 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
 	}
 
 	if (dr->textures[index] != nullptr) {
+#ifdef PLATFORM_XBOX360_XDK
+		if (dr->textureWCAlloc && dr->textureWCAlloc[index]) {
+			XPhysicalFree(dr->textureWCAlloc[index]);
+			dr->textureWCAlloc[index] = nullptr;
+		}
+		delete (IDirect3DTexture9*)dr->textures[index];
+#else
 		((IDirect3DTexture9*)dr->textures[index])->Release();
+#endif
 	}
 	dr->textureBytesUsed -= dr->textureBlobSizes[index];
 	dr->textureWidths[index] = 0;
@@ -1617,6 +1654,18 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 
+#ifdef PLATFORM_XBOX360_XDK
+	void* wcAlloc = nullptr;
+	tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	if (!tex) {
+		Butterscotch_xdkDiagTrace("D3D9: async createXGTexture failed page=%u %dx%d", textureIndex, w, h);
+		stbi_image_free(pixels);
+		dr->texturePendingRGBA[textureIndex] = nullptr;
+		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+		return false;
+	}
+	dr->textureWCAlloc[textureIndex] = wcAlloc;
+#else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
@@ -1625,10 +1674,18 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
 		return false;
 	}
+#endif
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, (int32_t)w, (int32_t)h)) {
+#ifdef PLATFORM_XBOX360_XDK
+		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u", textureIndex);
+		delete tex;
+		XPhysicalFree(dr->textureWCAlloc[textureIndex]);
+		dr->textureWCAlloc[textureIndex] = nullptr;
+#else
 		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
 		tex->Release();
+#endif
 		stbi_image_free(pixels);
 		dr->texturePendingRGBA[textureIndex] = nullptr;
 		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
@@ -1791,10 +1848,12 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 				ensureTextureCacheRoom(dr);
 				IDirect3DDevice9* dev = Dev(dr);
 				IDirect3DTexture9* tex = nullptr;
-				HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
-				if (SUCCEEDED(hr) && tex) {
+				void* wcAlloc = nullptr;
+				tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+				if (tex) {
 					if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
 						dr->textures[textureIndex] = tex;
+						dr->textureWCAlloc[textureIndex] = wcAlloc;
 						dr->textureWidths[textureIndex] = w;
 						dr->textureHeights[textureIndex] = h;
 						dr->textureBlobSizes[textureIndex] = D3D9_GPU_MEM_SIZE(w, h);
@@ -1806,7 +1865,8 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 						free(rgba);
 						return true;
 					}
-					tex->Release();
+					delete tex;
+					XPhysicalFree(wcAlloc);
 				}
 				free(rgba);
 			}
@@ -1954,16 +2014,34 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 
+#ifdef PLATFORM_XBOX360_XDK
+	void* wcAlloc = nullptr;
+	tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	if (!tex) {
+		Butterscotch_xdkDiagTrace("D3D9: createXGTexture failed page=%u %dx%d", index, w, h);
+		stbi_image_free(pixels);
+		return false;
+	}
+	dr->textureWCAlloc[index] = wcAlloc;
+#else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
 		stbi_image_free(pixels);
 		return false;
 	}
+#endif
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, w, h)) {
+#ifdef PLATFORM_XBOX360_XDK
+		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u", index);
+		delete tex;
+		XPhysicalFree(dr->textureWCAlloc[index]);
+		dr->textureWCAlloc[index] = nullptr;
+#else
 		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u hr=0x%08X", index, (unsigned)hr);
 		tex->Release();
+#endif
 		stbi_image_free(pixels);
 		return false;
 	}
@@ -2674,18 +2752,37 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	int whiteW = 1, whiteH = 1;
 #endif
 	IDirect3DTexture9* whiteTex = nullptr;
+#ifdef PLATFORM_XBOX360_XDK
+	void* whiteWCAlloc = nullptr;
+	whiteTex = createXGTexture(whiteW, whiteH, D3D9_GPU_TEXTURE_FORMAT, &whiteWCAlloc);
+	if (!whiteTex) {
+		fprintf(stderr, "D3D9 Error: Failed to create white texture via XG!\n");
+	}
+#else
 	HRESULT hrTex = dev->CreateTexture(whiteW, whiteH, 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &whiteTex, nullptr);
-	if (SUCCEEDED(hrTex) && whiteTex) {
+	if (FAILED(hrTex) || !whiteTex) {
+		fprintf(stderr, "D3D9 Error: Failed to create white texture! HRESULT: 0x%08x\n",
+				static_cast<unsigned int>(hrTex));
+	}
+#endif
+	if (whiteTex) {
 		uint8_t whitePixel[4 * 4 * 4] = { 0 };
 		memset(whitePixel, 255, sizeof(whitePixel));
 		if (!uploadRgbaToTexture(dev, whiteTex, whitePixel, whiteW, whiteH)) {
-			fprintf(stderr, "D3D9 Error: Failed to fill 1x1 white texture.\n");
+			fprintf(stderr, "D3D9 Error: Failed to fill white texture.\n");
+#ifdef PLATFORM_XBOX360_XDK
+			delete whiteTex;
+			XPhysicalFree(whiteWCAlloc);
+			whiteTex = nullptr;
+			whiteWCAlloc = nullptr;
+#else
 			whiteTex->Release();
 			whiteTex = nullptr;
+#endif
 		}
-	} else {
-		fprintf(stderr, "D3D9 Error: Failed to create white texture! HRESULT: 0x%08x\n",
-				static_cast<unsigned int>(hrTex));
+#ifdef PLATFORM_XBOX360_XDK
+		dr->whiteTextureWCAlloc = whiteWCAlloc;
+#endif
 	}
 	dr->whiteTexture = whiteTex;
 
@@ -2696,6 +2793,9 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	dr->textureHeights = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
 	dr->textureBlobSizes = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
 	dr->textureLastUsedFrame = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
+#ifdef PLATFORM_XBOX360_XDK
+	dr->textureWCAlloc = (void**)safeCalloc(dr->textureCount, sizeof(void*));
+#endif
 	dr->loadedTexturePages = 0;
 	dr->frameCounter = 1;
 	Butterscotch_xdkDiagTrace("D3D9: texture pages will be loaded lazily count=%u", dr->textureCount);
@@ -2833,10 +2933,21 @@ static void d3d9Destroy(Renderer* renderer) {
 
 	for (uint32_t i = 0; i < dr->textureCount; i++) {
 		if (dr->textures[i]) {
+#ifdef PLATFORM_XBOX360_XDK
+			if (dr->textureWCAlloc && dr->textureWCAlloc[i]) {
+				XPhysicalFree(dr->textureWCAlloc[i]);
+				dr->textureWCAlloc[i] = nullptr;
+			}
+			delete (IDirect3DTexture9*)dr->textures[i];
+#else
 			((IDirect3DTexture9*)dr->textures[i])->Release();
+#endif
 		}
 	}
 	free(dr->textures);
+#ifdef PLATFORM_XBOX360_XDK
+	free(dr->textureWCAlloc);
+#endif
 	free(dr->textureWidths);
 	free(dr->textureHeights);
 	free(dr->textureBlobSizes);
@@ -2848,7 +2959,15 @@ static void d3d9Destroy(Renderer* renderer) {
 	free(dr->texturePendingByteSize);
 	free(dr->vertexData);
 	if (dr->whiteTexture) {
+#ifdef PLATFORM_XBOX360_XDK
+		if (dr->whiteTextureWCAlloc) {
+			XPhysicalFree(dr->whiteTextureWCAlloc);
+			dr->whiteTextureWCAlloc = nullptr;
+		}
+		delete (IDirect3DTexture9*)dr->whiteTexture;
+#else
 		((IDirect3DTexture9*)dr->whiteTexture)->Release();
+#endif
 	}
 #ifdef PLATFORM_XBOX360_XDK
 	d3d9ReleaseStagingTexture();
@@ -4134,14 +4253,30 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	IDirect3DDevice9* dev = Dev(dr);
 
 	IDirect3DTexture9* tex = nullptr;
+#ifdef PLATFORM_XBOX360_XDK
+	void* wcAlloc = nullptr;
+	tex = createXGTexture(srcW, srcH, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	if (!tex) {
+		free(rgba);
+		return -1;
+	}
+	dr->textureWCAlloc[pageId] = wcAlloc;
+#else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(srcW), D3D9_ALIGN4(srcH), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
 		free(rgba);
 		return -1;
 	}
+#endif
 
 	if (!uploadRgbaToTexture(dev, tex, rgba, srcW, srcH)) {
+#ifdef PLATFORM_XBOX360_XDK
+		delete tex;
+		XPhysicalFree(dr->textureWCAlloc[pageId]);
+		dr->textureWCAlloc[pageId] = nullptr;
+#else
 		tex->Release();
+#endif
 		free(rgba);
 		return -1;
 	}
@@ -4248,7 +4383,15 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 	// Release dynamic D3D texture page.
 	flushBatch(dr);
 	if (dr->textures[pageId]) {
+#ifdef PLATFORM_XBOX360_XDK
+		if (dr->textureWCAlloc && dr->textureWCAlloc[pageId]) {
+			XPhysicalFree(dr->textureWCAlloc[pageId]);
+			dr->textureWCAlloc[pageId] = nullptr;
+		}
+		delete (IDirect3DTexture9*)dr->textures[pageId];
+#else
 		((IDirect3DTexture9*)dr->textures[pageId])->Release();
+#endif
 		dr->textures[pageId] = nullptr;
 		dr->textureWidths[pageId] = 0;
 		dr->textureHeights[pageId] = 0;

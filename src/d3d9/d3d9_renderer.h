@@ -90,6 +90,10 @@ typedef struct {
 	int32_t* textureHeights;
 	uint32_t* textureBlobSizes;
 	uint32_t* textureLastUsedFrame;
+#ifdef PLATFORM_XBOX360_XDK
+	// XPhysicalAlloc'd WC memory for XGSetTextureHeader-backed textures (parallel to textures[])
+	void** textureWCAlloc;
+#endif
 	uint32_t frameCounter;
 	uint32_t loadedTexturePages;
 	uint32_t textureBytesUsed;
@@ -97,6 +101,9 @@ typedef struct {
 
 	// 1x1 white texture for primitives
 	void* whiteTexture;
+#ifdef PLATFORM_XBOX360_XDK
+	void* whiteTextureWCAlloc; // XPhysicalAlloc'd memory for whiteTexture
+#endif
 
 	// View transform state
 	float portScaleX, portScaleY;	// portW/viewW, portH/viewH
