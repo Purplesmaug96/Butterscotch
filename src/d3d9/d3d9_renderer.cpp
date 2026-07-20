@@ -118,6 +118,15 @@ static int32_t* gGameH = &_gGameH;
 #define D3D9_ALIGN4(n) (n)
 #endif
 
+// Approximate GPU memory used by one texture (in bytes).
+// Used for cache-budget tracking in textureBlobSizes/textureBytesUsed.
+#ifdef PLATFORM_XBOX360_XDK
+// DXT5: 1 byte per pixel on aligned dimensions (1 BPP vs 4 for RGBA)
+#define D3D9_GPU_MEM_SIZE(w, h) ((uint32_t)(D3D9_ALIGN4(w) * D3D9_ALIGN4(h)))
+#else
+#define D3D9_GPU_MEM_SIZE(w, h) ((uint32_t)((int32_t)(w) * (int32_t)(h) * 4))
+#endif
+
 float _offx = 0.0f;
 
 #include "stb_ds.h"
@@ -1635,9 +1644,8 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	dr->textureWidths[textureIndex] = (int32_t)w;
 	dr->textureHeights[textureIndex] = (int32_t)h;
-	// Cache budget uses decoded RGBA bytes (w*h*4), not compressed blob size.
-	dr->textureBlobSizes[textureIndex] = byteSize;
-	dr->textureBytesUsed += byteSize;
+	dr->textureBlobSizes[textureIndex] = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
+	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
 
 	dr->loadedTexturePages++;
 	dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE; // Reset to idle (loaded)
@@ -1789,20 +1797,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 						dr->textures[textureIndex] = tex;
 						dr->textureWidths[textureIndex] = w;
 						dr->textureHeights[textureIndex] = h;
-						// Use the indexed data size for memory tracking, not the expanded RGBA size.
-						// This accurately reflects the memory savings from using TEXTURES.BIN.
-						// The indexed data is typically 1/4 to 1/8 the size of RGBA.
-						int atlasId = -1, clutIndex = -1, bpp = 8;
-						Xbox360Textures_getTpagAtlasInfo((int32_t)textureIndex, &atlasId, nullptr, nullptr, nullptr, nullptr, &clutIndex, &bpp);
-						uint32_t indexedSize;
-						if (bpp == 4) {
-							indexedSize = (uint32_t)(((uint64_t)w * (uint64_t)h + 1) / 2);
-						} else {
-							indexedSize = (uint32_t)((uint64_t)w * (uint64_t)h);
-						}
-						// Add CLUT size (shared, but attribute a fraction per texture)
-						uint32_t clutShare = (clutIndex >= 0) ? 256 : 0; // 256 bytes for palette colors
-						dr->textureBlobSizes[textureIndex] = indexedSize + clutShare;
+						dr->textureBlobSizes[textureIndex] = D3D9_GPU_MEM_SIZE(w, h);
 						dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
 						dr->loadedTexturePages++;
 						if (dr->textureLastUsedFrame) {
@@ -1977,8 +1972,8 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	dr->textures[index] = tex;
 	dr->textureWidths[index] = w;
 	dr->textureHeights[index] = h;
-	dr->textureBlobSizes[index] = byteSize;
-	dr->textureBytesUsed += byteSize;
+	dr->textureBlobSizes[index] = D3D9_GPU_MEM_SIZE(w, h);
+	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE(w, h);
 	Butterscotch_xdkDiagTrace("D3D9: loaded texture page %u %dx%d from %s", index, w, h, label ? label : "(memory)");
 	return true;
 }
@@ -4154,8 +4149,8 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	dr->textures[pageId] = tex;
 	dr->textureWidths[pageId] = srcW;
 	dr->textureHeights[pageId] = srcH;
-	dr->textureBlobSizes[pageId] = (uint32_t)(srcW * srcH * 4);
-	dr->textureBytesUsed += dr->textureBlobSizes[pageId];
+	dr->textureBlobSizes[pageId] = D3D9_GPU_MEM_SIZE(srcW, srcH);
+	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE(srcW, srcH);
 
 	free(rgba);
 
