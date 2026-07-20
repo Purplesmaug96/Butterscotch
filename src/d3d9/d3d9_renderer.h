@@ -33,7 +33,7 @@ typedef struct {
 	int32_t registerCount; // number of registers (4 floats each)
 	uint32_t samplerSlot;  // for sampler uniforms
 	bool isSampler;
-	bool isVertex;		   // true = VS uniform, false = PS uniform
+	bool isVertex; // true = VS uniform, false = PS uniform
 } D3D9ShaderUniform;
 
 typedef struct {

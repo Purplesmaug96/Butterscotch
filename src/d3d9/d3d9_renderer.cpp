@@ -182,8 +182,12 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 using namespace std;
 
 static inline uint8_t floatToByteClamped(float v) {
-	if (v <= 0.0f) return 0;
-	if (v >= 1.0f) return 255;
+	if (v <= 0.0f) {
+		return 0;
+	}
+	if (v >= 1.0f) {
+		return 255;
+	}
 	return (uint8_t)(v * 255.0f + 0.5f);
 }
 
@@ -191,9 +195,9 @@ static inline uint8_t floatToByteClamped(float v) {
 // Packed to 20 bytes: float2 pos, float2 uv, D3DCOLOR color
 // Matches GL renderer's Vertex layout for bandwidth efficiency.
 struct SpriteVertex {
-	float x, y;       // position (screen-space, z=0 implied, w=1 implied)
-	float u, v;       // texcoord
-	D3DCOLOR color;   // packed ARGB
+	float x, y;		// position (screen-space, z=0 implied, w=1 implied)
+	float u, v;		// texcoord
+	D3DCOLOR color; // packed ARGB
 };
 
 static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, float tv,
@@ -376,7 +380,9 @@ void d3d9ReleaseStagingTexture(void) {
 // Returns nullptr on failure.
 static IDirect3DTexture9* createXGTexture(uint32_t w, uint32_t h, D3DFORMAT fmt, void** outWCAlloc) {
 	IDirect3DTexture9* tex = new IDirect3DTexture9;
-	if (!tex) return nullptr;
+	if (!tex) {
+		return nullptr;
+	}
 
 	UINT size = XGSetTextureHeader(
 		D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1,
@@ -966,8 +972,8 @@ static void flushBatch(D3D9Renderer* dr) {
 	if (triCount > 0) {
 		const uint32_t triBase = D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD;
 		dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)triCount,
-							(BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
-							sizeof(SpriteVertex));
+							 (BYTE*)dr->vertexData + triBase * sizeof(SpriteVertex),
+							 sizeof(SpriteVertex));
 		dr->triCount = 0;
 	}
 }
@@ -2273,7 +2279,9 @@ HRESULT compileShader(
 		hr = E_FAIL;
 	}
 
-	if (errors) errors->Release();
+	if (errors) {
+		errors->Release();
+	}
 	return hr;
 }
 
@@ -2423,7 +2431,9 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 			// ANGLE prefixes all uniform names with '_' (e.g. _gm_Matrices, _time).
 			// Strip it so lookups match the original GLSL name.
 			if (name[0] == '_' && name[1] != '\0') {
-				for (int si = 0; si <= ni; si++) name[si] = name[si + 1];
+				for (int si = 0; si <= ni; si++) {
+					name[si] = name[si + 1];
+				}
 			}
 
 			if (strlen(name) == 0 || name[0] == '{') {
@@ -2437,7 +2447,9 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 				char* bracket = strchr(name, '[');
 				if (bracket) {
 					int n = atoi(bracket + 1);
-					if (n > 0) arraySize = n;
+					if (n > 0) {
+						arraySize = n;
+					}
 					*bracket = '\0';
 				}
 			}
@@ -2462,7 +2474,9 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 						p++;
 					}
 					int n = atoi(numStr);
-					if (n > 0) arraySize = n;
+					if (n > 0) {
+						arraySize = n;
+					}
 					if (arraySize < 1) {
 						arraySize = 1;
 					}
@@ -2486,30 +2500,42 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 			// ANGLE output uses explicit register bindings (e.g. " : register(c3)")
 			int explicitRegister = -1;
 			int samplerRegister = -1;
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			if (*p == ':') {
 				p++;
-				while (*p == ' ' || *p == '\t') p++;
+				while (*p == ' ' || *p == '\t') {
+					p++;
+				}
 				if (strncmp(p, "register", 8) == 0) {
 					p += 8;
-					while (*p == ' ' || *p == '\t') p++;
+					while (*p == ' ' || *p == '\t') {
+						p++;
+					}
 					if (*p == '(') {
 						p++;
 						if (*p == 'c' || *p == 'C') {
 							p++;
-							char numStr[16] = {0};
+							char numStr[16] = { 0 };
 							int numI = 0;
-							while (*p >= '0' && *p <= '9' && numI < 15)
+							while (*p >= '0' && *p <= '9' && numI < 15) {
 								numStr[numI++] = *p++;
-							if (*p == ')') p++;
+							}
+							if (*p == ')') {
+								p++;
+							}
 							explicitRegister = atoi(numStr);
 						} else if (*p == 's' || *p == 'S') {
 							p++;
-							char numStr[16] = {0};
+							char numStr[16] = { 0 };
 							int numI = 0;
-							while (*p >= '0' && *p <= '9' && numI < 15)
+							while (*p >= '0' && *p <= '9' && numI < 15) {
 								numStr[numI++] = *p++;
-							if (*p == ')') p++;
+							}
+							if (*p == ')') {
+								p++;
+							}
 							samplerRegister = atoi(numStr);
 						}
 					}
@@ -2519,9 +2545,10 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 			// Assign register
 			uniforms[count].name = strdup(name);
 			fprintf(stderr, "D3D9: parseHLSLUniforms %s uniform '%s' type=%s reg=%d%s\n",
-				isVertex ? "VS" : "PS", uniforms[count].name, type,
-				explicitRegister >= 0 ? explicitRegister : (isVertex ? nextVertexRegister : nextPixelRegister),
-				explicitRegister >= 0 ? " (explicit)" : samplerRegister >= 0 ? " (sampler)" : "");
+					isVertex ? "VS" : "PS", uniforms[count].name, type,
+					explicitRegister >= 0 ? explicitRegister : (isVertex ? nextVertexRegister : nextPixelRegister),
+					explicitRegister >= 0 ? " (explicit)" : samplerRegister >= 0 ? " (sampler)"
+																				 : "");
 			uniforms[count].isSampler = isSampler;
 			uniforms[count].isVertex = isVertex;
 
@@ -2530,10 +2557,14 @@ static uint32_t parseHLSLUniforms(const char* source, const char* profile, D3D9S
 				uniforms[count].registerCount = regCount;
 				if (!isSampler) {
 					int nextReg = isVertex ? nextVertexRegister : nextPixelRegister;
-					if (explicitRegister + regCount > nextReg)
+					if (explicitRegister + regCount > nextReg) {
 						nextReg = explicitRegister + regCount;
-					if (isVertex) nextVertexRegister = nextReg;
-					else nextPixelRegister = nextReg;
+					}
+					if (isVertex) {
+						nextVertexRegister = nextReg;
+					} else {
+						nextPixelRegister = nextReg;
+					}
 				}
 			} else if (isVertex) {
 				uniforms[count].registerIndex = nextVertexRegister;
@@ -2653,9 +2684,9 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		if (gmlShader->uniforms[i].isSampler) {
 			gmlShader->uniforms[i].samplerSlot = nextSamplerSlot;
 			fprintf(stderr, "D3D9:   sampler[%u] '%s' registerIndex=%d -> assigned slot=%d (isVertex=%d)\n",
-				nextSamplerSlot, gmlShader->uniforms[i].name,
-				gmlShader->uniforms[i].registerIndex,
-				nextSamplerSlot, gmlShader->uniforms[i].isVertex);
+					nextSamplerSlot, gmlShader->uniforms[i].name,
+					gmlShader->uniforms[i].registerIndex,
+					nextSamplerSlot, gmlShader->uniforms[i].isVertex);
 			nextSamplerSlot++;
 			// For samplers, set up the device to use that slot
 			dev->SetVertexShaderConstantF(gmlShader->uniforms[i].registerIndex, nullptr, 0);
@@ -2737,8 +2768,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	// Create vertex declaration
 	static const D3DVERTEXELEMENT9 decl[] = {
-		{ 0, 0,  D3DDECLTYPE_FLOAT2,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
-		{ 0, 8,  D3DDECLTYPE_FLOAT2,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 },
+		{ 0, 0, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
+		{ 0, 8, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 },
 		{ 0, 16, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1 },
 		D3DDECL_END()
 	};
@@ -3262,7 +3293,7 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 						// v_vPosition exactly matches GL's raw world coordinates.
 						float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
 						float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
-						float wv[4] = {invSx, invSy, offX, offY};
+						float wv[4] = { invSx, invSy, offX, offY };
 						dev->SetVertexShaderConstantF(wu->registerIndex, wv, 1);
 					}
 				}
@@ -3432,7 +3463,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 
 	if (false) {
 		fprintf(stderr, "D3D9: drawSprite color=BGR(0x%06X) alpha=%.3f -> RGBA(%.3f,%.3f,%.3f,%.3f) pos=(%.1f,%.1f) scale=(%.2f,%.2f)\n",
-			color, alpha, cr, cg, cb, ca, x, y, xscale, yscale);
+				color, alpha, cr, cg, cb, ca, x, y, xscale, yscale);
 	}
 
 	// Build 4 corners
@@ -3469,9 +3500,9 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		v[i].x = sx - 0.5f;
 		v[i].y = sy - 0.5f;
 		v[i].color = D3DCOLOR_ARGB(floatToByteClamped(ca),
-			floatToByteClamped(cr),
-			floatToByteClamped(cg),
-			floatToByteClamped(cb));
+								   floatToByteClamped(cr),
+								   floatToByteClamped(cg),
+								   floatToByteClamped(cb));
 	}
 	v[0].u = u0;
 	v[0].v = v0;
@@ -4065,7 +4096,7 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 						cy[3] = sy1;
 					}
 
-SpriteVertex* v = allocQuad(dr);
+					SpriteVertex* v = allocQuad(dr);
 					float screenX, screenY;
 					for (int i = 0; i < 4; i++) {
 						transformPoint(dr, x + cx[i], y + cy[i], &screenX, &screenY);
@@ -4074,21 +4105,21 @@ SpriteVertex* v = allocQuad(dr);
 					}
 					// Per-vertex colors: TL=0, TR=1, BR=2, BL=3
 					v[0].color = D3DCOLOR_ARGB(floatToByteClamped(vTLa),
-						floatToByteClamped(vTLr),
-						floatToByteClamped(vTLg),
-						floatToByteClamped(vTLb));
+											   floatToByteClamped(vTLr),
+											   floatToByteClamped(vTLg),
+											   floatToByteClamped(vTLb));
 					v[1].color = D3DCOLOR_ARGB(floatToByteClamped(vTRa),
-						floatToByteClamped(vTRr),
-						floatToByteClamped(vTRg),
-						floatToByteClamped(vTRb));
+											   floatToByteClamped(vTRr),
+											   floatToByteClamped(vTRg),
+											   floatToByteClamped(vTRb));
 					v[2].color = D3DCOLOR_ARGB(floatToByteClamped(vBRa),
-						floatToByteClamped(vBRr),
-						floatToByteClamped(vBRg),
-						floatToByteClamped(vBRb));
+											   floatToByteClamped(vBRr),
+											   floatToByteClamped(vBRg),
+											   floatToByteClamped(vBRb));
 					v[3].color = D3DCOLOR_ARGB(floatToByteClamped(vBLa),
-						floatToByteClamped(vBLr),
-						floatToByteClamped(vBLg),
-						floatToByteClamped(vBLb));
+											   floatToByteClamped(vBLr),
+											   floatToByteClamped(vBLg),
+											   floatToByteClamped(vBLb));
 					v[0].u = gU0;
 					v[0].v = gV0;
 					v[1].u = gU1;
@@ -5519,11 +5550,15 @@ static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float
 // Patches VS_INPUT struct to add any missing _in_* attribute fields.
 // Returns a newly allocated string with the patched source, or NULL if no change.
 static char* patchVertexShaderInputStruct(const char* source) {
-	if (!source) return NULL;
+	if (!source) {
+		return NULL;
+	}
 	const char* vsDecl = strstr(source, "struct VS_INPUT");
 	const char* vsBody = vsDecl ? strchr(vsDecl, '{') : NULL;
-	const char* vsEnd  = vsDecl ? strstr(vsDecl, "};") : NULL;
-	if (!vsBody || !vsEnd) return NULL;
+	const char* vsEnd = vsDecl ? strstr(vsDecl, "};") : NULL;
+	if (!vsBody || !vsEnd) {
+		return NULL;
+	}
 
 	// The vertex declaration maps color data to TEXCOORD1 (D3DCOLOR at offset 16),
 	// but ANGLE translates GL vertex attributes to COLOR semantic.
@@ -5534,16 +5569,28 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	{
 		const char* line = vsBody + 1;
 		while (line < vsEnd) {
-			while (*line == ' ' || *line == '\t') line++;
-			if (*line == '}' || *line == '\0') break;
-			while (*line && *line != ' ' && *line != '\t') line++;
-			while (*line == ' ' || *line == '\t') line++;
+			while (*line == ' ' || *line == '\t') {
+				line++;
+			}
+			if (*line == '}' || *line == '\0') {
+				break;
+			}
+			while (*line && *line != ' ' && *line != '\t') {
+				line++;
+			}
+			while (*line == ' ' || *line == '\t') {
+				line++;
+			}
 			if (strncmp(line, "in_Colour", 9) == 0) {
 				const char* sem = line + 9;
-				while (*sem == ' ' || *sem == '\t') sem++;
+				while (*sem == ' ' || *sem == '\t') {
+					sem++;
+				}
 				if (*sem == ':') {
 					sem++;
-					while (*sem == ' ' || *sem == '\t') sem++;
+					while (*sem == ' ' || *sem == '\t') {
+						sem++;
+					}
 					if (strncmp(sem, "COLOR", 5) == 0) {
 						needsColorFix = true;
 						colourSemPos = sem;
@@ -5551,8 +5598,12 @@ static char* patchVertexShaderInputStruct(const char* source) {
 					}
 				}
 			}
-			while (*line && *line != '\n') line++;
-			if (*line == '\n') line++;
+			while (*line && *line != '\n') {
+				line++;
+			}
+			if (*line == '\n') {
+				line++;
+			}
 		}
 	}
 
@@ -5561,20 +5612,36 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	if (needsTexcoord) {
 		const char* line = vsBody + 1;
 		while (line < vsEnd) {
-			while (*line == ' ' || *line == '\t') line++;
-			if (*line == '}' || *line == '\0') break;
-			while (*line && *line != ' ' && *line != '\t') line++;
-			while (*line == ' ' || *line == '\t') line++;
+			while (*line == ' ' || *line == '\t') {
+				line++;
+			}
+			if (*line == '}' || *line == '\0') {
+				break;
+			}
+			while (*line && *line != ' ' && *line != '\t') {
+				line++;
+			}
+			while (*line == ' ' || *line == '\t') {
+				line++;
+			}
 			if (strncmp(line, "in_TextureCoord", 15) == 0) {
 				char a = line[15];
-				if (a == ' ' || a == '\t' || a == ':') needsTexcoord = false;
+				if (a == ' ' || a == '\t' || a == ':') {
+					needsTexcoord = false;
+				}
 			}
-			while (*line && *line != '\n') line++;
-			if (*line == '\n') line++;
+			while (*line && *line != '\n') {
+				line++;
+			}
+			if (*line == '\n') {
+				line++;
+			}
 		}
 	}
 
-	if (!needsTexcoord && !needsColorFix) return NULL;
+	if (!needsTexcoord && !needsColorFix) {
+		return NULL;
+	}
 
 	const char texcoordStatic[] = "static float2 _in_TextureCoord = {0, 0};\n";
 	size_t texcoordStaticLen = strlen(texcoordStatic);
@@ -5589,14 +5656,22 @@ static char* patchVertexShaderInputStruct(const char* source) {
 		const char* p = source;
 		while (p) {
 			const char* st = strstr(p, "static");
-			if (!st) break;
+			if (!st) {
+				break;
+			}
 			const char* afterSt = st + 6;
-			while (*afterSt == ' ' || *afterSt == '\t') afterSt++;
+			while (*afterSt == ' ' || *afterSt == '\t') {
+				afterSt++;
+			}
 			if (strncmp(afterSt, "float", 5) == 0) {
 				const char* typeEnd = afterSt;
-				while (*typeEnd && *typeEnd != ' ' && *typeEnd != '\t') typeEnd++;
+				while (*typeEnd && *typeEnd != ' ' && *typeEnd != '\t') {
+					typeEnd++;
+				}
 				const char* varStart = typeEnd;
-				while (*varStart == ' ' || *varStart == '\t') varStart++;
+				while (*varStart == ' ' || *varStart == '\t') {
+					varStart++;
+				}
 				if (strncmp(varStart, "_in_", 4) == 0) {
 					const char* lineEnd = strchr(st, '\n');
 					attrInsert = lineEnd ? lineEnd + 1 : st + strlen(st);
@@ -5611,12 +5686,11 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	// Build output by writing segments
 	size_t sourceLen = strlen(source);
 	size_t colourGrow = needsColorFix ? (9 - colourSemOldLen) : 0; // "TEXCOORD1" = 9 bytes
-	size_t totalSize = sourceLen
-		+ (attrInsert ? texcoordStaticLen : 0)
-		+ (needsTexcoord ? texcoordFieldLen : 0)
-		+ colourGrow + 1;
+	size_t totalSize = sourceLen + (attrInsert ? texcoordStaticLen : 0) + (needsTexcoord ? texcoordFieldLen : 0) + colourGrow + 1;
 	char* result = (char*)malloc(totalSize);
-	if (!result) return NULL;
+	if (!result) {
+		return NULL;
+	}
 
 	char* out = result;
 	const char* in = source;
@@ -5625,7 +5699,8 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	if (attrInsert) {
 		size_t before = (size_t)(attrInsert - in);
 		memcpy(out, in, before);
-		out += before; in += before;
+		out += before;
+		in += before;
 		memcpy(out, texcoordStatic, texcoordStaticLen);
 		out += texcoordStaticLen;
 	}
@@ -5674,13 +5749,19 @@ static char* patchVertexShaderInputStruct(const char* source) {
 
 // Patches VS_OUTPUT and VS_INPUT structs, and adds generateOutput() if missing.
 static char* patchVertexShaderForGenerateOutput(const char* source) {
-	if (!source) return NULL;
-	if (strstr(source, "VS_OUTPUT generateOutput(")) return NULL;
-	if (!strstr(source, "generateOutput")) return NULL;
+	if (!source) {
+		return NULL;
+	}
+	if (strstr(source, "VS_OUTPUT generateOutput(")) {
+		return NULL;
+	}
+	if (!strstr(source, "generateOutput")) {
+		return NULL;
+	}
 
 	const char* vsOutputStruct = strstr(source, "struct VS_OUTPUT");
 	const char* vsOutputBody = vsOutputStruct ? strchr(vsOutputStruct, '{') : NULL;
-	const char* vsOutputEnd   = vsOutputStruct ? strstr(vsOutputStruct, "};") : NULL;
+	const char* vsOutputEnd = vsOutputStruct ? strstr(vsOutputStruct, "};") : NULL;
 
 	struct VarInfo {
 		const char* typeStart;
@@ -5695,38 +5776,55 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 		const char* p = source;
 		while (p && (p = strstr(p, "static")) != NULL && varCount < 32) {
 			p += 6;
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* typeStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t typeLen = (size_t)(p - typeStart);
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* varStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t varLen = (size_t)(p - varStart);
 
 			if (varLen == 11 && memcmp(varStart, "gl_Position", 11) == 0) {
-				vars[varCount].typeStart  = typeStart;
-				vars[varCount].typeLen    = typeLen;
-				vars[varCount].fieldName  = safeStrdup("gl_Position");
+				vars[varCount].typeStart = typeStart;
+				vars[varCount].typeLen = typeLen;
+				vars[varCount].fieldName = safeStrdup("gl_Position");
 				vars[varCount].staticName = safeStrdup("gl_Position");
 				varCount++;
 			} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
 				size_t fnLen = varLen - 1;
 				char* fn = (char*)malloc(fnLen + 1);
-				if (!fn) continue;
-				memcpy(fn, varStart + 1, fnLen); fn[fnLen] = '\0';
+				if (!fn) {
+					continue;
+				}
+				memcpy(fn, varStart + 1, fnLen);
+				fn[fnLen] = '\0';
 				char* sn = (char*)malloc(varLen + 1);
-				if (!sn) { free(fn); continue; }
-				memcpy(sn, varStart, varLen); sn[varLen] = '\0';
-				vars[varCount].typeStart  = typeStart;
-				vars[varCount].typeLen    = typeLen;
-				vars[varCount].fieldName  = fn;
+				if (!sn) {
+					free(fn);
+					continue;
+				}
+				memcpy(sn, varStart, varLen);
+				sn[varLen] = '\0';
+				vars[varCount].typeStart = typeStart;
+				vars[varCount].typeLen = typeLen;
+				vars[varCount].fieldName = fn;
 				vars[varCount].staticName = sn;
 				varCount++;
 			}
 		}
 	}
-	if (varCount == 0) return NULL;
+	if (varCount == 0) {
+		return NULL;
+	}
 
 	fprintf(stderr, "D3D9: patchVertexShaderForGenerateOutput found %d varyings\n", varCount);
 
@@ -5734,47 +5832,83 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 	size_t structAddLen = 0;
 	if (vsOutputBody && vsOutputEnd) {
 		fprintf(stderr, "D3D9:   VS_OUTPUT struct found at body+0 end+%zu\n",
-			(size_t)(vsOutputEnd - vsOutputBody));
+				(size_t)(vsOutputEnd - vsOutputBody));
 		int nextSlot = 0;
 		{
 			const char* line = vsOutputBody + 1;
 			while (line < vsOutputEnd) {
-				while (*line == ' ' || *line == '\t') line++;
-				if (*line == '}' || *line == '\0') break;
-				while (*line && *line != ' ' && *line != '\t') line++;
-				while (*line == ' ' || *line == '\t') line++;
-				while (*line && *line != ' ' && *line != '\t' && *line != ':') line++;
-				while (*line == ' ' || *line == '\t') line++;
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
+				if (*line == '}' || *line == '\0') {
+					break;
+				}
+				while (*line && *line != ' ' && *line != '\t') {
+					line++;
+				}
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
+				while (*line && *line != ' ' && *line != '\t' && *line != ':') {
+					line++;
+				}
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
 				if (*line == ':') {
 					line++;
-					while (*line == ' ' || *line == '\t') line++;
+					while (*line == ' ' || *line == '\t') {
+						line++;
+					}
 					if (strncmp(line, "TEXCOORD", 8) == 0) {
 						int slot = atoi(line + 8);
-						if (slot >= nextSlot) nextSlot = slot + 1;
+						if (slot >= nextSlot) {
+							nextSlot = slot + 1;
+						}
 					}
 				}
-				while (*line && *line != '\n') line++;
-				if (*line == '\n') line++;
+				while (*line && *line != '\n') {
+					line++;
+				}
+				if (*line == '\n') {
+					line++;
+				}
 			}
 		}
 
 		for (int i = 0; i < varCount; i++) {
-			if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+			if (strcmp(vars[i].fieldName, "gl_Position") == 0) {
+				continue;
+			}
 			{
 				const char* line = vsOutputBody + 1;
 				bool found = false;
 				while (line < vsOutputEnd && !found) {
-					while (*line == ' ' || *line == '\t') line++;
-					if (*line == '}' || *line == '\0') break;
-					while (*line && *line != ' ' && *line != '\t') line++;
-					while (*line == ' ' || *line == '\t') line++;
+					while (*line == ' ' || *line == '\t') {
+						line++;
+					}
+					if (*line == '}' || *line == '\0') {
+						break;
+					}
+					while (*line && *line != ' ' && *line != '\t') {
+						line++;
+					}
+					while (*line == ' ' || *line == '\t') {
+						line++;
+					}
 					size_t fnLen = strlen(vars[i].fieldName);
 					if (strncmp(line, vars[i].fieldName, fnLen) == 0) {
 						char a = line[fnLen];
-						if (a == ' ' || a == '\t' || a == ':' || a == ';') found = true;
+						if (a == ' ' || a == '\t' || a == ':' || a == ';') {
+							found = true;
+						}
 					}
-					while (*line && *line != '\n') line++;
-					if (*line == '\n') line++;
+					while (*line && *line != '\n') {
+						line++;
+					}
+					if (*line == '\n') {
+						line++;
+					}
 				}
 				if (found) {
 					fprintf(stderr, "D3D9:   field %s already in VS_OUTPUT\n", vars[i].fieldName);
@@ -5785,8 +5919,11 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 
 			char typeStr[32];
 			size_t tl = vars[i].typeLen;
-			if (tl >= sizeof(typeStr)) tl = sizeof(typeStr) - 1;
-			memcpy(typeStr, vars[i].typeStart, tl); typeStr[tl] = '\0';
+			if (tl >= sizeof(typeStr)) {
+				tl = sizeof(typeStr) - 1;
+			}
+			memcpy(typeStr, vars[i].typeStart, tl);
+			typeStr[tl] = '\0';
 			fprintf(stderr, "D3D9:     type=%s slot=TEXCOORD%d\n", typeStr, nextSlot);
 			char line[128];
 			snprintf(line, sizeof(line), "    %s %s : TEXCOORD%d;\n", typeStr, vars[i].fieldName, nextSlot++);
@@ -5798,12 +5935,19 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 
 	const char* mainFunc = strstr(source, "main(");
 	if (!mainFunc) {
-		for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+		for (int i = 0; i < varCount; i++) {
+			free(vars[i].fieldName);
+			free(vars[i].staticName);
+		}
 		return NULL;
 	}
 	const char* mainStart = mainFunc;
-	while (mainStart > source && *mainStart != '\n') mainStart--;
-	if (*mainStart == '\n') mainStart++;
+	while (mainStart > source && *mainStart != '\n') {
+		mainStart--;
+	}
+	if (*mainStart == '\n') {
+		mainStart++;
+	}
 	size_t mainOffset = (size_t)(mainStart - source);
 
 	const char genHeader[] =
@@ -5814,7 +5958,9 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 	size_t headerSize = strlen(genHeader);
 	size_t assignSize = 0;
 	for (int i = 0; i < varCount; i++) {
-		if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+		if (strcmp(vars[i].fieldName, "gl_Position") == 0) {
+			continue;
+		}
 		assignSize += strlen("    output.") + strlen(vars[i].fieldName) + strlen(" = ") + strlen(vars[i].staticName) + strlen(";\n");
 	}
 	const char genTail[] = "    return output;\n}\n\n";
@@ -5822,12 +5968,15 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 	size_t funcSize = headerSize + assignSize + tailSize;
 
 	size_t beforeMainLen = mainOffset + structAddLen;
-	size_t afterMainLen  = strlen(mainStart);
+	size_t afterMainLen = strlen(mainStart);
 
 	size_t totalSize = beforeMainLen + funcSize + afterMainLen + 1;
 	char* patched = (char*)malloc(totalSize);
 	if (!patched) {
-		for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+		for (int i = 0; i < varCount; i++) {
+			free(vars[i].fieldName);
+			free(vars[i].staticName);
+		}
 		return NULL;
 	}
 
@@ -5838,7 +5987,7 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 		size_t endOff = (size_t)(vsOutputEnd - source);
 		memcpy(out, in, endOff);
 		out += endOff;
-		in  += endOff;
+		in += endOff;
 
 		memcpy(out, structAdditions, structAddLen);
 		out += structAddLen;
@@ -5847,21 +5996,23 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 		if (rem > 0) {
 			memcpy(out, in, rem);
 			out += rem;
-			in  += rem;
+			in += rem;
 		}
 	} else {
 		memcpy(out, in, mainOffset);
 		out += mainOffset;
-		in  += mainOffset;
+		in += mainOffset;
 	}
 
 	memcpy(out, genHeader, headerSize);
 	out += headerSize;
 
 	for (int i = 0; i < varCount; i++) {
-		if (strcmp(vars[i].fieldName, "gl_Position") == 0) continue;
+		if (strcmp(vars[i].fieldName, "gl_Position") == 0) {
+			continue;
+		}
 		out += (size_t)snprintf(out, totalSize - (size_t)(out - patched),
-			"    output.%s = %s;\n", vars[i].fieldName, vars[i].staticName);
+								"    output.%s = %s;\n", vars[i].fieldName, vars[i].staticName);
 	}
 
 	memcpy(out, genTail, tailSize);
@@ -5869,7 +6020,10 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 
 	memcpy(out, mainStart, afterMainLen + 1);
 
-	for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+	for (int i = 0; i < varCount; i++) {
+		free(vars[i].fieldName);
+		free(vars[i].staticName);
+	}
 
 	return patched;
 }
@@ -5878,33 +6032,50 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 // Finds the existing struct and replaces it with a complete version.
 // Returns a newly allocated string with the patched source, or NULL if no change.
 static char* patchPixelShaderInputStruct(const char* source) {
-	if (!source) return NULL;
+	if (!source) {
+		return NULL;
+	}
 
 	// Scan static _v_* declarations
 #define PSIS2_MAX_VARS 16
-	struct { const char* typeStart; size_t typeLen; char* fieldName; } psVars[PSIS2_MAX_VARS];
+	struct {
+		const char* typeStart;
+		size_t typeLen;
+		char* fieldName;
+	} psVars[PSIS2_MAX_VARS];
 	int varCount = 0;
 	{
 		const char* p = source;
 		while (p && (p = strstr(p, "static")) != NULL && varCount < PSIS2_MAX_VARS) {
 			p += 6;
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* typeStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t typeLen = (size_t)(p - typeStart);
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* varStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t varLen = (size_t)(p - varStart);
 			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
 				char* fn = (char*)malloc(varLen);
-				if (!fn) continue;
-				memcpy(fn, varStart + 1, varLen - 1); fn[varLen - 1] = '\0';
+				if (!fn) {
+					continue;
+				}
+				memcpy(fn, varStart + 1, varLen - 1);
+				fn[varLen - 1] = '\0';
 				psVars[varCount].typeStart = typeStart;
-				psVars[varCount].typeLen   = typeLen;
+				psVars[varCount].typeLen = typeLen;
 				psVars[varCount].fieldName = fn;
 				fprintf(stderr, "D3D9:   pixel varying %d: '%.*s' (type=%.*s)\n",
-					varCount, (int)(varLen-1), varStart+1, (int)typeLen, typeStart);
+						varCount, (int)(varLen - 1), varStart + 1, (int)typeLen, typeStart);
 				varCount++;
 			} else if (varLen > 3 && memcmp(varStart, "_in_", 4) == 0) {
 				fprintf(stderr, "D3D9:   pixel SKIP _in_: '%.*s'\n", (int)varLen, varStart);
@@ -5912,36 +6083,63 @@ static char* patchPixelShaderInputStruct(const char* source) {
 		}
 	}
 	fprintf(stderr, "D3D9: patchPixelShaderInputStruct total varyings=%d sourceLen=%zu\n", varCount, source ? strlen(source) : 0);
-	if (varCount == 0) return NULL;
+	if (varCount == 0) {
+		return NULL;
+	}
 
 	// Find existing struct PS_INPUT
 	const char* psDecl = strstr(source, "struct PS_INPUT");
-	const char* psEnd  = psDecl ? strstr(psDecl, "};") : NULL;
+	const char* psEnd = psDecl ? strstr(psDecl, "};") : NULL;
 
 	if (psDecl && psEnd) {
 		// Check if all fields are already present
 		int existingNextSlot = 0;
 		{
 			const char* body = strchr(psDecl, '{');
-			if (!body) { for (int i = 0; i < varCount; i++) free(psVars[i].fieldName); return NULL; }
+			if (!body) {
+				for (int i = 0; i < varCount; i++) {
+					free(psVars[i].fieldName);
+				}
+				return NULL;
+			}
 			const char* line = body + 1;
 			while (line < psEnd) {
-				while (*line == ' ' || *line == '\t') line++;
-				if (*line == '}' || *line == '\0') break;
-				while (*line && *line != ' ' && *line != '\t') line++;
-				while (*line == ' ' || *line == '\t') line++;
-				while (*line && *line != ' ' && *line != '\t' && *line != ':') line++;
-				while (*line == ' ' || *line == '\t') line++;
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
+				if (*line == '}' || *line == '\0') {
+					break;
+				}
+				while (*line && *line != ' ' && *line != '\t') {
+					line++;
+				}
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
+				while (*line && *line != ' ' && *line != '\t' && *line != ':') {
+					line++;
+				}
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
 				if (*line == ':') {
 					line++;
-					while (*line == ' ' || *line == '\t') line++;
+					while (*line == ' ' || *line == '\t') {
+						line++;
+					}
 					if (strncmp(line, "TEXCOORD", 8) == 0) {
 						int slot = atoi(line + 8);
-						if (slot >= existingNextSlot) existingNextSlot = slot + 1;
+						if (slot >= existingNextSlot) {
+							existingNextSlot = slot + 1;
+						}
 					}
 				}
-				while (*line && *line != '\n') line++;
-				if (*line == '\n') line++;
+				while (*line && *line != '\n') {
+					line++;
+				}
+				if (*line == '\n') {
+					line++;
+				}
 			}
 			// Check each psVar
 			line = body + 1;
@@ -5954,25 +6152,47 @@ static char* patchPixelShaderInputStruct(const char* source) {
 				const char* l = body + 1;
 				bool found = false;
 				while (l < psEnd && !found) {
-					while (*l == ' ' || *l == '\t') l++;
-					if (*l == '}' || *l == '\0') break;
-					while (*l && *l != ' ' && *l != '\t') l++;
-					while (*l == ' ' || *l == '\t') l++;
+					while (*l == ' ' || *l == '\t') {
+						l++;
+					}
+					if (*l == '}' || *l == '\0') {
+						break;
+					}
+					while (*l && *l != ' ' && *l != '\t') {
+						l++;
+					}
+					while (*l == ' ' || *l == '\t') {
+						l++;
+					}
 					size_t fnLen = strlen(psVars[i].fieldName);
 					if (strncmp(l, psVars[i].fieldName, fnLen) == 0) {
 						char a = l[fnLen];
-						if (a == ' ' || a == '\t' || a == ':' || a == ';') found = true;
+						if (a == ' ' || a == '\t' || a == ':' || a == ';') {
+							found = true;
+						}
 					}
-					while (*l && *l != '\n') l++;
-					if (*l == '\n') l++;
+					while (*l && *l != '\n') {
+						l++;
+					}
+					if (*l == '\n') {
+						l++;
+					}
 				}
-				if (found) { free(psVars[i].fieldName); psVars[i].fieldName = NULL; }
-				else missingCount++;
+				if (found) {
+					free(psVars[i].fieldName);
+					psVars[i].fieldName = NULL;
+				} else {
+					missingCount++;
+				}
 			}
 			if (missingCount == 0) {
 				// No missing fields, no change needed
 				fprintf(stderr, "D3D9:   all %d fields already in PS_INPUT\n", varCount);
-				for (int i = 0; i < varCount; i++) if (psVars[i].fieldName) free(psVars[i].fieldName);
+				for (int i = 0; i < varCount; i++) {
+					if (psVars[i].fieldName) {
+						free(psVars[i].fieldName);
+					}
+				}
 				return NULL;
 			}
 		}
@@ -5989,11 +6209,17 @@ static char* patchPixelShaderInputStruct(const char* source) {
 		if (body) {
 			const char* line = body + 1;
 			while (line < psEnd) {
-				while (*line == ' ' || *line == '\t') line++;
-				if (*line == '}' || *line == '\0') break;
+				while (*line == ' ' || *line == '\t') {
+					line++;
+				}
+				if (*line == '}' || *line == '\0') {
+					break;
+				}
 				// Copy entire line as-is
 				const char* eol = line;
-				while (*eol && *eol != '\n') eol++;
+				while (*eol && *eol != '\n') {
+					eol++;
+				}
 				if (eol > line) {
 					size_t llen = (size_t)(eol - line);
 					if (nsOff + llen + 2 < sizeof(newStruct)) {
@@ -6003,16 +6229,24 @@ static char* patchPixelShaderInputStruct(const char* source) {
 					}
 				}
 				line = eol;
-				if (*line == '\n') line++;
+				if (*line == '\n') {
+					line++;
+				}
 				// Update nextSlot
 				// Find TEXCOORD in this line
 				const char* t = line - 2;
-				while (t > body && *t != '\n') t--;
-				if (*t == '\n') t++;
+				while (t > body && *t != '\n') {
+					t--;
+				}
+				if (*t == '\n') {
+					t++;
+				}
 				const char* col = strchr(t, ':');
 				if (col && strncmp(col + 1, " TEXCOORD", 9) == 0) {
 					int slot = atoi(col + 10);
-					if (slot >= nextSlot) nextSlot = slot + 1;
+					if (slot >= nextSlot) {
+						nextSlot = slot + 1;
+					}
 				}
 			}
 		}
@@ -6020,44 +6254,61 @@ static char* patchPixelShaderInputStruct(const char* source) {
 
 	// Add any missing fields
 	for (int i = 0; i < varCount; i++) {
-		if (!psVars[i].fieldName) continue;
+		if (!psVars[i].fieldName) {
+			continue;
+		}
 		char typeStr[32];
 		size_t tl = psVars[i].typeLen;
-		if (tl >= sizeof(typeStr)) tl = sizeof(typeStr) - 1;
-		memcpy(typeStr, psVars[i].typeStart, tl); typeStr[tl] = '\0';
+		if (tl >= sizeof(typeStr)) {
+			tl = sizeof(typeStr) - 1;
+		}
+		memcpy(typeStr, psVars[i].typeStart, tl);
+		typeStr[tl] = '\0';
 		int w = snprintf(newStruct + nsOff, sizeof(newStruct) - nsOff,
-			"    %s %s : TEXCOORD%d;\n", typeStr, psVars[i].fieldName, nextSlot++);
-		if (w > 0) nsOff += (size_t)w;
+						 "    %s %s : TEXCOORD%d;\n", typeStr, psVars[i].fieldName, nextSlot++);
+		if (w > 0) {
+			nsOff += (size_t)w;
+		}
 	}
 	snprintf(newStruct + nsOff, sizeof(newStruct) - nsOff, "};\n\n");
 	size_t newStructLen = strlen(newStruct);
 
-	for (int i = 0; i < varCount; i++) if (psVars[i].fieldName) free(psVars[i].fieldName);
+	for (int i = 0; i < varCount; i++) {
+		if (psVars[i].fieldName) {
+			free(psVars[i].fieldName);
+		}
+	}
 
 	size_t sourceLen = strlen(source);
 
 	if (psDecl && psEnd) {
 		// Replace old struct with new one
 		size_t structStartOff = (size_t)(psDecl - source);
-		size_t structEndOff   = (size_t)(psEnd + 2 - source); // past "};"
+		size_t structEndOff = (size_t)(psEnd + 2 - source); // past "};"
 		size_t beforeLen = structStartOff;
-		size_t afterLen  = sourceLen - structEndOff;
+		size_t afterLen = sourceLen - structEndOff;
 		char* result = (char*)malloc(beforeLen + newStructLen + afterLen + 1);
-		if (!result) return NULL;
+		if (!result) {
+			return NULL;
+		}
 		memcpy(result, source, beforeLen);
 		memcpy(result + beforeLen, newStruct, newStructLen);
 		memcpy(result + beforeLen + newStructLen, source + structEndOff, afterLen + 1);
 		fprintf(stderr, "D3D9: patchPixelShaderInputStruct replaced PS_INPUT (%zu -> %zu bytes)\n",
-			structEndOff - structStartOff, newStructLen);
+				structEndOff - structStartOff, newStructLen);
 		return result;
 	}
 
 	// No existing struct – insert before main
 	const char* mainPos = strstr(source, "float4 main(");
-	if (!mainPos) return NULL;
+	if (!mainPos) {
+		return NULL;
+	}
 	size_t beforeMain = (size_t)(mainPos - source);
 	char* result = (char*)malloc(sourceLen + newStructLen + 1);
-	if (!result) return NULL;
+	if (!result) {
+		return NULL;
+	}
 	memcpy(result, source, beforeMain);
 	memcpy(result + beforeMain, newStruct, newStructLen);
 	memcpy(result + beforeMain + newStructLen, mainPos, sourceLen - beforeMain + 1);
@@ -6068,73 +6319,114 @@ static char* patchPixelShaderInputStruct(const char* source) {
 // Adds missing _v_* = input.v_* assignments to the main() prologue.
 // Returns a newly allocated string with the patched source, or NULL if no change.
 static char* patchPixelShaderPrologue(const char* source) {
-	if (!source) return NULL;
+	if (!source) {
+		return NULL;
+	}
 
 	// Find main function opening
 	const char* mainFunc = strstr(source, "float4 main(");
-	if (!mainFunc) return NULL;
+	if (!mainFunc) {
+		return NULL;
+	}
 	const char* brace = strchr(mainFunc, '{');
-	if (!brace) return NULL;
+	if (!brace) {
+		return NULL;
+	}
 
 	// The prologue is right after the opening brace: collect existing assignments
 	// Format: "    _v_vTexcoord = input.v_vTexcoord;\n"
 	// We need to find which _v_* statics don't have a corresponding assignment.
 	// Check which _v_* fields already have prologue assignments
-	struct Pstr { const char* s; size_t len; };
+	struct Pstr {
+		const char* s;
+		size_t len;
+	};
 	Pstr existing[16];
 	int existCount = 0;
 	{
 		const char* line = brace + 1;
-		while (*line == ' ' || *line == '\t' || *line == '\n' || *line == '\r') line++;
+		while (*line == ' ' || *line == '\t' || *line == '\n' || *line == '\r') {
+			line++;
+		}
 		while (strncmp(line, "_v_", 3) == 0 && existCount < 16) {
 			// Find the semicolon
 			const char* semi = strchr(line, ';');
-			if (!semi) break;
+			if (!semi) {
+				break;
+			}
 			// Extract variable name: "_v_vTexcoord"
 			const char* varEnd = line;
-			while (*varEnd && *varEnd != ' ' && *varEnd != '\t' && *varEnd != '=') varEnd++;
-			existing[existCount].s   = line;
+			while (*varEnd && *varEnd != ' ' && *varEnd != '\t' && *varEnd != '=') {
+				varEnd++;
+			}
+			existing[existCount].s = line;
 			existing[existCount].len = (size_t)(varEnd - line);
 			existCount++;
 			line = semi + 1;
-			while (*line == ' ' || *line == '\t' || *line == '\n') line++;
+			while (*line == ' ' || *line == '\t' || *line == '\n') {
+				line++;
+			}
 		}
 	}
 
-	if (existCount == 0) return NULL;
+	if (existCount == 0) {
+		return NULL;
+	}
 
 	// Scan static _v_* declarations
-	struct Pvar { const char* typeStart; size_t typeLen; char* fieldName; char* staticName; };
+	struct Pvar {
+		const char* typeStart;
+		size_t typeLen;
+		char* fieldName;
+		char* staticName;
+	};
 	Pvar vars[16];
 	int varCount = 0;
 	{
 		const char* p = source;
 		while (p && (p = strstr(p, "static")) != NULL && varCount < 16) {
 			p += 6;
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* typeStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t typeLen = (size_t)(p - typeStart);
-			while (*p == ' ' || *p == '\t') p++;
+			while (*p == ' ' || *p == '\t') {
+				p++;
+			}
 			const char* varStart = p;
-			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') p++;
+			while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n' && *p != '\r') {
+				p++;
+			}
 			size_t varLen = (size_t)(p - varStart);
 			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
 				char* fn = (char*)malloc(varLen + 1);
-				if (!fn) continue;
-				memcpy(fn, varStart, varLen); fn[varLen] = '\0';
+				if (!fn) {
+					continue;
+				}
+				memcpy(fn, varStart, varLen);
+				fn[varLen] = '\0';
 				char* sn = (char*)malloc(varLen);
-				if (!sn) { free(fn); continue; }
-				memcpy(sn, varStart + 1, varLen - 1); sn[varLen - 1] = '\0';
-				vars[varCount].typeStart  = typeStart;
-				vars[varCount].typeLen    = typeLen;
-				vars[varCount].staticName = fn;    // "_v_vTexcoord"
-				vars[varCount].fieldName  = sn;    // "v_vTexcoord" (no underscore)
+				if (!sn) {
+					free(fn);
+					continue;
+				}
+				memcpy(sn, varStart + 1, varLen - 1);
+				sn[varLen - 1] = '\0';
+				vars[varCount].typeStart = typeStart;
+				vars[varCount].typeLen = typeLen;
+				vars[varCount].staticName = fn; // "_v_vTexcoord"
+				vars[varCount].fieldName = sn;	// "v_vTexcoord" (no underscore)
 				varCount++;
 			}
 		}
 	}
-	if (varCount == 0) return NULL;
+	if (varCount == 0) {
+		return NULL;
+	}
 
 	// Determine which are missing from the prologue
 	char additions[384] = "";
@@ -6143,8 +6435,9 @@ static char* patchPixelShaderPrologue(const char* source) {
 	for (int i = 0; i < varCount; i++) {
 		// _v_vTexcoord and _v_vColour are always in the build-time prologue
 		if (strcmp(vars[i].staticName, "_v_vTexcoord") == 0 ||
-			strcmp(vars[i].staticName, "_v_vColour") == 0)
+			strcmp(vars[i].staticName, "_v_vColour") == 0) {
 			continue;
+		}
 		bool found = false;
 		for (int j = 0; j < existCount; j++) {
 			if (strncmp(existing[j].s, vars[i].staticName, strlen(vars[i].staticName)) == 0) {
@@ -6152,7 +6445,9 @@ static char* patchPixelShaderPrologue(const char* source) {
 				break;
 			}
 		}
-		if (found) continue;
+		if (found) {
+			continue;
+		}
 		// Add prologue line
 		char buf[128];
 		snprintf(buf, sizeof(buf), "\n    %s = input.%s;", vars[i].staticName, vars[i].fieldName);
@@ -6160,9 +6455,14 @@ static char* patchPixelShaderPrologue(const char* source) {
 		addLen = strlen(additions);
 	}
 
-	for (int i = 0; i < varCount; i++) { free(vars[i].fieldName); free(vars[i].staticName); }
+	for (int i = 0; i < varCount; i++) {
+		free(vars[i].fieldName);
+		free(vars[i].staticName);
+	}
 
-	if (addLen == 0) return NULL;
+	if (addLen == 0) {
+		return NULL;
+	}
 
 	// Insert after the last existing prologue line
 	// Find the position after the last _v_* = ...; line
@@ -6170,28 +6470,40 @@ static char* patchPixelShaderPrologue(const char* source) {
 	{
 		// Start scanning from the opening brace + 1
 		const char* scan = brace + 1;
-		while (*scan == ' ' || *scan == '\t' || *scan == '\n') scan++;
+		while (*scan == ' ' || *scan == '\t' || *scan == '\n') {
+			scan++;
+		}
 		// Find the last _v_* = input.v_*; line
 		const char* lastAssign = NULL;
 		while (strncmp(scan, "_v_", 3) == 0) {
 			lastAssign = scan;
 			const char* semi = strchr(scan, ';');
-			if (!semi) break;
+			if (!semi) {
+				break;
+			}
 			scan = semi + 1;
-			while (*scan == ' ' || *scan == '\t' || *scan == '\n') scan++;
+			while (*scan == ' ' || *scan == '\t' || *scan == '\n') {
+				scan++;
+			}
 		}
 		if (lastAssign) {
 			const char* semi = strchr(lastAssign, ';');
-			if (semi) insertPos = semi + 1;
+			if (semi) {
+				insertPos = semi + 1;
+			}
 		}
 	}
 
-	if (!insertPos) return NULL;
+	if (!insertPos) {
+		return NULL;
+	}
 
 	size_t sourceLen = strlen(source);
 	size_t insertOff = (size_t)(insertPos - source);
 	char* result = (char*)malloc(sourceLen + addLen + 1);
-	if (!result) return NULL;
+	if (!result) {
+		return NULL;
+	}
 	memcpy(result, source, insertOff);
 	memcpy(result + insertOff, additions, addLen);
 	memcpy(result + insertOff + addLen, insertPos, sourceLen - insertOff + 1);
@@ -6204,9 +6516,15 @@ static char* patchPixelShaderPrologue(const char* source) {
 // NOTE: PS_INPUT struct patching is handled by patchPixelShaderInputStruct() separately.
 //       Prologue patching is handled by patchPixelShaderPrologue() separately.
 static char* patchFragmentShaderForGenerateOutput(const char* source) {
-	if (!source) return NULL;
-	if (!strstr(source, "return generateOutput()")) return NULL;
-	if (strstr(source, "float4 generateOutput()")) return NULL;
+	if (!source) {
+		return NULL;
+	}
+	if (!strstr(source, "return generateOutput()")) {
+		return NULL;
+	}
+	if (strstr(source, "float4 generateOutput()")) {
+		return NULL;
+	}
 
 	size_t sourceLen = strlen(source);
 
@@ -6224,7 +6542,9 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	const char* pixelOutputPos = strstr(source, "@@ PIXEL OUTPUT @@");
 	size_t pixelOutputLen = pixelOutputPos ? strlen("@@ PIXEL OUTPUT @@") : 0;
 	const char* mainPos = strstr(source, "float4 main(");
-	if (!mainPos) return NULL;
+	if (!mainPos) {
+		return NULL;
+	}
 
 	const char generateFunc[] =
 		"float4 generateOutput()\n"
@@ -6235,9 +6555,13 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 
 	// Calculate total extra bytes
 	size_t extra = generateFuncLen;
-	if (needsColourDecl && colourInsertPos) extra += colourDeclLen;
+	if (needsColourDecl && colourInsertPos) {
+		extra += colourDeclLen;
+	}
 	char* result = (char*)malloc(sourceLen - pixelOutputLen + extra + 1);
-	if (!result) return NULL;
+	if (!result) {
+		return NULL;
+	}
 
 	char* out = result;
 	const char* in = source;
@@ -6247,7 +6571,8 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	if (needsColourDecl && colourInsertPos && colourInsertPos < seg1End) {
 		size_t seg1Len = (size_t)(colourInsertPos - in);
 		memcpy(out, in, seg1Len);
-		out += seg1Len; in += seg1Len;
+		out += seg1Len;
+		in += seg1Len;
 		memcpy(out, colourDecl, colourDeclLen);
 		out += colourDeclLen;
 	}
@@ -6259,7 +6584,8 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 		if (glColorEnd) {
 			size_t beforeGLEnd = (size_t)(glColorEnd + 2 - in);
 			memcpy(out, in, beforeGLEnd);
-			out += beforeGLEnd; in += beforeGLEnd;
+			out += beforeGLEnd;
+			in += beforeGLEnd;
 			memcpy(out, generateFunc, generateFuncLen);
 			out += generateFuncLen;
 		}
@@ -6276,7 +6602,8 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	// Copy remaining up to main
 	size_t remToMain = (size_t)(mainPos - in);
 	memcpy(out, in, remToMain);
-	out += remToMain; in += remToMain;
+	out += remToMain;
+	in += remToMain;
 
 	// Copy from mainPos to end
 	size_t seg4Len = sourceLen - (size_t)(in - source);
@@ -6359,9 +6686,13 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 
 	// Patch vertex shader: first VS_INPUT struct, then generateOutput
 	char* patchedVert1 = patchVertexShaderInputStruct(vertexShaderSource);
-	if (patchedVert1) { vertexShaderSource = patchedVert1; }
+	if (patchedVert1) {
+		vertexShaderSource = patchedVert1;
+	}
 	char* patchedVert2 = patchVertexShaderForGenerateOutput(vertexShaderSource);
-	if (patchedVert2) { vertexShaderSource = patchedVert2; }
+	if (patchedVert2) {
+		vertexShaderSource = patchedVert2;
+	}
 
 	// Patch _v_vPosition to convert from screen-pixel coords (D3D9) to world coords (GL).
 	// On D3D9, vertex positions stored as screen-pixel coords via transformPoint;
@@ -6391,9 +6722,12 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 			char* newSrc = (char*)malloc(newLen + 1);
 			if (newSrc) {
 				char* dp = newSrc;
-				memcpy(dp, uniformLine, uniformLen); dp += uniformLen;
-				memcpy(dp, vertexShaderSource, patOff); dp += patOff;
-				memcpy(dp, newPat, newPatLen); dp += newPatLen;
+				memcpy(dp, uniformLine, uniformLen);
+				dp += uniformLen;
+				memcpy(dp, vertexShaderSource, patOff);
+				dp += patOff;
+				memcpy(dp, newPat, newPatLen);
+				dp += newPatLen;
 				memcpy(dp, vertexShaderSource + patOff + oldPatLen, oldLen - patOff - oldPatLen + 1);
 				patchedVert3 = newSrc;
 				vertexShaderSource = patchedVert3;
@@ -6404,11 +6738,17 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	// Patch fragment shader: generateOutput first (adds missing static decls like _v_vColour),
 	// then PS_INPUT struct (scans static decls), then prologue assignments.
 	char* patchedFrag2 = patchFragmentShaderForGenerateOutput(fragmentShaderSource);
-	if (patchedFrag2) { fragmentShaderSource = patchedFrag2; }
+	if (patchedFrag2) {
+		fragmentShaderSource = patchedFrag2;
+	}
 	char* patchedFrag1 = patchPixelShaderInputStruct(fragmentShaderSource);
-	if (patchedFrag1) { fragmentShaderSource = patchedFrag1; }
+	if (patchedFrag1) {
+		fragmentShaderSource = patchedFrag1;
+	}
 	char* patchedFragPrologue = patchPixelShaderPrologue(fragmentShaderSource);
-	if (patchedFragPrologue) { fragmentShaderSource = patchedFragPrologue; }
+	if (patchedFragPrologue) {
+		fragmentShaderSource = patchedFragPrologue;
+	}
 
 	// if (false) {
 	// 	fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
@@ -6418,17 +6758,31 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
 
-	if (patchedFragPrologue) free(patchedFragPrologue);
-	if (patchedFrag1) free(patchedFrag1);
-	if (patchedFrag2) free(patchedFrag2);
-	if (patchedVert3) free(patchedVert3);
-	if (patchedVert2) free(patchedVert2);
-	if (patchedVert1) free(patchedVert1);
+	if (patchedFragPrologue) {
+		free(patchedFragPrologue);
+	}
+	if (patchedFrag1) {
+		free(patchedFrag1);
+	}
+	if (patchedFrag2) {
+		free(patchedFrag2);
+	}
+	if (patchedVert3) {
+		free(patchedVert3);
+	}
+	if (patchedVert2) {
+		free(patchedVert2);
+	}
+	if (patchedVert1) {
+		free(patchedVert1);
+	}
 }
 
 static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return;
+	if (dr->gmlShaderCount == 0) {
+		return;
+	}
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		renderer->currentShader = -1;
 		return;
@@ -6461,9 +6815,9 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 		for (uint32_t ui = 0; ui < shader->uniformCount; ui++) {
 			D3D9ShaderUniform* u = &shader->uniforms[ui];
 			fprintf(stderr, "D3D9:   [%u] %s reg=%d slot=%d %s%s\n",
-				ui, u->name, u->registerIndex, u->samplerSlot,
-				u->isSampler ? "sampler " : "",
-				u->isVertex ? "VS" : "PS");
+					ui, u->name, u->registerIndex, u->samplerSlot,
+					u->isSampler ? "sampler " : "",
+					u->isVertex ? "VS" : "PS");
 		}
 	}
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
@@ -6497,9 +6851,11 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			for (int m = 0; m < 5; m++) {
 				const float* s = upload[m].m;
 				float t[16];
-				for (int r = 0; r < 4; r++)
-					for (int c = 0; c < 4; c++)
+				for (int r = 0; r < 4; r++) {
+					for (int c = 0; c < 4; c++) {
 						t[c * 4 + r] = s[r * 4 + c];
+					}
+				}
 				dev->SetVertexShaderConstantF(
 					gmMatrices->registerIndex + m * 4,
 					(const float*)t,
@@ -6516,27 +6872,28 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	{
 		D3D9ShaderUniform* u = findShaderUniform(shader, "dx_ViewAdjust");
 		if (u && u->isVertex && !u->isSampler) {
-			float v[4] = {0, 0, 0, 0};
+			float v[4] = { 0, 0, 0, 0 };
 			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
 		}
 		u = findShaderUniform(shader, "dx_ViewCoords");
 		if (u && !u->isSampler) {
 			float w2 = dr->viewportW * 0.5f;
 			float h2 = dr->viewportH * 0.5f;
-			float v[4] = {w2, h2, w2, h2};
-			if (u->isVertex)
+			float v[4] = { w2, h2, w2, h2 };
+			if (u->isVertex) {
 				dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
-			else
+			} else {
 				dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+			}
 		}
 		u = findShaderUniform(shader, "dx_DepthFront");
 		if (u && !u->isSampler && !u->isVertex) {
-			float v[4] = {0.5f, 0.5f, 1.0f, 0.0f};
+			float v[4] = { 0.5f, 0.5f, 1.0f, 0.0f };
 			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
 		}
 		u = findShaderUniform(shader, "dx_FragCoordOffset");
 		if (u && !u->isSampler && !u->isVertex) {
-			float v[4] = {0, 0, 0, 0};
+			float v[4] = { 0, 0, 0, 0 };
 			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
 		}
 	}
@@ -6553,7 +6910,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			// v_vPosition exactly matches GL's raw world coordinates.
 			float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
 			float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
-			float v[4] = {invSx, invSy, offX, offY};
+			float v[4] = { invSx, invSy, offX, offY };
 			// if (false) {
 			// 	fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
 			// 		u->registerIndex, v[0], v[1], v[2], v[3]);
@@ -6567,7 +6924,9 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 
 static void d3d9GpuResetShader(Renderer* renderer) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return;
+	if (dr->gmlShaderCount == 0) {
+		return;
+	}
 	flushBatch(dr);
 	setShaders(dr, dr->pVertexShader, dr->pPixelShader);
 
@@ -6579,7 +6938,9 @@ static void d3d9GpuResetShader(Renderer* renderer) {
 
 static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return -1;
+	if (dr->gmlShaderCount == 0) {
+		return -1;
+	}
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		return -1;
 	}
@@ -6603,7 +6964,9 @@ static int32_t d3d9ShaderGetUniform(Renderer* renderer, int32_t shaderIndex, cha
 
 static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return -1;
+	if (dr->gmlShaderCount == 0) {
+		return -1;
+	}
 	if (shaderIndex < 0 || (uint32_t)shaderIndex >= dr->gmlShaderCount) {
 		return -1;
 	}
@@ -6626,7 +6989,9 @@ static int32_t d3d9ShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex
 
 static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return;
+	if (dr->gmlShaderCount == 0) {
+		return;
+	}
 	if (handle <= 0) {
 		return;
 	}
@@ -6655,9 +7020,9 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 	float values[4] = { value1, value2, value3, value4 };
 	if (false) {
 		fprintf(stderr, "D3D9: setUniform '%s' = {%.6f, %.6f, %.6f, %.6f} (handle=%d, reg=%d, count=%u, %s)\n",
-			u->name, values[0], values[1], values[2], values[3],
-			handle, u->registerIndex, u->registerCount,
-			u->isVertex ? "VS" : "PS");
+				u->name, values[0], values[1], values[2], values[3],
+				handle, u->registerIndex, u->registerCount,
+				u->isVertex ? "VS" : "PS");
 	}
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
@@ -6669,7 +7034,9 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t count, int32_t value1, int32_t value2, int32_t value3, int32_t value4) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return;
+	if (dr->gmlShaderCount == 0) {
+		return;
+	}
 	if (handle <= 0) {
 		return;
 	}
@@ -6706,7 +7073,9 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
 
 static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float* values, uint32_t count) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	if (dr->gmlShaderCount == 0) return;
+	if (dr->gmlShaderCount == 0) {
+		return;
+	}
 	if (handle <= 0) {
 		return;
 	}
@@ -7084,7 +7453,9 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 
 	float texW = (float)dr->textureWidths[texPageId];
 	float texH = (float)dr->textureHeights[texPageId];
-	if (texW <= 0 || texH <= 0) return;
+	if (texW <= 0 || texH <= 0) {
+		return;
+	}
 
 	float u0 = texelStart((float)tpag->sourceX, texW);
 	float v0 = texelStart((float)tpag->sourceY, texH);
@@ -7096,7 +7467,9 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 
 	float sprW = (float)tpag->boundingWidth * axScale;
 	float sprH = (float)tpag->boundingHeight * ayScale;
-	if (sprW <= 0.0f || sprH <= 0.0f) return;
+	if (sprW <= 0.0f || sprH <= 0.0f) {
+		return;
+	}
 
 	// Per-tile quad geometry in local space (without origin offset)
 	float localX0 = (float)tpag->targetX - originX;
@@ -7122,26 +7495,42 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
 		if (tileX) {
-			if (gameLeft > startX) startX += floorf((gameLeft - startX) / sprW) * sprW;
-			if (gameRight < endX) endX = gameRight;
+			if (gameLeft > startX) {
+				startX += floorf((gameLeft - startX) / sprW) * sprW;
+			}
+			if (gameRight < endX) {
+				endX = gameRight;
+			}
 		}
 		if (tileY) {
-			if (gameTop > startY) startY += floorf((gameTop - startY) / sprH) * sprH;
-			if (gameBottom < endY) endY = gameBottom;
+			if (gameTop > startY) {
+				startY += floorf((gameTop - startY) / sprH) * sprH;
+			}
+			if (gameBottom < endY) {
+				endY = gameBottom;
+			}
 		}
 	}
-	if (startX >= endX || startY >= endY) return;
+	if (startX >= endX || startY >= endY) {
+		return;
+	}
 
 	int32_t tilesX = tileX ? (int32_t)((endX - startX) / sprW) + 1 : 1;
 	int32_t tilesY = tileY ? (int32_t)((endY - startY) / sprH) + 1 : 1;
-	if (tilesX <= 0 || tilesY <= 0) return;
+	if (tilesX <= 0 || tilesY <= 0) {
+		return;
+	}
 
 	for (int32_t iy = 0; iy < tilesY; iy++) {
 		float dy = startY + (float)iy * sprH;
-		if (dy >= endY) break;
+		if (dy >= endY) {
+			break;
+		}
 		for (int32_t ix = 0; ix < tilesX; ix++) {
 			float dx = startX + (float)ix * sprW;
-			if (dx >= endX) break;
+			if (dx >= endX) {
+				break;
+			}
 
 			float vx0 = dx + quadOffX0;
 			float vy0 = dy + quadOffY0;
@@ -7179,7 +7568,9 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 			applyPointSampling(Dev(dr), dr);
 		}
 		resolveApplicationSurface(dr);
-		if (!dr->appSurfaceTexture) return;
+		if (!dr->appSurfaceTexture) {
+			return;
+		}
 		drawTex = (IDirect3DTexture9*)dr->appSurfaceTexture;
 		texW = dr->appSurfaceAllocW;
 		texH = dr->appSurfaceAllocH;
@@ -7194,13 +7585,17 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 	} else {
 		return;
 	}
-	if (!drawTex || texW <= 0 || texH <= 0) return;
+	if (!drawTex || texW <= 0 || texH <= 0) {
+		return;
+	}
 
 	float sw = (float)surfW;
 	float sh = (float)surfH;
 	float sprW = sw * xscale;
 	float sprH = sh * yscale;
-	if (sprW <= 0.0f || sprH <= 0.0f) return;
+	if (sprW <= 0.0f || sprH <= 0.0f) {
+		return;
+	}
 
 	// Ensure the surface texture is bound for batched drawing
 	flushBatch(dr);
@@ -7221,27 +7616,43 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 		float gameTop = ((float)dr->viewportY - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
 		float gameRight = ((float)(dr->viewportX + dr->viewportW) - dr->portOffsetX) / dr->portScaleX + dr->offsetX;
 		float gameBottom = ((float)(dr->viewportY + dr->viewportH) - dr->portOffsetY) / dr->portScaleY + dr->offsetY;
-		if (gameLeft > startX) startX += floorf((gameLeft - startX) / sprW) * sprW;
-		if (gameRight < endX) endX = gameRight;
-		if (gameTop > startY) startY += floorf((gameTop - startY) / sprH) * sprH;
-		if (gameBottom < endY) endY = gameBottom;
+		if (gameLeft > startX) {
+			startX += floorf((gameLeft - startX) / sprW) * sprW;
+		}
+		if (gameRight < endX) {
+			endX = gameRight;
+		}
+		if (gameTop > startY) {
+			startY += floorf((gameTop - startY) / sprH) * sprH;
+		}
+		if (gameBottom < endY) {
+			endY = gameBottom;
+		}
 	}
-	if (startX >= endX || startY >= endY) return;
+	if (startX >= endX || startY >= endY) {
+		return;
+	}
 
 	int32_t tilesX = (int32_t)((endX - startX) / sprW) + 1;
 	int32_t tilesY = (int32_t)((endY - startY) / sprH) + 1;
-	if (tilesX <= 0 || tilesY <= 0) return;
+	if (tilesX <= 0 || tilesY <= 0) {
+		return;
+	}
 
 	float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
 
 	for (int32_t iy = 0; iy < tilesY; iy++) {
 		float dy = startY + (float)iy * sprH;
-		if (dy >= endY) break;
+		if (dy >= endY) {
+			break;
+		}
 		float vy0 = dy;
 		float vy1 = dy + sprH;
 		for (int32_t ix = 0; ix < tilesX; ix++) {
 			float dx = startX + (float)ix * sprW;
-			if (dx >= endX) break;
+			if (dx >= endX) {
+				break;
+			}
 			float vx0 = dx;
 			float vx1 = dx + sprW;
 

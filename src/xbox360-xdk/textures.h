@@ -19,7 +19,7 @@ bool Xbox360Textures_hasTpagMapping(int32_t tpagIndex);
 
 // Get the atlas ID, position, and CLUT index for a given TPAG.
 bool Xbox360Textures_getTpagAtlasInfo(int32_t tpagIndex, int* outAtlasId, int* outAtlasX, int* outAtlasY,
-                                       int* outWidth, int* outHeight, int* outClutIndex, int* outBpp);
+									  int* outWidth, int* outHeight, int* outClutIndex, int* outBpp);
 
 // Loads an atlas page's indexed pixel data and expands it to RGBA using the CLUT.
 // The caller MUST free *outPixels with free() after uploading to the GPU.
