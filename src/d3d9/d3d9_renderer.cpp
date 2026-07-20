@@ -908,12 +908,6 @@ static void flushBatch(D3D9Renderer* dr) {
 
 	// D3DPT_QUADLIST is an excellent Xbox 360 hardware extension that bypasses index buffers entirely.
 	if (quadCount > 0) {
-		if (renderer->currentShader >= 0 && renderer->dataWin &&
-			(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
-			strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
-			fprintf(stderr, "D3D9: flushBatch %u quads batchSlot=%d tex=%p\n",
-				quadCount, batchSlot, desiredTex);
-		}
 		dev->DrawPrimitiveUP(D3DPT_QUADLIST, quadCount, dr->vertexData, sizeof(SpriteVertex));
 		dr->quadCount = 0;
 	}
@@ -996,29 +990,12 @@ static void flushBatch(D3D9Renderer* dr) {
 		dr->boundTextureIndex = dr->currentTextureIndex;
 		dr->boundTexturePtr = desiredTex;
 		dr->boundTextureSlot = batchSlot;
-		if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->dataWin->shdr.count &&
-			strcmp(dr->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
-			fprintf(stderr, "D3D9: flushBatch bound texture=%p slot=%d (texIdx=%d)\n",
-				desiredTex, batchSlot, dr->currentTextureIndex);
-		}
 	}
 
 	// Submit all quads in a single indexed draw call instead of per-quad TRIANGLESTRIP.
 	// Generate a temporary index buffer for quad->triangle conversion.
 	// Each quad (4 vertices) maps to 2 triangles (6 indices): {0,1,2, 2,3,0}
 	if (quadCount > 0) {
-		if (renderer->currentShader >= 0 && renderer->dataWin &&
-			(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
-			strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
-			IDirect3DBaseTexture9* tex0 = nullptr;
-			IDirect3DBaseTexture9* tex1 = nullptr;
-			dev->GetTexture(0, &tex0);
-			dev->GetTexture(1, &tex1);
-			fprintf(stderr, "D3D9: flushBatch %u quads batchSlot=%d batchTex=%p texIdx=%d | stage0=%p stage1=%p\n",
-				quadCount, batchSlot, desiredTex, dr->currentTextureIndex, tex0, tex1);
-			if (tex0) tex0->Release();
-			if (tex1) tex1->Release();
-		}
 		uint32_t totalIndices = quadCount * 6;
 		uint16_t* indices = (uint16_t*)safeMalloc(totalIndices * sizeof(uint16_t));
 		if (indices) {
@@ -3319,9 +3296,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
 
-	if (renderer->currentShader >= 0 && renderer->dataWin &&
-		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
-		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+	if (false) {
 		fprintf(stderr, "D3D9: drawSprite color=BGR(0x%06X) alpha=%.3f -> RGBA(%.3f,%.3f,%.3f,%.3f) pos=(%.1f,%.1f) scale=(%.2f,%.2f)\n",
 			color, alpha, cr, cg, cb, ca, x, y, xscale, yscale);
 	}
@@ -6243,8 +6218,10 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		// Only patch shaders that use _v_vPosition in the VS
 		const char* oldPat = "(_v_vPosition = vec2_ctor(_in_Position.x, _in_Position.y));";
 		const char* vsPos = strstr(vertexShaderSource, oldPat);
-		fprintf(stderr, "D3D9: _v_vPosition pattern %s in %s\n",
-			vsPos ? "FOUND" : "NOT FOUND", shdr->name);
+		// if (false) {
+		// 	fprintf(stderr, "D3D9: _v_vPosition pattern %s in %s\n",
+		// 		vsPos ? "FOUND" : "NOT FOUND", shdr->name);
+		// }
 		if (vsPos) {
 			size_t patOff = (size_t)(vsPos - vertexShaderSource);
 			size_t oldLen = strlen(vertexShaderSource);
@@ -6276,10 +6253,11 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 	char* patchedFragPrologue = patchPixelShaderPrologue(fragmentShaderSource);
 	if (patchedFragPrologue) { fragmentShaderSource = patchedFragPrologue; }
 
-	if (strcmp(shdr->name, "shd_prophecy_legend") == 0) {
-		fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
-		fprintf(stderr, "D3D9: ===== FRAGMENT SOURCE for %s =====\n%s\n", shdr->name, fragmentShaderSource);
-	}
+	// if (false) {
+	// 	fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
+	// 	fprintf(stderr, "D3D9: ===== FRAGMENT SOURCE for %s =====\n%s\n", shdr->name, fragmentShaderSource);
+	// }
+
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
 
@@ -6418,8 +6396,10 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
 			float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
 			float v[4] = {invSx, invSy, offX, offY};
-			fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
-				u->registerIndex, v[0], v[1], v[2], v[3]);
+			// if (false) {
+			// 	fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
+			// 		u->registerIndex, v[0], v[1], v[2], v[3]);
+			// }
 			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
 		}
 	}
@@ -6511,9 +6491,7 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 	IDirect3DDevice9* dev = Dev(dr);
 	float values[4] = { value1, value2, value3, value4 };
-	if (renderer->currentShader >= 0 && renderer->dataWin &&
-		(uint32_t)renderer->currentShader < renderer->dataWin->shdr.count &&
-		strcmp(renderer->dataWin->shdr.shaders[renderer->currentShader].name, "shd_prophecy_legend") == 0) {
+	if (false) {
 		fprintf(stderr, "D3D9: setUniform '%s' = {%.6f, %.6f, %.6f, %.6f} (handle=%d, reg=%d, count=%u, %s)\n",
 			u->name, values[0], values[1], values[2], values[3],
 			handle, u->registerIndex, u->registerCount,
