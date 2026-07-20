@@ -1288,6 +1288,7 @@ static void maybeStartWorker(D3D9Renderer* dr) {
 	if (workerIndex != UINT32_MAX) {
 		HANDLE thread = CreateThread(nullptr, 0, textureDecodeWorkerThreadProc, dr, 0, nullptr);
 		if (thread) {
+			SetThreadPriority(thread, THREAD_PRIORITY_BELOW_NORMAL);
 			pool->workers[workerIndex] = thread;
 		} else {
 			EnterCriticalSection(&pool->mutex);
