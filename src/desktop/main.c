@@ -57,7 +57,6 @@ extern "C" {
 #include "gl_legacy_renderer.h"
 #endif
 #include "gl_common.h"
-#include "gl_wrappers.h"
 #endif
 #ifdef ENABLE_SW_RENDERER
 #include "sw_renderer.h"
