@@ -156,6 +156,12 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 
 using namespace std;
 
+static inline uint8_t floatToByteClamped(float v) {
+	if (v <= 0.0f) return 0;
+	if (v >= 1.0f) return 255;
+	return (uint8_t)(v * 255.0f + 0.5f);
+}
+
 // ===[ Vertex Format ]===
 // Packed to 20 bytes: float2 pos, float2 uv, D3DCOLOR color
 // Matches GL renderer's Vertex layout for bandwidth efficiency.
@@ -171,11 +177,15 @@ static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, flo
 	sv->y = py - 0.5f;
 	sv->u = tu;
 	sv->v = tv;
-	uint8_t r = (uint8_t)(cr * 255.0f + 0.5f);
-	uint8_t g = (uint8_t)(cg * 255.0f + 0.5f);
-	uint8_t b = (uint8_t)(cb * 255.0f + 0.5f);
-	uint8_t a = (uint8_t)(ca * 255.0f + 0.5f);
-	sv->color = D3DCOLOR_ARGB(a, r, g, b);
+	uint8_t r = floatToByteClamped(cr);
+	uint8_t g = floatToByteClamped(cg);
+	uint8_t b = floatToByteClamped(cb);
+	uint8_t a = floatToByteClamped(ca);
+	// D3DCOLOR_ARGB packs as a<<24 | r<<16 | g<<8 | b; in little-endian memory this
+	// is byte[0]=b, [1]=g, [2]=r, [3]=a. D3DDECLTYPE_D3DCOLOR expands byte[0] as RED,
+	// so the default D3DCOLOR_ARGB(a,r,g,b) produces (B,G,R,A) vertex color.
+	// Swap r↔b so vertex shader receives (R,G,B,A) matching GL's RGBA convention.
+	sv->color = D3DCOLOR_ARGB(a, b, g, r);
 }
 
 // ===[ HLSL Shader Source ]===
@@ -3136,8 +3146,11 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 					if (wu && wu->isVertex && !wu->isSampler) {
 						float invSx = (dr->portScaleX != 0.0f) ? 1.0f / dr->portScaleX : 1.0f;
 						float invSy = (dr->portScaleY != 0.0f) ? 1.0f / dr->portScaleY : 1.0f;
-						float offX = dr->offsetX - dr->portOffsetX * invSx;
-						float offY = dr->offsetY - dr->portOffsetY * invSy;
+						// D3D9 vertex positions have -0.5 half-pixel offset applied in
+						// d3d9DrawSprite (screen coords -> vertex buffer). Add it back so
+						// v_vPosition exactly matches GL's raw world coordinates.
+						float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
+						float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
 						float wv[4] = {invSx, invSy, offX, offY};
 						dev->SetVertexShaderConstantF(wu->registerIndex, wv, 1);
 					}
@@ -3346,10 +3359,11 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		transformPoint(dr, x + cx[i], y + cy[i], &sx, &sy);
 		v[i].x = sx - 0.5f;
 		v[i].y = sy - 0.5f;
-		v[i].color = D3DCOLOR_ARGB((uint8_t)(ca * 255.0f + 0.5f),
-			(uint8_t)(cr * 255.0f + 0.5f),
-			(uint8_t)(cg * 255.0f + 0.5f),
-			(uint8_t)(cb * 255.0f + 0.5f));
+		// D3DCOLOR_ARGB(a,r,g,b) produces (B,G,R,A); swap r↔b for (R,G,B,A).
+		v[i].color = D3DCOLOR_ARGB(floatToByteClamped(ca),
+			floatToByteClamped(cb),
+			floatToByteClamped(cg),
+			floatToByteClamped(cr));
 	}
 	v[0].u = u0;
 	v[0].v = v0;
@@ -3951,22 +3965,22 @@ SpriteVertex* v = allocQuad(dr);
 						v[i].y = screenY - 0.5f;
 					}
 					// Per-vertex colors: TL=0, TR=1, BR=2, BL=3
-					v[0].color = D3DCOLOR_ARGB((uint8_t)(vTLa * 255.0f + 0.5f),
-						(uint8_t)(vTLr * 255.0f + 0.5f),
-						(uint8_t)(vTLg * 255.0f + 0.5f),
-						(uint8_t)(vTLb * 255.0f + 0.5f));
-					v[1].color = D3DCOLOR_ARGB((uint8_t)(vTRa * 255.0f + 0.5f),
-						(uint8_t)(vTRr * 255.0f + 0.5f),
-						(uint8_t)(vTRg * 255.0f + 0.5f),
-						(uint8_t)(vTRb * 255.0f + 0.5f));
-					v[2].color = D3DCOLOR_ARGB((uint8_t)(vBRa * 255.0f + 0.5f),
-						(uint8_t)(vBRr * 255.0f + 0.5f),
-						(uint8_t)(vBRg * 255.0f + 0.5f),
-						(uint8_t)(vBRb * 255.0f + 0.5f));
-					v[3].color = D3DCOLOR_ARGB((uint8_t)(vBLa * 255.0f + 0.5f),
-						(uint8_t)(vBLr * 255.0f + 0.5f),
-						(uint8_t)(vBLg * 255.0f + 0.5f),
-						(uint8_t)(vBLb * 255.0f + 0.5f));
+					v[0].color = D3DCOLOR_ARGB(floatToByteClamped(vTLa),
+						floatToByteClamped(vTLb),
+						floatToByteClamped(vTLg),
+						floatToByteClamped(vTLr));
+					v[1].color = D3DCOLOR_ARGB(floatToByteClamped(vTRa),
+						floatToByteClamped(vTRb),
+						floatToByteClamped(vTRg),
+						floatToByteClamped(vTRr));
+					v[2].color = D3DCOLOR_ARGB(floatToByteClamped(vBRa),
+						floatToByteClamped(vBRb),
+						floatToByteClamped(vBRg),
+						floatToByteClamped(vBRr));
+					v[3].color = D3DCOLOR_ARGB(floatToByteClamped(vBLa),
+						floatToByteClamped(vBLb),
+						floatToByteClamped(vBLg),
+						floatToByteClamped(vBLr));
 					v[0].u = gU0;
 					v[0].v = gV0;
 					v[1].u = gU1;
@@ -4031,7 +4045,7 @@ static void d3d9ClearScreen(Renderer* renderer, uint32_t color, float alpha) {
 	uint8_t r = (uint8_t)(color & 0xFF);
 	uint8_t g = (uint8_t)((color >> 8) & 0xFF);
 	uint8_t b = (uint8_t)((color >> 16) & 0xFF);
-	uint8_t a = (uint8_t)(alpha * 255.0f);
+	uint8_t a = floatToByteClamped(alpha);
 	Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(a, r, g, b), 1.0f, 0);
 }
 
@@ -6398,8 +6412,11 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 		if (u && u->isVertex && !u->isSampler) {
 			float invSx = (dr->portScaleX != 0.0f) ? 1.0f / dr->portScaleX : 1.0f;
 			float invSy = (dr->portScaleY != 0.0f) ? 1.0f / dr->portScaleY : 1.0f;
-			float offX = dr->offsetX - dr->portOffsetX * invSx;
-			float offY = dr->offsetY - dr->portOffsetY * invSy;
+			// D3D9 vertex positions have -0.5 half-pixel offset applied in
+			// d3d9DrawSprite (screen coords → vertex buffer). Add it back here so
+			// v_vPosition exactly matches GL's raw world coordinates.
+			float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
+			float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
 			float v[4] = {invSx, invSy, offX, offY};
 			fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
 				u->registerIndex, v[0], v[1], v[2], v[3]);

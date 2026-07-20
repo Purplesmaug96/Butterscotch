@@ -1367,7 +1367,7 @@ int main(int argc, char* argv[]) {
 #else
             if (gfx == LEGACY_GL || gfx == MODERN_GL) {
 #endif
-                glad_ret = platformInitGlad();
+                int glad_ret = platformInitGlad();
                 if (glad_ret == 0 && gfx != D3D9) {
                     fprintf(stderr, "Failed to initialize GLAD\n");
                     platformExit();

@@ -196,9 +196,18 @@ static std::string preprocessGLES(const std::string& source) {
             pos = semi + 1;
         }
     }
-    if (!foundAny) {
-        fprintf(stderr, "preprocessGLES: NO gl_FragColor found in source (first 200 chars):\n%.200s\n", source.c_str());
-    }
+    // if (!foundAny) {
+    //     fprintf(stderr, "preprocessGLES: NO gl_FragColor in source\n");
+    // } else {
+    //     // Found gl_FragColor but pattern didn't match; show context around it
+    //     size_t ctx = result.find("gl_FragColor");
+    //     if (ctx != std::string::npos) {
+    //         size_t start = (ctx > 100) ? ctx - 100 : 0;
+    //         size_t end = std::min(ctx + 200, source.size());
+    //         fprintf(stderr, "preprocessGLES: gl_FragColor found but pattern did not match. Context:\n---\n%.*s\n---\n",
+    //                 (int)(end - start), source.c_str() + start);
+    //     }
+    // }
     return result;
 }
 
@@ -257,9 +266,6 @@ static char* translateGLES(
     ShCompileOptions compileOptions = {};
     compileOptions.objectCode             = 1;
     compileOptions.initializeUninitializedLocals = true;
-    compileOptions.skipFoldExpressions          = true;
-    compileOptions.skipPruneNoOps               = false;
-    compileOptions.skipRemoveUnreferencedVariables = false;
 
     // For HLSL output, we want to select view in vertex shader disabled
     if (outputFormat == SH_HLSL_3_0_OUTPUT || outputFormat == SH_HLSL_4_1_OUTPUT) {
