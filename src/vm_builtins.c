@@ -10187,6 +10187,31 @@ static RValue builtin_draw_self(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
     return RValue_makeUndefined();
 }
 
+// draw_point(x, y)
+static RValue builtin_draw_point(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    if (runner->applyOffsetForPrimitives) { x += 1.0f; y += 1.0f; }
+    runner->renderer->vtable->drawRectangle(runner->renderer, x, y, x + 1.0f, y + 1.0f,
+        runner->renderer->drawColor, runner->renderer->drawAlpha, false);
+    return RValue_makeUndefined();
+}
+
+// draw_point_color(x, y, col)
+static RValue builtin_draw_point_color(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    uint32_t col = (uint32_t) RValue_toInt32(args[2]);
+    if (runner->applyOffsetForPrimitives) { x += 1.0f; y += 1.0f; }
+    runner->renderer->vtable->drawRectangle(runner->renderer, x, y, x + 1.0f, y + 1.0f,
+        col, runner->renderer->drawAlpha, false);
+    return RValue_makeUndefined();
+}
+
 // draw_line(x1, y1, x2, y2)
 static RValue builtin_draw_line(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
@@ -16874,6 +16899,9 @@ void VMBuiltins_registerAll(VMContext* ctx) {
         VM_registerBuiltin(ctx, "background_name", (BuiltinFunc)builtin_sprite_get_name);
     }
     VM_registerBuiltin(ctx, "draw_self", (BuiltinFunc)builtin_draw_self);
+    VM_registerBuiltin(ctx, "draw_point", (BuiltinFunc)builtin_draw_point);
+    VM_registerBuiltin(ctx, "draw_point_color", (BuiltinFunc)builtin_draw_point_color);
+    VM_registerBuiltin(ctx, "draw_point_colour", (BuiltinFunc)builtin_draw_point_color);
     VM_registerBuiltin(ctx, "draw_line", (BuiltinFunc)builtin_draw_line);
     VM_registerBuiltin(ctx, "draw_line_colour", (BuiltinFunc)builtin_draw_line_colour);
     VM_registerBuiltin(ctx, "draw_line_color", (BuiltinFunc)builtin_draw_line_colour); // alt-spelling (used in Undertale)
