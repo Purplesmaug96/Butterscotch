@@ -675,6 +675,36 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 	*(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
 }
 
+// Check if a texture will have visible DXT5 artifacts by counting distinct
+// colors (565-quantized) and alpha values per 4x4 block. DXT5 can represent
+// at most 4 colors and 8 alpha values per block; beyond that, use ARGB8888.
+static bool textureNeedsARGB(const uint8_t* pixels, int32_t w, int32_t h) {
+	if (!pixels || w <= 0 || h <= 0) return false;
+	for (int32_t by = 0; by < h; by += 4) {
+		for (int32_t bx = 0; bx < w; bx += 4) {
+			uint16_t colors[16];
+			uint8_t alphas[16];
+			int nColors = 0, nAlphas = 0;
+			int bw = (bx + 4 > w) ? w - bx : 4;
+			int bh = (by + 4 > h) ? h - by : 4;
+			for (int32_t y = 0; y < bh; y++) {
+				for (int32_t x = 0; x < bw; x++) {
+					const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
+					uint16_t c = ((uint16_t)(p[0] >> 3) << 11) | ((uint16_t)(p[1] >> 2) << 5) | (p[2] >> 3);
+					uint8_t a = p[3];
+					bool found = false;
+					for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
+					if (!found) { if (nColors >= 4) return true; colors[nColors++] = c; }
+					found = false;
+					for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
+					if (!found) { if (nAlphas >= 8) return true; alphas[nAlphas++] = a; }
+				}
+			}
+		}
+	}
+	return false;
+}
+
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
 								const uint8_t* pixels, int32_t w, int32_t h) {
 	if (!dev || !dstTex || !pixels || w <= 0 || h <= 0) {
@@ -1659,10 +1689,10 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
-
 #ifdef PLATFORM_XBOX360_XDK
+	D3DFORMAT fmt = textureNeedsARGB(pixels, (int32_t)w, (int32_t)h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
-	tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
 		Butterscotch_xdkDiagTrace("D3D9: async createXGTexture failed page=%u %dx%d", textureIndex, w, h);
 		stbi_image_free(pixels);
@@ -1686,8 +1716,10 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 #ifdef PLATFORM_XBOX360_XDK
 		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u", textureIndex);
 		delete tex;
-		XPhysicalFree(dr->textureWCAlloc[textureIndex]);
-		dr->textureWCAlloc[textureIndex] = nullptr;
+		if (dr->textureWCAlloc[textureIndex]) {
+			XPhysicalFree(dr->textureWCAlloc[textureIndex]);
+			dr->textureWCAlloc[textureIndex] = nullptr;
+		}
 #else
 		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
 		tex->Release();
@@ -1707,8 +1739,13 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	dr->textureWidths[textureIndex] = (int32_t)w;
 	dr->textureHeights[textureIndex] = (int32_t)h;
-	dr->textureBlobSizes[textureIndex] = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
-	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
+#ifdef PLATFORM_XBOX360_XDK
+	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
+#else
+	uint32_t memSize = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
+#endif
+	dr->textureBlobSizes[textureIndex] = memSize;
+	dr->textureBytesUsed += memSize;
 
 	dr->loadedTexturePages++;
 	dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE; // Reset to idle (loaded)
@@ -1854,16 +1891,18 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 				ensureTextureCacheRoom(dr);
 				IDirect3DDevice9* dev = Dev(dr);
 				IDirect3DTexture9* tex = nullptr;
+				D3DFORMAT fmt = textureNeedsARGB(rgba, w, h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
 				void* wcAlloc = nullptr;
-				tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+				tex = createXGTexture(w, h, fmt, &wcAlloc);
 				if (tex) {
 					if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
 						dr->textures[textureIndex] = tex;
 						dr->textureWCAlloc[textureIndex] = wcAlloc;
 						dr->textureWidths[textureIndex] = w;
 						dr->textureHeights[textureIndex] = h;
-						dr->textureBlobSizes[textureIndex] = D3D9_GPU_MEM_SIZE(w, h);
-						dr->textureBytesUsed += dr->textureBlobSizes[textureIndex];
+						uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE(w, h);
+						dr->textureBlobSizes[textureIndex] = memSize;
+						dr->textureBytesUsed += memSize;
 						dr->loadedTexturePages++;
 						if (dr->textureLastUsedFrame) {
 							dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
@@ -2019,10 +2058,10 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
-
 #ifdef PLATFORM_XBOX360_XDK
+	D3DFORMAT fmt = textureNeedsARGB(pixels, w, h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
-	tex = createXGTexture(w, h, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
 		Butterscotch_xdkDiagTrace("D3D9: createXGTexture failed page=%u %dx%d", index, w, h);
 		stbi_image_free(pixels);
@@ -2042,8 +2081,10 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 #ifdef PLATFORM_XBOX360_XDK
 		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u", index);
 		delete tex;
-		XPhysicalFree(dr->textureWCAlloc[index]);
-		dr->textureWCAlloc[index] = nullptr;
+		if (dr->textureWCAlloc[index]) {
+			XPhysicalFree(dr->textureWCAlloc[index]);
+			dr->textureWCAlloc[index] = nullptr;
+		}
 #else
 		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u hr=0x%08X", index, (unsigned)hr);
 		tex->Release();
@@ -2056,8 +2097,13 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	dr->textures[index] = tex;
 	dr->textureWidths[index] = w;
 	dr->textureHeights[index] = h;
-	dr->textureBlobSizes[index] = D3D9_GPU_MEM_SIZE(w, h);
-	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE(w, h);
+#ifdef PLATFORM_XBOX360_XDK
+	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE(w, h);
+#else
+	uint32_t memSize = D3D9_GPU_MEM_SIZE(w, h);
+#endif
+	dr->textureBlobSizes[index] = memSize;
+	dr->textureBytesUsed += memSize;
 	Butterscotch_xdkDiagTrace("D3D9: loaded texture page %u %dx%d from %s", index, w, h, label ? label : "(memory)");
 	return true;
 }
@@ -4285,8 +4331,9 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360_XDK
+	D3DFORMAT fmt = textureNeedsARGB(rgba, srcW, srcH) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
-	tex = createXGTexture(srcW, srcH, D3D9_GPU_TEXTURE_FORMAT, &wcAlloc);
+	tex = createXGTexture(srcW, srcH, fmt, &wcAlloc);
 	if (!tex) {
 		free(rgba);
 		return -1;
@@ -4303,8 +4350,10 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	if (!uploadRgbaToTexture(dev, tex, rgba, srcW, srcH)) {
 #ifdef PLATFORM_XBOX360_XDK
 		delete tex;
-		XPhysicalFree(dr->textureWCAlloc[pageId]);
-		dr->textureWCAlloc[pageId] = nullptr;
+		if (dr->textureWCAlloc[pageId]) {
+			XPhysicalFree(dr->textureWCAlloc[pageId]);
+			dr->textureWCAlloc[pageId] = nullptr;
+		}
 #else
 		tex->Release();
 #endif
@@ -4315,8 +4364,13 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	dr->textures[pageId] = tex;
 	dr->textureWidths[pageId] = srcW;
 	dr->textureHeights[pageId] = srcH;
-	dr->textureBlobSizes[pageId] = D3D9_GPU_MEM_SIZE(srcW, srcH);
-	dr->textureBytesUsed += D3D9_GPU_MEM_SIZE(srcW, srcH);
+#ifdef PLATFORM_XBOX360_XDK
+	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(srcW * srcH * 4) : D3D9_GPU_MEM_SIZE(srcW, srcH);
+#else
+	uint32_t memSize = D3D9_GPU_MEM_SIZE(srcW, srcH);
+#endif
+	dr->textureBlobSizes[pageId] = memSize;
+	dr->textureBytesUsed += memSize;
 
 	free(rgba);
 
