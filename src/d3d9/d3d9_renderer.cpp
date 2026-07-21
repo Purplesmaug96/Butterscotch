@@ -675,11 +675,15 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 	*(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
 }
 
-// Check if a texture will have visible DXT5 artifacts by counting distinct
-// colors (565-quantized) and alpha values per 4x4 block. DXT5 can represent
-// at most 4 colors and 8 alpha values per block; beyond that, use ARGB8888.
-static bool textureNeedsARGB(const uint8_t* pixels, int32_t w, int32_t h) {
-	if (!pixels || w <= 0 || h <= 0) return false;
+// Select the most aggressive DXT compression format that will not cause
+// visible artifacts. Examines each 4x4 block for distinct 565-quantized
+// colors and alpha values, then returns the best format:
+//   D3DFMT_DXT1  (4 BPP) - binary alpha (0 or 255 only), ≤4 colors/block
+//   D3DFMT_DXT5  (8 BPP) - full alpha (≤8 values/block), ≤4 colors/block
+//   D3DFMT_A8R8G8B8 (32 BPP) - lossless fallback
+static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_t h) {
+	if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
+	bool needDXT5 = false;
 	for (int32_t by = 0; by < h; by += 4) {
 		for (int32_t bx = 0; bx < w; bx += 4) {
 			uint16_t colors[16];
@@ -687,22 +691,28 @@ static bool textureNeedsARGB(const uint8_t* pixels, int32_t w, int32_t h) {
 			int nColors = 0, nAlphas = 0;
 			int bw = (bx + 4 > w) ? w - bx : 4;
 			int bh = (by + 4 > h) ? h - by : 4;
+			bool hasTransparent = false;
+			bool hasIntermediateAlpha = false;
 			for (int32_t y = 0; y < bh; y++) {
 				for (int32_t x = 0; x < bw; x++) {
 					const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
 					uint16_t c = ((uint16_t)(p[0] >> 3) << 11) | ((uint16_t)(p[1] >> 2) << 5) | (p[2] >> 3);
 					uint8_t a = p[3];
+					if (a == 0) hasTransparent = true;
+					else if (a != 255) hasIntermediateAlpha = true;
 					bool found = false;
 					for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
-					if (!found) { if (nColors >= 4) return true; colors[nColors++] = c; }
+					if (!found) { if (nColors >= 16) continue; colors[nColors++] = c; }
 					found = false;
 					for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
-					if (!found) { if (nAlphas >= 8) return true; alphas[nAlphas++] = a; }
+					if (!found) { if (nAlphas >= 16) continue; alphas[nAlphas++] = a; }
 				}
 			}
+			if (nColors > 4 || nAlphas > 8) return D3DFMT_A8R8G8B8;
+			if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
 		}
 	}
-	return false;
+	return needDXT5 ? D3DFMT_DXT5 : D3DFMT_DXT1;
 }
 
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
@@ -1690,7 +1700,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360_XDK
-	D3DFORMAT fmt = textureNeedsARGB(pixels, (int32_t)w, (int32_t)h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
+	D3DFORMAT fmt = textureBestCompression(pixels, (int32_t)w, (int32_t)h);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
@@ -1740,7 +1750,10 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	dr->textureWidths[textureIndex] = (int32_t)w;
 	dr->textureHeights[textureIndex] = (int32_t)h;
 #ifdef PLATFORM_XBOX360_XDK
-	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
+	uint32_t memSize;
+	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
+	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h) / 2;
+	else memSize = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
 #else
 	uint32_t memSize = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h);
 #endif
@@ -1891,7 +1904,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 				ensureTextureCacheRoom(dr);
 				IDirect3DDevice9* dev = Dev(dr);
 				IDirect3DTexture9* tex = nullptr;
-				D3DFORMAT fmt = textureNeedsARGB(rgba, w, h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
+				D3DFORMAT fmt = textureBestCompression(rgba, w, h);
 				void* wcAlloc = nullptr;
 				tex = createXGTexture(w, h, fmt, &wcAlloc);
 				if (tex) {
@@ -1900,7 +1913,10 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 						dr->textureWCAlloc[textureIndex] = wcAlloc;
 						dr->textureWidths[textureIndex] = w;
 						dr->textureHeights[textureIndex] = h;
-						uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE(w, h);
+						uint32_t memSize;
+						if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
+						else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(w, h) / 2;
+						else memSize = D3D9_GPU_MEM_SIZE(w, h);
 						dr->textureBlobSizes[textureIndex] = memSize;
 						dr->textureBytesUsed += memSize;
 						dr->loadedTexturePages++;
@@ -2059,7 +2075,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360_XDK
-	D3DFORMAT fmt = textureNeedsARGB(pixels, w, h) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
+	D3DFORMAT fmt = textureBestCompression(pixels, w, h);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
@@ -2098,7 +2114,10 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	dr->textureWidths[index] = w;
 	dr->textureHeights[index] = h;
 #ifdef PLATFORM_XBOX360_XDK
-	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(w * h * 4) : D3D9_GPU_MEM_SIZE(w, h);
+	uint32_t memSize;
+	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
+	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(w, h) / 2;
+	else memSize = D3D9_GPU_MEM_SIZE(w, h);
 #else
 	uint32_t memSize = D3D9_GPU_MEM_SIZE(w, h);
 #endif
@@ -2863,7 +2882,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	}
 	dr->whiteTexture = whiteTex;
 
-	// TXTR pages can be huge in fan builds. Decode/upload them on demand.
+	// TXTR pages can be huge. Decode/upload them on demand.
 	dr->textureCount = dataWin->txtr.count;
 	dr->textures = (void**)safeCalloc(dr->textureCount, sizeof(void*));
 	dr->textureWidths = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
@@ -4331,7 +4350,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360_XDK
-	D3DFORMAT fmt = textureNeedsARGB(rgba, srcW, srcH) ? D3DFMT_A8R8G8B8 : D3D9_GPU_TEXTURE_FORMAT;
+	D3DFORMAT fmt = textureBestCompression(rgba, srcW, srcH);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(srcW, srcH, fmt, &wcAlloc);
 	if (!tex) {
@@ -4365,7 +4384,10 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	dr->textureWidths[pageId] = srcW;
 	dr->textureHeights[pageId] = srcH;
 #ifdef PLATFORM_XBOX360_XDK
-	uint32_t memSize = (fmt == D3DFMT_A8R8G8B8) ? (uint32_t)(srcW * srcH * 4) : D3D9_GPU_MEM_SIZE(srcW, srcH);
+	uint32_t memSize;
+	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(srcW * srcH * 4);
+	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(srcW, srcH) / 2;
+	else memSize = D3D9_GPU_MEM_SIZE(srcW, srcH);
 #else
 	uint32_t memSize = D3D9_GPU_MEM_SIZE(srcW, srcH);
 #endif
