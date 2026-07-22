@@ -6893,10 +6893,8 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		fragmentShaderSource = patchedFragPrologue;
 	}
 
-	// if (false) {
-	// 	fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
-	// 	fprintf(stderr, "D3D9: ===== FRAGMENT SOURCE for %s =====\n%s\n", shdr->name, fragmentShaderSource);
-	// }
+	fprintf(stderr, "D3D9: ===== VERTEX SOURCE for %s =====\n%s\n", shdr->name, vertexShaderSource);
+	fprintf(stderr, "D3D9: ===== FRAGMENT SOURCE for %s =====\n%s\n", shdr->name, fragmentShaderSource);
 
 	IDirect3DDevice9* dev = Dev(dr);
 	compileD3D9Program(gmlShader, vertexShaderSource, fragmentShaderSource, dev, shdr->name);
