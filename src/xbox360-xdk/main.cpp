@@ -48,22 +48,27 @@ double _xdk_monotonic_ms(void) {
 	return (double)counter.QuadPart / (double)freq.QuadPart * 1000.0;
 }
 
-// Screen dimensions (720p native)
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+// Maximum screen dimensions (720p native)
+#define SCREEN_MAX_WIDTH 1280
+#define SCREEN_MAX_HEIGHT 720
+
+static int32_t gScreenWidth = SCREEN_MAX_WIDTH;
+static int32_t gScreenHeight = SCREEN_MAX_HEIGHT;
+static int32_t gBackbufferWidth = SCREEN_MAX_WIDTH;
+static int32_t gBackbufferHeight = SCREEN_MAX_HEIGHT;
 
 static bool xdkGetWindowSize(int32_t* outW, int32_t* outH) {
 	if (outW) {
-		*outW = SCREEN_WIDTH;
+		*outW = gScreenWidth;
 	}
 	if (outH) {
-		*outH = SCREEN_HEIGHT;
+		*outH = gScreenHeight;
 	}
 	return true;
 }
 
 static void xdkSetWindowSize(int32_t width, int32_t height) {
-	diagLog("Butterscotch: window_set_size ignored on fixed %dx%d backbuffer requested=%dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, width, height);
+	diagLog("Butterscotch: window_set_size ignored on fixed %dx%d backbuffer requested=%dx%d", gScreenWidth, gScreenHeight, width, height);
 }
 
 static HANDLE gDiagLog = INVALID_HANDLE_VALUE;
@@ -98,6 +103,7 @@ typedef struct LoadingScreen {
 	IDirect3DVertexDeclaration9* vertexDecl;
 	int splashW;
 	int splashH;
+	float layoutScale;
 	bool available;
 	char stage[128];
 } LoadingScreen;
@@ -293,8 +299,8 @@ static void loadingApplyState(LoadingScreen* ls) {
 	D3DVIEWPORT9 vp;
 	vp.X = 0;
 	vp.Y = 0;
-	vp.Width = SCREEN_WIDTH;
-	vp.Height = SCREEN_HEIGHT;
+	vp.Width = gBackbufferWidth;
+	vp.Height = gBackbufferHeight;
 	vp.MinZ = 0.0f;
 	vp.MaxZ = 1.0f;
 	dev->SetViewport(&vp);
@@ -407,6 +413,7 @@ static IDirect3DTexture9* loadingCreateFontTexture(IDirect3DDevice9* dev) {
 static bool loadingInit(LoadingScreen* ls, IDirect3DDevice9* dev, const char* dataWinPath) {
 	memset(ls, 0, sizeof(*ls));
 	ls->dev = dev;
+	ls->layoutScale = 1.0f;
 	strcpy(ls->stage, "Starting");
 
 	static const char* vs =
@@ -513,6 +520,10 @@ static void loadingDrawQuad(LoadingScreen* ls, IDirect3DTexture9* tex,
 							float x0, float y0, float x1, float y1,
 							float u0, float v0, float u1, float v1,
 							float r, float g, float b, float a) {
+	x0 *= ls->layoutScale;
+	y0 *= ls->layoutScale;
+	x1 *= ls->layoutScale;
+	y1 *= ls->layoutScale;
 	LoadingVertex verts[4];
 	loadingSetVertex(&verts[0], x0, y0, u0, v0, r, g, b, a);
 	loadingSetVertex(&verts[1], x1, y0, u1, v0, r, g, b, a);
@@ -590,20 +601,20 @@ static void loadingDraw(LoadingScreen* ls, float progress, const char* stage) {
 	loadingApplyState(ls);
 
 	if (ls->splashTex && ls->splashW > 0 && ls->splashH > 0) {
-		float scaleX = (float)SCREEN_WIDTH / (float)ls->splashW;
-		float scaleY = (float)SCREEN_HEIGHT / (float)ls->splashH;
+		float scaleX = (float)SCREEN_MAX_WIDTH / (float)ls->splashW;
+		float scaleY = (float)SCREEN_MAX_HEIGHT / (float)ls->splashH;
 		float scale = (scaleX < scaleY) ? scaleX : scaleY;
 		float w = (float)ls->splashW * scale;
 		float h = (float)ls->splashH * scale;
-		float x = ((float)SCREEN_WIDTH - w) * 0.5f;
-		float y = ((float)SCREEN_HEIGHT - h) * 0.5f;
+		float x = ((float)SCREEN_MAX_WIDTH - w) * 0.5f;
+		float y = ((float)SCREEN_MAX_HEIGHT - h) * 0.5f;
 		loadingDrawQuad(ls, ls->splashTex, x, y, x + w, y + h, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
 	float barW = 720.0f;
 	float barH = 18.0f;
-	float barX = ((float)SCREEN_WIDTH - barW) * 0.5f;
-	float barY = (float)SCREEN_HEIGHT - 96.0f;
+	float barX = ((float)SCREEN_MAX_WIDTH - barW) * 0.5f;
+	float barY = (float)SCREEN_MAX_HEIGHT - 96.0f;
 	loadingDrawQuad(ls, NULL, barX - 3.0f, barY - 3.0f, barX + barW + 3.0f, barY + barH + 3.0f,
 					0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.70f);
 	loadingDrawQuad(ls, NULL, barX, barY, barX + barW, barY + barH,
@@ -613,7 +624,7 @@ static void loadingDraw(LoadingScreen* ls, float progress, const char* stage) {
 
 	float textScale = 0.42f;
 	float textW = loadingTextWidth(ls->stage, textScale);
-	loadingDrawText(ls, ls->stage, ((float)SCREEN_WIDTH - textW) * 0.5f, barY + 30.0f,
+	loadingDrawText(ls, ls->stage, ((float)SCREEN_MAX_WIDTH - textW) * 0.5f, barY + 30.0f,
 					textScale, 1.0f, 1.0f, 1.0f, 0.92f);
 
 	dev->EndScene();
@@ -653,7 +664,7 @@ static void drawFatalErrorScreen(LoadingScreen* ls) {
 	y += (float)DEBUGFONT_LINE_HEIGHT * 0.48f + 6.0f;
 
 	// Draw a separator line
-	loadingDrawQuad(ls, NULL, marginX, y, (float)SCREEN_WIDTH - marginX, y + 1.0f,
+	loadingDrawQuad(ls, NULL, marginX, y, (float)SCREEN_MAX_WIDTH - marginX, y + 1.0f,
 					0.0f, 0.0f, 1.0f, 1.0f, 0.6f, 0.2f, 0.2f, 0.8f);
 	y += 8.0f;
 
@@ -662,7 +673,7 @@ static void drawFatalErrorScreen(LoadingScreen* ls) {
 	int head = gFatalLogHead;
 
 	// How many lines fit on screen?
-	int maxLines = (int)((SCREEN_HEIGHT - y - 10.0f) / lineH);
+	int maxLines = (int)((SCREEN_MAX_HEIGHT - y - 10.0f) / lineH);
 	if (maxLines <= 0) {
 		maxLines = 1;
 	}
@@ -696,7 +707,7 @@ static void drawFatalErrorScreen(LoadingScreen* ls) {
 	}
 
 	// Bottom hint
-	y = (float)SCREEN_HEIGHT - 30.0f;
+	y = (float)SCREEN_MAX_HEIGHT - 30.0f;
 	loadingDrawText(ls, "Console hung — check log above",
 					marginX, y, 0.42f, 0.6f, 0.6f, 0.6f, 0.8f);
 
@@ -797,7 +808,7 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
 	line[sizeof(line) - 1] = '\0';
 	diagOverlayDrawLine(line, &y, 0.36f, 0.75f, 1.0f, 0.75f, 0.95f);
 
-	_snprintf(line, sizeof(line) - 1, "Game: %dx%d  frame: %dx%d  app: %dx%d", SCREEN_WIDTH, SCREEN_HEIGHT, frameW, frameH, runner->applicationWidth, runner->applicationHeight);
+	_snprintf(line, sizeof(line) - 1, "Game: %dx%d  frame: %dx%d  app: %dx%d", gScreenWidth, gScreenHeight, frameW, frameH, runner->applicationWidth, runner->applicationHeight);
 	line[sizeof(line) - 1] = '\0';
 	diagOverlayDrawLine(line, &y, 0.36f, 0.82f, 0.92f, 1.0f, 0.95f);
 
@@ -1088,24 +1099,24 @@ static void drawRunnerFrame(Runner* runner, Renderer* renderer, int32_t gameW, i
 	if (frameH <= 0) {
 		frameH = 1;
 	}
-	// Use uniform scaling to fit the game frame into the 720p backbuffer while
+	// Use uniform scaling to fit the game frame into the 16:9 backbuffer while
 	// preserving aspect ratio. The renderScale is computed here as a fallback,
 	// but d3d9BeginFrame (called inside Runner_beginFrame) will override it
 	// with the correct value based on runner->applicationWidth/applicationHeight
 	// for widescreen mods and native_res mode.
-	float scaleX = (float)SCREEN_WIDTH / (float)frameW;
-	float scaleY = (float)SCREEN_HEIGHT / (float)frameH;
+	float scaleX = (float)gBackbufferWidth / (float)frameW;
+	float scaleY = (float)gBackbufferHeight / (float)frameH;
 	float displayScale = (scaleX < scaleY) ? scaleX : scaleY;
 	((D3D9Renderer*)renderer)->renderScale = displayScale;
-	((D3D9Renderer*)renderer)->renderOffsetX = (SCREEN_WIDTH - (frameW * displayScale)) * 0.5f;
-	((D3D9Renderer*)renderer)->renderOffsetY = (SCREEN_HEIGHT - (frameH * displayScale)) * 0.5f;
+	((D3D9Renderer*)renderer)->renderOffsetX = (gBackbufferWidth - (frameW * displayScale)) * 0.5f;
+	((D3D9Renderer*)renderer)->renderOffsetY = (gBackbufferHeight - (frameH * displayScale)) * 0.5f;
 	((D3D9Renderer*)renderer)->renderingToApplicationSurface = false;
-	Runner_drawPre(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
-	Runner_beginFrame(runner, gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
+	Runner_drawPre(runner, gBackbufferWidth, gBackbufferHeight);
+	Runner_beginFrame(runner, gameW, gameH, gBackbufferWidth, gBackbufferHeight, gBackbufferWidth, gBackbufferHeight);
 	Runner_drawViews(runner, frameW, frameH, false);
 	renderer->vtable->endFrameInit(renderer);
-	Runner_drawPost(runner, SCREEN_WIDTH, SCREEN_HEIGHT);
-	Runner_drawGUI(runner, SCREEN_WIDTH, SCREEN_HEIGHT, frameW, frameH);
+	Runner_drawPost(runner, gBackbufferWidth, gBackbufferHeight);
+	Runner_drawGUI(runner, gBackbufferWidth, gBackbufferHeight, frameW, frameH);
 	diagOverlayDraw(runner, renderer, frameW, frameH);
 	renderer->vtable->endFrameEnd(renderer);
 }
@@ -1296,8 +1307,8 @@ VOID __cdecl main() {
 
 		D3DPRESENT_PARAMETERS d3dpp;
 		ZeroMemory(&d3dpp, sizeof(d3dpp));
-		d3dpp.BackBufferWidth = SCREEN_WIDTH;
-		d3dpp.BackBufferHeight = SCREEN_HEIGHT;
+		d3dpp.BackBufferWidth = SCREEN_MAX_WIDTH;
+		d3dpp.BackBufferHeight = SCREEN_MAX_HEIGHT;
 		d3dpp.BackBufferFormat = D3DFMT_A8R8G8B8;
 		d3dpp.FrontBufferFormat = D3DFMT_LE_X8R8G8B8;
 		d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
@@ -1436,12 +1447,47 @@ VOID __cdecl main() {
 			Butterscotch_xdkHang();
 		}
 		diagLog("Butterscotch: (07) data.win parsed OK");
+
+		Gen8* gen8 = &dataWin->gen8;
+		int32_t gameW = (int32_t)gen8->defaultWindowWidth;
+		int32_t gameH = (int32_t)gen8->defaultWindowHeight;
+		gGameW = &gameW;
+		gGameH = &gameH;
+		gScreenWidth = gameW < SCREEN_MAX_WIDTH ? gameW : SCREEN_MAX_WIDTH;
+		gScreenHeight = gameH < SCREEN_MAX_HEIGHT ? gameH : SCREEN_MAX_HEIGHT;
+		diagLog("Butterscotch: gameW=%d gameH=%d screenW=%d screenH=%d", gameW, gameH, gScreenWidth, gScreenHeight);
+
 		if (loadingOk) {
 			loadingDraw(&gLoadingScreen, 1.0f, "data.win loaded");
 			loadingDestroy(&gLoadingScreen);
 			loadingOk = false;
 		}
+
+		{
+			int32_t bbH = gameH < SCREEN_MAX_HEIGHT ? gameH : SCREEN_MAX_HEIGHT;
+			int32_t bbW = (bbH * 16 + 9 - 1) / 9;
+			if (bbW > SCREEN_MAX_WIDTH) {
+				bbW = SCREEN_MAX_WIDTH;
+				bbH = bbW * 9 / 16;
+				if (bbH < 1) bbH = 1;
+			}
+			if (bbW != gBackbufferWidth || bbH != gBackbufferHeight) {
+				d3dpp.BackBufferWidth = bbW;
+				d3dpp.BackBufferHeight = bbH;
+				HRESULT resetHr = pd3dDevice->Reset(&d3dpp);
+				if (FAILED(resetHr)) {
+					diagLog("Butterscotch: WARNING: device reset to %dx%d failed hr=0x%08X, keeping %dx%d",
+							bbW, bbH, resetHr, gBackbufferWidth, gBackbufferHeight);
+				} else {
+					diagLog("Butterscotch: device reset to %dx%d (16:9)", bbW, bbH);
+					gBackbufferWidth = bbW;
+					gBackbufferHeight = bbH;
+				}
+			}
+		}
+
 		if (diagOverlayInit(pd3dDevice, dataWinPath)) {
+			gDiagOverlayScreen.layoutScale = (float)gBackbufferWidth / (float)SCREEN_MAX_WIDTH;
 			diagLog("DIAG: overlay renderer ready; toggle with LB+RB");
 		} else {
 			diagLog("DIAG: overlay renderer unavailable");
@@ -1513,7 +1559,7 @@ VOID __cdecl main() {
 
 			bool texturesOk = Xbox360Textures_init(texturesBinPath, atlasBinPath, clut8Path);
 			if (!texturesOk) {
-				diagLog("Butterscotch: WARNING: Xbox360Textures_init failed (TEXTURES.BIN/ATLAS.BIN/CLUT8.BIN not found)");
+				diagLog("Butterscotch: Xbox360Textures_init failed (TEXTURES.BIN/ATLAS.BIN/CLUT8.BIN not found)");
 			} else {
 				diagLog("Butterscotch: Xbox360Textures_init ok (TEXTURES.BIN, ATLAS.BIN, CLUT8.BIN)");
 			}
@@ -1693,13 +1739,6 @@ VOID __cdecl main() {
 			Butterscotch_xdkHang();
 		}
 		diagLog("Butterscotch: (17) first room OK");
-
-		Gen8* gen8 = &dataWin->gen8;
-		int32_t gameW = (int32_t)gen8->defaultWindowWidth;
-		int32_t gameH = (int32_t)gen8->defaultWindowHeight;
-		gGameW = &gameW;
-		gGameH = &gameH;
-		diagLog("Butterscotch: gameW=%d gameH=%d screenW=%d screenH=%d", gameW, gameH, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 		// Parse deferDrawToAfterAllSteps
 		bool deferDraw = false;
