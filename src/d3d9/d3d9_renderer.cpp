@@ -6977,7 +6977,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			}
 		}
 		if (matricesChanged) {
-			fprintf(stderr, "D3D9: uploading gm_Matrices to register %d\n", gmMatrices->registerIndex);
+			// fprintf(stderr, "D3D9: uploading gm_Matrices to register %d\n", gmMatrices->registerIndex);
 			Matrix4f upload[MATRICES_MAX];
 			memcpy(upload, renderer->gmlMatrices, sizeof(upload));
 			// Adjust projection and WVP for screen-space vertex data (see
