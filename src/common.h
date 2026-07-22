@@ -19,6 +19,11 @@
 #define INT32_MIN (-INT32_MAX - 1)
 #endif
 
+#ifdef PLATFORM_XBOX360_XDK
+// Why?????
+#define snprintf _snprintf
+#endif
+
 #if (defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)) || defined(__BIG_ENDIAN__)
 #define IS_BIG_ENDIAN
 #endif
@@ -35,6 +40,8 @@
 
 #if (defined(__GNUC__) && (__GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 8))) || defined(__clang__) || defined(__TINYC__)
     #define BS_ALIGN(x) __attribute__((aligned(x)))
+#elif defined(_MSC_VER)
+	#define BS_ALIGN(x) __declspec(align(x))
 #else
     #define BS_ALIGN(x)
 #endif
@@ -45,16 +52,6 @@
     #define NOINLINE __declspec(noinline)
 #else
     #define NOINLINE
-#endif
-
-#ifdef PLATFORM_XBOX360_XDK
-	#define snprintf _snprintf
-	#undef ALIGN
-	#undef NOINLINE
-	#undef ALWAYSINLINE
-	#define ALIGN(x) __declspec(align(x))
-	#define NOINLINE __declspec(noinline)
-	#define ALWAYSINLINE __forceinline
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -82,11 +79,11 @@
 #endif
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__TINYC__)
-#define ATTRIBUTE_MALLOC __attribute__((malloc))
+	#define ATTRIBUTE_MALLOC __attribute__((malloc))
 #elif defined(_MSC_VER)
-#define ATTRIBUTE_MALLOC __declspec(restrict) __declspec(noalias)
+	#define ATTRIBUTE_MALLOC __declspec(restrict) __declspec(noalias)
 #else
-#define ATTRIBUTE_MALLOC
+	#define ATTRIBUTE_MALLOC
 #endif
 
 #endif /* _BS_COMMON_H_ */
