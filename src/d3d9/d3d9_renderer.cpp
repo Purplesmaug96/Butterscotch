@@ -6954,13 +6954,13 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	// Set built-in uniforms
 	if (dr->base.dataWin && (uint32_t)shaderIndex < dr->base.dataWin->shdr.count) {
 		const char* sname = dr->base.dataWin->shdr.shaders[shaderIndex].name;
-		fprintf(stderr, "D3D9: gpuSetShader %s uniforms (%u total):\n", sname, shader->uniformCount);
+		// fprintf(stderr, "D3D9: gpuSetShader %s uniforms (%u total):\n", sname, shader->uniformCount);
 		for (uint32_t ui = 0; ui < shader->uniformCount; ui++) {
 			D3D9ShaderUniform* u = &shader->uniforms[ui];
-			fprintf(stderr, "D3D9:   [%u] %s reg=%d slot=%d %s%s\n",
-					ui, u->name, u->registerIndex, u->samplerSlot,
-					u->isSampler ? "sampler " : "",
-					u->isVertex ? "VS" : "PS");
+			// fprintf(stderr, "D3D9:   [%u] %s reg=%d slot=%d %s%s\n",
+			// 		ui, u->name, u->registerIndex, u->samplerSlot,
+			// 		u->isSampler ? "sampler " : "",
+			// 		u->isVertex ? "VS" : "PS");
 		}
 	}
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
