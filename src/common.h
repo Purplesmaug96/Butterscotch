@@ -19,8 +19,8 @@
 #define INT32_MIN (-INT32_MAX - 1)
 #endif
 
-#ifdef PLATFORM_XBOX360_XDK
-// Why?????
+// According to ai 1900 is the magic number
+#if (defined(_MSC_VER) && _MSC_VER < 1900)
 #define snprintf _snprintf
 #endif
 
