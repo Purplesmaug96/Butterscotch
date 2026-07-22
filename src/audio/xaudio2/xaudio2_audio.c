@@ -165,6 +165,16 @@ struct XAudio2DecodedSound {
 	uint32_t sampleRate;
 	uint16_t channels;
 	uint32_t sampleFrames;
+#ifdef PLATFORM_XBOX360_XDK
+	bool isXma2;                    // true = pcmData holds raw XMA2 compressed data
+	uint32_t xma2BytesPerBlock;
+	uint32_t xma2SamplesEncoded;
+	uint16_t xma2NumStreams;
+	uint32_t xma2ChannelMask;
+	uint32_t xma2LoopBegin;
+	uint32_t xma2LoopLength;
+	uint8_t  xma2LoopCount;
+#endif
 };
 
 struct XAudio2SoundInstance {
@@ -322,7 +332,15 @@ static void destroyInstance(XAudio2SoundInstance* inst) {
 		inst->pVoice = NULL;
 	}
 	if (inst->ownsDecoded && inst->decoded) {
+#ifdef PLATFORM_XBOX360_XDK
+		if (inst->decoded->isXma2) {
+			XPhysicalFree(inst->decoded->pcmData);
+		} else {
+			free(inst->decoded->pcmData);
+		}
+#else
 		free(inst->decoded->pcmData);
+#endif
 		free(inst->decoded);
 		inst->decoded = NULL;
 		inst->ownsDecoded = false;
@@ -644,6 +662,58 @@ static bool decodeAudioBytes(const uint8_t* data, int size, XAudio2DecodedSound*
 	if (!data || size <= 0) {
 		return false;
 	}
+
+#ifdef PLATFORM_XBOX360_XDK
+	// Check for XMA2 format: WAVE_FORMAT_XMA2 (0x0166) inside a RIFF/WAVE container
+	if (size >= 60 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WAVE", 4) == 0) {
+		int offset = 12;
+		while (offset + 8 <= size) {
+			uint32_t chunkSize = readLe32(data + offset + 4);
+			if (memcmp(data + offset, "fmt ", 4) == 0 && chunkSize >= 40) {
+				uint16_t formatTag = readLe16(data + offset + 8);
+				if (formatTag == 0x0166) { // WAVE_FORMAT_XMA2
+					decoded->isXma2 = true;
+					decoded->channels = readLe16(data + offset + 10);
+					decoded->sampleRate = readLe32(data + offset + 12);
+					decoded->xma2NumStreams = readLe16(data + offset + 8 + sizeof(WAVEFORMATEX));
+					decoded->xma2ChannelMask = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 2);
+					decoded->xma2SamplesEncoded = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 6);
+					decoded->xma2BytesPerBlock = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 10);
+					uint32_t playBegin = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 14);
+					uint32_t playLength = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 18);
+					decoded->xma2LoopBegin = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 22);
+					decoded->xma2LoopLength = readLe32(data + offset + 8 + sizeof(WAVEFORMATEX) + 26);
+					decoded->xma2LoopCount = data[offset + 8 + sizeof(WAVEFORMATEX) + 30];
+					decoded->sampleFrames = decoded->xma2SamplesEncoded;
+					offset += 8 + chunkSize;
+					// Find 'data' chunk containing the compressed XMA2 payload
+					while (offset + 8 <= size) {
+						uint32_t dataChunkSize = readLe32(data + offset + 4);
+						if (memcmp(data + offset, "data", 4) == 0) {
+							uint32_t xma2Size = dataChunkSize;
+							decoded->pcmSize = xma2Size;
+							// XMA2 data must be 2KB-aligned for hardware DMA;
+							// allocate with XPhysicalAlloc to satisfy alignment + NOCACHE.
+							decoded->pcmData = (uint8_t*)XPhysicalAlloc(xma2Size, MAXULONG_PTR, 0, PAGE_READWRITE | PAGE_NOCACHE);
+							if (!decoded->pcmData) {
+								return false;
+							}
+							memcpy(decoded->pcmData, data + offset + 8, xma2Size);
+							decoded->valid = true;
+							return true;
+						}
+						offset += 8 + ((dataChunkSize + 1) & ~1u);
+					}
+					return false;
+				}
+				break;
+			}
+			offset += 8 + ((chunkSize + 1) & ~1u);
+		}
+		// Not XMA2, fall through to standard WAV decode
+	}
+#endif
+
 	bool ok;
 	if (size >= 12 && memcmp(data, "RIFF", 4) == 0) {
 		ok = decodeWav16(data, size, decoded, name);
@@ -874,6 +944,65 @@ static bool submitStreamingBuffers(XAudio2SoundInstance* inst, bool logToFile) {
 
 static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance* inst, bool logToFile) {
 	XAudio2DecodedSound* decoded = inst->decoded;
+	IXAudio2* pXA = (IXAudio2*)xa->pXAudio2;
+	HRESULT hr;
+
+#ifdef PLATFORM_XBOX360_XDK
+	if (decoded->isXma2) {
+		XMA2WAVEFORMATEX xma2Wfx;
+		memset(&xma2Wfx, 0, sizeof(xma2Wfx));
+		xma2Wfx.wfx.wFormatTag = WAVE_FORMAT_XMA2;
+		xma2Wfx.wfx.nChannels = decoded->channels;
+		xma2Wfx.wfx.nSamplesPerSec = decoded->sampleRate;
+		xma2Wfx.wfx.wBitsPerSample = 0;
+		xma2Wfx.wfx.nBlockAlign = (uint16_t)decoded->xma2BytesPerBlock;
+		xma2Wfx.wfx.nAvgBytesPerSec = decoded->sampleRate * decoded->xma2BytesPerBlock;
+		xma2Wfx.wfx.cbSize = sizeof(XMA2WAVEFORMATEX) - sizeof(WAVEFORMATEX);
+		xma2Wfx.NumStreams = decoded->xma2NumStreams;
+		xma2Wfx.ChannelMask = decoded->xma2ChannelMask;
+		xma2Wfx.SamplesEncoded = decoded->xma2SamplesEncoded;
+		xma2Wfx.BytesPerBlock = decoded->xma2BytesPerBlock;
+		xma2Wfx.PlayBegin = 0;
+		xma2Wfx.PlayLength = 0;
+		xma2Wfx.LoopBegin = decoded->xma2LoopBegin;
+		xma2Wfx.LoopLength = decoded->xma2LoopLength;
+		xma2Wfx.LoopCount = decoded->xma2LoopCount;
+		xma2Wfx.EncoderVersion = 4;
+		xma2Wfx.BlockCount = decoded->xma2BytesPerBlock > 0 ? (uint16_t)(decoded->pcmSize / decoded->xma2BytesPerBlock) : 0;
+
+		hr = pXA->CreateSourceVoice(&inst->pVoice, (const WAVEFORMATEX*)&xma2Wfx);
+		if (FAILED(hr) || !inst->pVoice) {
+			audioTrace(true, "AUD2: CreateSourceVoice XMA2 failed idx=%d hr=0x%08X ch=%u rate=%u",
+					   inst->soundIndex, (unsigned)hr, decoded->channels, decoded->sampleRate);
+			return false;
+		}
+
+		hr = submitFromFrame(inst, 0);
+		if (FAILED(hr)) {
+			audioTrace(true, "AUD2: SubmitSourceBuffer XMA2 failed idx=%d hr=0x%08X", inst->soundIndex, (unsigned)hr);
+			return false;
+		}
+
+		float ratio = inst->pitch * inst->soundPitch;
+		if (ratio <= 0.0f) ratio = 1.0f;
+		inst->pVoice->SetFrequencyRatio(ratio);
+		float finalVolume = inst->currentGain * inst->soundVolume * xa->masterGain;
+		bool startupFade = inst->music && decodedDurationMs(decoded) > 1000;
+		inst->pVoice->SetVolume(startupFade ? 0.0f : finalVolume);
+		hr = inst->pVoice->Start(0);
+		if (startupFade) {
+			inst->startGain = 0.0f;
+			inst->targetGain = inst->currentGain;
+			inst->currentGain = 0.0f;
+			inst->fadeTotalTime = 0.08f;
+			inst->fadeTimeRemaining = 0.08f;
+		}
+		audioTrace(logToFile, "AUD2: start XMA2 idx=%d instance=%d loop=%d rate=%u",
+				   inst->soundIndex, inst->instanceId, inst->loop ? 1 : 0, decoded->sampleRate);
+		return SUCCEEDED(hr);
+	}
+#endif
+
 	WAVEFORMATEX wfx;
 	memset(&wfx, 0, sizeof(wfx));
 	wfx.wFormatTag = WAVE_FORMAT_PCM;
@@ -884,8 +1013,7 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 	wfx.nAvgBytesPerSec = decoded->sampleRate * wfx.nBlockAlign;
 	wfx.cbSize = 0;
 
-	IXAudio2* pXA = (IXAudio2*)xa->pXAudio2;
-	HRESULT hr = pXA->CreateSourceVoice(&inst->pVoice, &wfx);
+	hr = pXA->CreateSourceVoice(&inst->pVoice, &wfx);
 	if (FAILED(hr) || !inst->pVoice) {
 		audioTrace(true, "AUD2: CreateSourceVoice failed idx=%d hr=0x%08X ch=%u rate=%u",
 				   inst->soundIndex, (unsigned)hr, decoded->channels, decoded->sampleRate);

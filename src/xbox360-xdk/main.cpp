@@ -4,6 +4,9 @@
 #include <xtl.h>
 #include <d3d9.h>
 #include <d3dx9.h>
+#include <xgraphics.h>
+#include <pix.h>
+#include <ppcintrinsics.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,10 +204,13 @@ static void _diagLog(FILE* file, const char* fmt, va_list args) {
 	memcpy(gFatalLogLines[gFatalLogHead], line, copyLen);
 	gFatalLogLines[gFatalLogHead][copyLen] = '\0';
 
+	// Ensure the log line is visible before head/count update (release semantics)
+	__lwsync();
 	gFatalLogHead = (gFatalLogHead + 1) % FATAL_LOG_LINES;
 	if (gFatalLogCount < FATAL_LOG_LINES) {
 		gFatalLogCount++;
 	}
+	__lwsync();
 }
 
 void diagLog(const char* fmt, ...) {
@@ -314,12 +320,15 @@ static void loadingApplyState(LoadingScreen* ls) {
 	dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 	dev->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE);
-	for (DWORD sampler = 0; sampler < 8; sampler++) {
-		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+	{
+		const DWORD kMaxSamplers = 4;
+		for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
+			dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+			dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+			dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
+			dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+			dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+		}
 	}
 }
 
@@ -670,7 +679,9 @@ static void drawFatalErrorScreen(LoadingScreen* ls) {
 
 	// Determine the set of lines to display — the most recent ones that fit.
 	int count = gFatalLogCount;
+	__lwsync();
 	int head = gFatalLogHead;
+	__lwsync();
 
 	// How many lines fit on screen?
 	int maxLines = (int)((SCREEN_MAX_HEIGHT - y - 10.0f) / lineH);
@@ -1316,7 +1327,7 @@ VOID __cdecl main() {
 		d3dpp.EnableAutoDepthStencil = TRUE;
 		d3dpp.AutoDepthStencilFormat = D3DFMT_D24S8;
 		d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-		d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+		d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE; // dynamic adjustment below after room speed is known
 
 		IDirect3DDevice9* pd3dDevice = NULL;
 		HRESULT hr = pD3D->CreateDevice(0, D3DDEVTYPE_HAL, NULL,
@@ -1485,6 +1496,24 @@ VOID __cdecl main() {
 				}
 			}
 		}
+
+		// Breaks the debug speed-up-er
+		#ifdef BUTTERSCOTCH_RELEASE
+		// Optimise present interval based on the game's room speed.
+		// For 30fps games (roomSpeed <= 30), D3DPRESENT_INTERVAL_TWO halves
+		// GPU presentation work and can reduce power/heat significantly.
+		uint32_t roomSpeed = (uint32_t)dataWin->gen8.gms2FPS;
+		uint32_t newInterval = (roomSpeed > 0 && roomSpeed <= 30) ? D3DPRESENT_INTERVAL_TWO : D3DPRESENT_INTERVAL_ONE;
+		if (newInterval != d3dpp.PresentationInterval) {
+			d3dpp.PresentationInterval = newInterval;
+			diagLog("Butterscotch: present interval -> %s (roomSpeed=%u)", newInterval == D3DPRESENT_INTERVAL_ONE ? "ONE" : "TWO", roomSpeed);
+			HRESULT resetHr = pd3dDevice->Reset(&d3dpp);
+			if (FAILED(resetHr)) {
+				diagLog("Butterscotch: WARNING: present interval reset failed hr=0x%08X", resetHr);
+				d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+			}
+		}
+		#endif
 
 		if (diagOverlayInit(pd3dDevice, dataWinPath)) {
 			gDiagOverlayScreen.layoutScale = (float)gBackbufferWidth / (float)SCREEN_MAX_WIDTH;
@@ -1750,6 +1779,7 @@ VOID __cdecl main() {
 		diagLog("Butterscotch: (18) entering main loop");
 
 		// ===[ Main Loop ]===
+		PIXBeginNamedEvent(0, "Butterscotch_MainLoop");
 		LARGE_INTEGER freq, lastTime, currentTime;
 		QueryPerformanceFrequency(&freq);
 		QueryPerformanceCounter(&lastTime);
@@ -1931,6 +1961,8 @@ VOID __cdecl main() {
 				RunnerKeyboard_beginFrame(runner->keyboard);
 			}
 		}
+
+		PIXEndNamedEvent(); // Butterscotch_MainLoop
 
 		char* nextWorkingDirectory = nullptr;
 		char* nextLaunchParameters = nullptr;

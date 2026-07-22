@@ -10,6 +10,11 @@ endif()
 
 project(butterscotch C CXX)
 
+option(BUTTERSCOTCH_RELEASE "Is this a release build? (Not CMAKE_BUILD_TYPE)" OFF)
+if(BUTTERSCOTCH_RELEASE)
+	add_compile_definitions(BUTTERSCOTCH_RELEASE)
+endif()
+
 if(PLATFORM STREQUAL "xbox360-xdk")
 include(vendor/cmake-xenon-toolchain/cmake/config.cmake)
 include(vendor/cmake-xenon-toolchain/cmake/compiler.cmake)

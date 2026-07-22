@@ -590,11 +590,16 @@ bool Xbox360Textures_loadPage(int32_t tpagIndex, int* outW, int* outH, uint8_t**
 	if (ai->bpp == 8) {
 		// 8bpp: 1 byte per pixel
 		for (int y = 0; y < outHeight && y < atlasH - (int)te->atlasY; y++) {
-			for (int x = 0; x < outWidth && x < atlasW - (int)te->atlasX; x++) {
-				int srcX = (int)te->atlasX + x;
-				int srcY = (int)te->atlasY + y;
-				uint8_t idx = indexData[srcY * atlasW + srcX];
+			int srcBaseX = (int)te->atlasX;
+			int srcY = (int)te->atlasY + y;
 
+			// Prefetch the source row to reduce cache miss latency in the inner loop
+			if (clutColors) {
+				__dcbt(0, (const void*)(indexData + srcY * atlasW + srcBaseX));
+			}
+
+			for (int x = 0; x < outWidth && x < atlasW - srcBaseX; x++) {
+				uint8_t idx = indexData[srcY * atlasW + srcBaseX + x];
 				uint8_t* dst = rgba + (y * outWidth + x) * 4;
 				if (clutColors) {
 					const uint8_t* color = clutColors + (size_t)idx * 4;

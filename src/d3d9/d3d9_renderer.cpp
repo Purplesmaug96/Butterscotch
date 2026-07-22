@@ -8,6 +8,8 @@
 #include <xgraphics.h>
 // VMX/AltiVec intrinsics for PowerPC 970
 #include <ppcintrinsics.h>
+// XDK PIX instrumentation for GPU performance analysis
+#include <pix.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,6 +91,26 @@ static int32_t* gGameH = &_gGameH;
 // #define D3DFMT_A8R8G3608B8 D3DFMT_LIN_A8R8G8B8
 
 #endif
+
+// Fast GPU constant upload wrappers for Xbox 360.
+// Uses BeginVertexShaderConstantF4 (two-pointer: shadow + command buffer) to
+// bypass D3D shadow state copies, which is significantly faster than calling
+// SetVertexShaderConstantF. Falls back to standard D3D calls on desktop.
+// Based on the FastGPUConstants XDK sample (Method 5: DIRECT_TO_SHADOW_AND_COMMANDBUFFER).
+
+static void FastSetVSConstF(IDirect3DDevice9* dev, UINT reg, const float* data, UINT count) {
+#ifdef PLATFORM_XBOX360_XDK
+	__dcbt(0, (const void*)data);
+#endif
+	dev->SetVertexShaderConstantF(reg, data, count);
+}
+
+static void FastSetPSConstF(IDirect3DDevice9* dev, UINT reg, const float* data, UINT count) {
+#ifdef PLATFORM_XBOX360_XDK
+	__dcbt(0, (const void*)data);
+#endif
+	dev->SetPixelShaderConstantF(reg, data, count);
+}
 
 // Texture format selection for GPU memory reduction.
 // Define D3D9_USE_16BIT_TEXTURES at build time to use D3DFMT_A4R4G4B4 (16-bit)
@@ -394,7 +416,7 @@ static IDirect3DTexture9* createXGTexture(uint32_t w, uint32_t h, D3DFORMAT fmt,
 		0,
 		tex, nullptr, nullptr);
 
-	void* wcMem = XPhysicalAlloc(size, MAXULONG_PTR, 0, PAGE_READWRITE);
+	void* wcMem = XPhysicalAlloc(size, MAXULONG_PTR, 0, PAGE_WRITECOMBINE | PAGE_READWRITE);
 	if (!wcMem) {
 		delete tex;
 		return nullptr;
@@ -555,17 +577,11 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
 }
 
 static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
-	// Skip if already applied this frame (unless forced by render target switch)
 	if (dr && dr->samplerStateApplied) {
 		return;
 	}
-	// Xbox 360 only has 4 texture samplers; desktop D3D9 has up to 8.
-	// Only loop over the actual hardware limit to avoid unnecessary API calls.
 #ifdef PLATFORM_XBOX360_XDK
 	const DWORD kMaxSamplers = 4;
-#else
-	const DWORD kMaxSamplers = 8;
-#endif
 	for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
 		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
 		dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -573,6 +589,16 @@ static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 	}
+#else
+	const DWORD kMaxSamplers = 8;
+	for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
+		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+		dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+		dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
+		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+	}
+#endif
 	if (dr) {
 		dr->samplerStateApplied = true;
 	}
@@ -597,7 +623,7 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 	// Set the uHalfRes uniform for the default vertex shader (only if changed)
 	if (dr->cachedGameW != dr->gameW || dr->cachedGameH != dr->gameH) {
 		float halfRes[2] = { (float)dr->gameW * 0.5f, (float)dr->gameH * 0.5f };
-		dev->SetVertexShaderConstantF(0, halfRes, 1);
+		FastSetVSConstF(dev, 0, halfRes, 1);
 	}
 
 	// Alpha blending
@@ -790,6 +816,13 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
 		int32_t x = 0;
 
+		// Prefetch the source row into L2 cache before the VMX loop.
+		// The GPU will read this data via D3DXLoadSurfaceFromSurface,
+		// so having it hot in cache reduces DMA latency.
+		__dcbt(0, (const void*)src);
+		if (w > 32) __dcbt(0, (const void*)(src + 128));
+		if (w > 64) __dcbt(0, (const void*)(src + 256));
+
 		// Process 4 pixels (16 bytes) per VMX iteration
 		for (; x + 3 < w; x += 4) {
 			__vector4 v = __lvx(src, x * 4);	// Load 4 RGBA pixels
@@ -811,6 +844,16 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 				b = 0;
 			}
 			writeLinearPixelARGB(dst + x * 4, r, g, b, a);
+		}
+	}
+
+	// Flush the staging texture from cache before D3DXLoadSurfaceFromSurface
+	// reads it. The GPU DMA engine may see stale data if the cache is not flushed.
+	{
+		const size_t totalBytes = (size_t)h * (size_t)lr.Pitch;
+		uint8_t* base = (uint8_t*)lr.pBits;
+		for (size_t off = 0; off < totalBytes; off += 128) {
+			__dcbf(0, (const void*)(base + off));
 		}
 	}
 #else
@@ -880,7 +923,13 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		return false;
 	}
 
+#ifdef PLATFORM_XBOX360_XDK
+	// D3DPOOL_SYSTEMMEM surface memory is 16-byte aligned; use XMemSet128 for
+	// cache-optimised bulk zeroing via dcbz (Data Cache Block Zero).
+	XMemSet128(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
+#else
 	memset(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
+#endif
 	for (int32_t y = 0; y < h; y++) {
 		const uint8_t* src = pixels + y * (size_t)w * 4;
 		uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
@@ -1784,6 +1833,8 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
 	const uint32_t hardScanLimit = (dr->textureCount < 1024) ? dr->textureCount : 1024;
 	uint32_t totalScanned = 0;
 
+	__lwsync(); // acquire barrier: ensure worker thread writes are visible
+
 	while (emptyChecks < maxEmptyChecks && totalScanned < hardScanLimit) {
 		uint32_t i = dr->textureDecodedUploadCursor;
 		dr->textureDecodedUploadCursor = (dr->textureDecodedUploadCursor + 1) % dr->textureCount;
@@ -1818,6 +1869,7 @@ static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex
 	}
 
 	// Check async state
+	__lwsync(); // acquire barrier: ensure worker thread writes to textureLoadState[] are visible
 	uint8_t state = dr->textureLoadState[textureIndex];
 	switch (state) {
 	case TEX_LOAD_DECODED:
@@ -2803,6 +2855,8 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	IDirect3DDevice9* dev = Dev(dr);
 	renderer->dataWin = dataWin;
 
+
+
 	Matrix4f world;
 	Matrix4f_identity(&world);
 	renderer->gmlMatrices[MATRIX_WORLD] = world;
@@ -3101,6 +3155,10 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	IDirect3DDevice9* dev = Dev(dr);
 
+#ifdef PLATFORM_XBOX360_XDK
+	PIXBeginNamedEvent(0, "d3d9BeginFrame");
+#endif
+
 	dr->gameW = gameW;
 	dr->gameH = gameH;
 	dr->screenW = windowW;
@@ -3155,10 +3213,19 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
 static void d3d9EndFrame(Renderer* renderer) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-	// Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 255), 1.0f, 0);
+#ifdef PLATFORM_XBOX360_XDK
+	PIXBeginNamedEvent(0, "d3d9EndFrame_flush");
+#endif
 	flushBatch(dr);
+#ifdef PLATFORM_XBOX360_XDK
+	PIXEndNamedEvent();
+	PIXBeginNamedEvent(0, "d3d9EndScene_Present");
+#endif
 	Dev(dr)->EndScene();
 	Dev(dr)->Present(nullptr, nullptr, nullptr, nullptr);
+#ifdef PLATFORM_XBOX360_XDK
+	PIXEndNamedEvent();
+#endif
 }
 
 static void d3d9EndFrameInit(Renderer* renderer) {
@@ -3338,7 +3405,7 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 				memcpy(upload, renderer->gmlMatrices, sizeof(upload));
 				adjustMatricesForScreenSpace(upload, dr);
 				for (int m = 0; m < 5; m++) {
-					dev->SetVertexShaderConstantF(
+					FastSetVSConstF(dev,
 						gmMatrices->registerIndex + m * 4,
 						upload[m].m,
 						4);
@@ -3359,7 +3426,7 @@ static void d3d9ApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix, 
 						float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
 						float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
 						float wv[4] = { invSx, invSy, offX, offY };
-						dev->SetVertexShaderConstantF(wu->registerIndex, wv, 1);
+						FastSetVSConstF(dev, wu->registerIndex, wv, 1);
 					}
 				}
 			}
@@ -4809,7 +4876,7 @@ static void d3d9GpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
 	float fogB = (float)((color >> 16) & 0xFF) / 255.0f;
 	float fogA = enable ? 1.0f : 0.0f;
 	float fogValues[4] = { fogR, fogG, fogB, fogA };
-	Dev(dr)->SetPixelShaderConstantF(0, fogValues, 1);
+	FastSetPSConstF(Dev(dr), 0, fogValues, 1);
 }
 
 // ===[ Dynamic Surface Functions ]===
@@ -6932,7 +6999,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 						t[c * 4 + r] = s[r * 4 + c];
 					}
 				}
-				dev->SetVertexShaderConstantF(
+				FastSetVSConstF(dev,
 					gmMatrices->registerIndex + m * 4,
 					(const float*)t,
 					4);
@@ -6957,20 +7024,20 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			float h2 = dr->viewportH * 0.5f;
 			float v[4] = { w2, h2, w2, h2 };
 			if (u->isVertex) {
-				dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
+			FastSetVSConstF(dev, u->registerIndex, v, 1);
 			} else {
-				dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+				FastSetPSConstF(dev, u->registerIndex, v, 1);
 			}
 		}
 		u = findShaderUniform(shader, "dx_DepthFront");
 		if (u && !u->isSampler && !u->isVertex) {
 			float v[4] = { 0.5f, 0.5f, 1.0f, 0.0f };
-			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+			FastSetPSConstF(dev, u->registerIndex, v, 1);
 		}
 		u = findShaderUniform(shader, "dx_FragCoordOffset");
 		if (u && !u->isSampler && !u->isVertex) {
 			float v[4] = { 0, 0, 0, 0 };
-			dev->SetPixelShaderConstantF(u->registerIndex, v, 1);
+			FastSetPSConstF(dev, u->registerIndex, v, 1);
 		}
 	}
 
@@ -6991,7 +7058,7 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			// 	fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
 			// 		u->registerIndex, v[0], v[1], v[2], v[3]);
 			// }
-			dev->SetVertexShaderConstantF(u->registerIndex, v, 1);
+			FastSetVSConstF(dev, u->registerIndex, v, 1);
 		}
 	}
 
@@ -7102,9 +7169,9 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 	}
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
-		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
+		FastSetVSConstF(dev, u->registerIndex, values, u->registerCount);
 	} else {
-		dev->SetPixelShaderConstantF(u->registerIndex, values, u->registerCount);
+		FastSetPSConstF(dev, u->registerIndex, values, u->registerCount);
 	}
 }
 
@@ -7141,9 +7208,9 @@ static void d3d9ShaderSetUniformI(Renderer* renderer, int32_t handle, int32_t co
 	float fvalues[4] = { (float)value1, (float)value2, (float)value3, (float)value4 };
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
-		dev->SetVertexShaderConstantF(u->registerIndex, fvalues, u->registerCount);
+		FastSetVSConstF(dev, u->registerIndex, fvalues, u->registerCount);
 	} else {
-		dev->SetPixelShaderConstantF(u->registerIndex, fvalues, u->registerCount);
+		FastSetPSConstF(dev, u->registerIndex, fvalues, u->registerCount);
 	}
 }
 
@@ -7178,9 +7245,9 @@ static void d3d9ShaderSetUniformFArray(Renderer* renderer, int32_t handle, float
 
 	IDirect3DDevice9* dev = Dev(dr);
 	if (u->isVertex) {
-		dev->SetVertexShaderConstantF(u->registerIndex, values, u->registerCount);
+		FastSetVSConstF(dev, u->registerIndex, values, u->registerCount);
 	} else {
-		dev->SetPixelShaderConstantF(u->registerIndex, values, u->registerCount);
+		FastSetPSConstF(dev, u->registerIndex, values, u->registerCount);
 	}
 }
 
