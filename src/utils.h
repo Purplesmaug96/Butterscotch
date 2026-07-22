@@ -82,7 +82,7 @@ static inline void* requireNotNullFunction(void* ptr, const char* file, int line
 #define requireNotNullMessage(ptr, msg) requireNotNullFunction((void*)ptr, __FILE__, __LINE__, msg)
 
 // Safe allocation macros - check for nullptr and abort with file/line info
-static inline void *safeMallocFunction(size_t size, const char *file, int line) {
+ATTRIBUTE_MALLOC static inline void *safeMallocFunction(size_t size, const char *file, int line) {
     void *ret = malloc(size);
     if (!ret) {
         fprintf(stderr, "FATAL: malloc(%zu) failed at %s:%d\n", size, file, line);
@@ -93,7 +93,7 @@ static inline void *safeMallocFunction(size_t size, const char *file, int line) 
 }
 #define safeMalloc(size) safeMallocFunction(size, __FILE__, __LINE__)
 
-static inline void *safeCallocFunction(size_t count, size_t size, const char *file, int line) {
+ATTRIBUTE_MALLOC static inline void *safeCallocFunction(size_t count, size_t size, const char *file, int line) {
     void *ret = calloc(count, size);
     if (!ret) {
         fprintf(stderr, "FATAL: calloc(%zu, %zu) failed at %s:%d\n", count, size, file, line);

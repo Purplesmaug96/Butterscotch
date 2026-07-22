@@ -81,4 +81,12 @@
     #define YIELD() ((void)0)
 #endif
 
+#if defined(__GNUC__) || defined(__clang__) || defined(__TINYC__)
+#define ATTRIBUTE_MALLOC __attribute__((malloc))
+#elif defined(_MSC_VER)
+#define ATTRIBUTE_MALLOC __declspec(restrict) __declspec(noalias)
+#else
+#define ATTRIBUTE_MALLOC
+#endif
+
 #endif /* _BS_COMMON_H_ */
