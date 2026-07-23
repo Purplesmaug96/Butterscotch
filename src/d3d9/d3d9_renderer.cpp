@@ -2361,85 +2361,34 @@ void InitVertexDeclaration(IDirect3DDevice9* dev) {
 
 #else
 
-// Strip non-essential content from HLSL source to minimize size for 360's D3DX.
-// Returns a new malloc'd buffer; caller must free.
-static char* stripShaderSource(const char* src) {
-    if (!src) return NULL;
-    size_t len = strlen(src);
-    char* out = (char*)malloc(len + 1);
-    if (!out) return NULL;
-    char* dp = out;
-    const char* line = src;
-    while (*line) {
-        const char* nl = strchr(line, '\n');
-        size_t lineLen = nl ? (size_t)(nl - line) : strlen(line);
-        const char* trimmed = line;
-        while (lineLen > 0 && (*trimmed == ' ' || *trimmed == '\t')) { trimmed++; lineLen--; }
-        int skip = 0;
-        if (lineLen == 0) skip = 1;
-        else if (lineLen >= 15 && memcmp(trimmed, "#pragma warning", 15) == 0) skip = 1;
-        // else if (lineLen >= 7 && memcmp(trimmed, "#ifdef ", 7) == 0) skip = 1;
-        // else if (lineLen >= 5 && memcmp(trimmed, "#else", 5) == 0) skip = 1;
-        // else if (lineLen >= 6 && memcmp(trimmed, "#endif", 6) == 0) skip = 1;
-        else if (lineLen >= 2 && memcmp(trimmed, "//", 2) == 0) skip = 1;
-        if (!skip) {
-            memcpy(dp, line, lineLen);
-            dp += lineLen;
-            *dp++ = '\n';
-        }
-        line = nl ? nl + 1 : line + lineLen;
-    }
-    *dp = '\0';
-    return out;
-}
-
 HRESULT compileShader(
 	const char* source,
 	const char* profile,
 	void** outBytecode,
 	size_t* outSize) {
-	// Strip non-essential content (pragmas, comments, #ifdef blocks, etc.) for smaller HLSL.
-	char* stripped = stripShaderSource(source);
-	if (stripped) {
-		if (debugMode) fprintf(stderr, "D3D9:   compileShader(360) stripped %u -> %u bytes\n",
-			(unsigned)(source ? strlen(source) : 0), (unsigned)strlen(stripped));
-		source = stripped;
-	}
 	ID3DXBuffer* shader = nullptr;
 	ID3DXBuffer* errors = nullptr;
-	// Use SKIPVALIDATION (0x02) to work around D3DX bugs on 360; retry with SKIPVALIDATION|SKIPOPTIMIZATION if needed.
-	if (debugMode) fprintf(stderr, "D3D9:   compileShader(360) calling D3DXCompileShader\n");
 	HRESULT hr = E_FAIL;
-	UINT compileFlags[] = { 0x02, 0x06 };
-	for (int attempt = 0; attempt < 2; attempt++) {
-		if (attempt > 0 && debugMode) fprintf(stderr, "D3D9:   compileShader(360) retry attempt %d flags=0x%02X\n", attempt, compileFlags[attempt]);
-		__try {
-			hr = D3DXCompileShader(source, (UINT)strlen(source),
-								   nullptr, nullptr, "main", profile, compileFlags[attempt],
-								   &shader, &errors, nullptr);
-			if (debugMode) fprintf(stderr, "D3D9:   compileShader(360) attempt=%d hr=0x%08X\n", attempt, (unsigned)hr);
-		} __except(EXCEPTION_EXECUTE_HANDLER) {
-			fprintf(stderr, "D3D9:   compileShader(360) CRASHED! attempt=%d (profile=%s)\n", attempt, profile);
-			if (shader) { shader->Release(); shader = nullptr; }
-			if (errors) { errors->Release(); errors = nullptr; }
-			hr = E_FAIL;
-			continue;
-		}
-		if (SUCCEEDED(hr)) break;
-		if (shader) { shader->Release(); shader = nullptr; }
-		if (errors) { errors->Release(); errors = nullptr; }
+	__try {
+		hr = D3DXCompileShader(source, (UINT)strlen(source),
+							   nullptr, nullptr, "main", profile, 0,
+							   &shader, &errors, nullptr);
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		fprintf(stderr, "D3D9:   compileShader(360) D3DXCompileShader CRASHED! (profile=%s)\n", profile);
+		*outBytecode = nullptr;
+		*outSize = 0;
+		return E_FAIL;
 	}
 	if (FAILED(hr)) {
 		if (errors) {
 			const char* errMsg = (const char*)errors->GetBufferPointer();
 			OutputDebugStringA(errMsg);
 			fprintf(stderr, "D3D9: D3DXCompileShader error for profile %s:\n%s\n", profile, errMsg);
+			errors->Release();
 		}
-		fprintf(stderr, "D3D9:   compileShader(360) all attempts failed\n");
 		*outBytecode = nullptr;
 		*outSize = 0;
-		free(stripped);
-		return E_FAIL;
+		return hr;
 	}
 
 	if (shader) {
@@ -2461,7 +2410,6 @@ HRESULT compileShader(
 	if (errors) {
 		errors->Release();
 	}
-	free(stripped);
 	return hr;
 }
 
