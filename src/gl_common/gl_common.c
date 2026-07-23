@@ -62,7 +62,7 @@ uint32_t GLCommon_findOrAllocateSurfaceSlot(GLuint** surfaces, GLuint** surfaceT
 }
 
 // Resolves a surface ID to its FBO handle and dimensions. Returns false for out-of-range or freed surfaces.
-static bool resolveSurfaceFBO(GLuint* surfaces, int32_t* surfaceWidth, int32_t* surfaceHeight, uint32_t count, int32_t id, GLuint* outFbo, int32_t* outW, int32_t* outH) {
+static bool resolveSurfaceFBO(const GLuint* surfaces, const int32_t* surfaceWidth, const int32_t* surfaceHeight, uint32_t count, int32_t id, GLuint* outFbo, int32_t* outW, int32_t* outH) {
     if (0 > id || (uint32_t) id >= count) return false;
     if (surfaces[id] == 0) return false;
     *outFbo = surfaces[id];
@@ -105,7 +105,7 @@ void GLCommon_surfaceBlit(GLuint* surfaces, int32_t* surfaceWidth, int32_t* surf
     if (scissorWasEnabled) glEnable(GL_SCISSOR_TEST);
 }
 
-bool GLCommon_surfaceGetPixels(GLuint* surfaces, int32_t* surfaceWidth, int32_t* surfaceHeight, uint32_t count, int32_t surfaceId, uint8_t* outRGBA) {
+bool GLCommon_surfaceGetPixels(GLuint* surfaces, const int32_t* surfaceWidth, const int32_t* surfaceHeight, uint32_t count, int32_t surfaceId, uint8_t* outRGBA) {
     if (0 > surfaceId || (uint32_t) surfaceId >= count)
         return false;
 

@@ -150,7 +150,7 @@ static inline RValue RValue_makeString(const char* val) {
     return rv;
 }
 
-static inline RValue RValue_makeOwnedString(char* val) {
+static inline RValue RValue_makeOwnedString(const char* val) {
     RValue rv = {0};
     rv.type = RVALUE_STRING;
     rv.ownsReference = true;

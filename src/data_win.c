@@ -2131,7 +2131,7 @@ static int32_t parseTexturePageItem(BinaryReader* reader, DataWin* dw, int32_t i
 // Sprite/Background/Font initially store an absolute file offset to their TexturePageItem (since SPRT/BGND/FONT are parsed before TPAG).
 // resolveAllTPAGReferences translates those offsets to TPAG indices once the table is known. ptrs[] is the TPAG pointer table in monotonically increasing file order, so we can binary search it.
 // Offsets that don't resolve (or are 0) become -1.
-static int32_t findTPAGIndexByOffset(BinaryReader* reader, DataWin* dw, uint32_t* ptrs, uint32_t count, uint32_t offset) {
+static int32_t findTPAGIndexByOffset(BinaryReader* reader, DataWin* dw, const uint32_t* ptrs, uint32_t count, uint32_t offset) {
     if (offset == 0)
         return -1;
 

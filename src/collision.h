@@ -48,7 +48,7 @@ static inline InstanceBBox Collision_computeBBox(Runner* runner, Instance* inst)
     GMLReal originY = (GMLReal) spr->originY;
 
     GMLReal left, right, top, bottom;
-    if (GMLReal_fabs(inst->imageAngle) > 0.0001) {
+    if (fabsf(inst->imageAngle) > 0.0001) {
         // Compute rotated AABB: transform the 4 corners of the unrotated bbox
         GMLReal rad = inst->imageAngle * M_PI / 180.0;
         GMLReal cs = GMLReal_cos(rad);
@@ -136,7 +136,7 @@ static inline InstanceOBB Collision_instanceOBB(Sprite* spr, Instance* inst) {
     obb.ly1 = inst->imageYscale * (marginB - originY);
     if (obb.lx0 > obb.lx1) { GMLReal t = obb.lx0; obb.lx0 = obb.lx1; obb.lx1 = t; }
     if (obb.ly0 > obb.ly1) { GMLReal t = obb.ly0; obb.ly0 = obb.ly1; obb.ly1 = t; }
-    obb.rotated = GMLReal_fabs(inst->imageAngle) > 0.0001;
+    obb.rotated = fabsf(inst->imageAngle) > 0.0001;
     if (obb.rotated) {
         GMLReal rad = inst->imageAngle * M_PI / 180.0;
         obb.cs = GMLReal_cos(rad);
@@ -158,7 +158,7 @@ static inline void Collision_obbWorldToLocal(const InstanceOBB* obb, GMLReal wx,
 
 // Returns true iff the OBB needs SAT-style testing rather than AABB. Only sepMasks == 2 sprites that are actually rotated qualify; everything else (axis-aligned, or precise sprites which fall through to per-pixel scans) is handled correctly by AABB.
 static inline bool Collision_obbNeedsSAT(Sprite* spr, Instance* inst) {
-    return spr != nullptr && spr->sepMasks == 2 && GMLReal_fabs(inst->imageAngle) > 0.0001;
+    return spr != nullptr && spr->sepMasks == 2 && fabsf(inst->imageAngle) > 0.0001;
 }
 
 static inline bool Collision_rectOverlapsInstance(Runner* runner, Instance* inst, GMLReal rx1, GMLReal ry1, GMLReal rx2, GMLReal ry2) {
@@ -300,15 +300,15 @@ static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLRea
     if (spr == nullptr) return false;
 
     // Reject degenerate scales to avoid divide-by-zero.
-    if (0.0001 > GMLReal_fabs(inst->imageXscale)) return false;
-    if (0.0001 > GMLReal_fabs(inst->imageYscale)) return false;
+    if (0.0001 > fabsf(inst->imageXscale)) return false;
+    if (0.0001 > fabsf(inst->imageYscale)) return false;
 
     // Transform world coords to sprite-local coords
     GMLReal dx = px - inst->x;
     GMLReal dy = py - inst->y;
 
     // Inverse of CW rotation is standard CCW rotation (positive angle)
-    if (GMLReal_fabs(inst->imageAngle) > 0.0001) {
+    if (fabsf(inst->imageAngle) > 0.0001) {
         GMLReal rad = inst->imageAngle * M_PI / 180.0;
         GMLReal cs = GMLReal_cos(rad);
         GMLReal sn = GMLReal_sin(rad);

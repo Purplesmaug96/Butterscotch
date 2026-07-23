@@ -42,7 +42,7 @@ void GLCommon_surfaceBlit(GLuint* surfaces, int32_t* surfaceWidth, int32_t* surf
 // Reads a surface's pixels into a top-down RGBA8 buffer of size width*height*4.
 // Returns false on invalid surfaceId.
 // Saves/restores GL_FRAMEBUFFER_BINDING and GL_PACK_ALIGNMENT around the read.
-bool GLCommon_surfaceGetPixels(GLuint* surfaces, int32_t* surfaceWidth, int32_t* surfaceHeight, uint32_t count, int32_t surfaceId, uint8_t* outRGBA);
+bool GLCommon_surfaceGetPixels(GLuint* surfaces, const int32_t* surfaceWidth, const int32_t* surfaceHeight, uint32_t count, int32_t surfaceId, uint8_t* outRGBA);
 
 // ===[ Blend mode translation ]===
 

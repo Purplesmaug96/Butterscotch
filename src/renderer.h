@@ -10,7 +10,7 @@
 #include "instance.h"
 
 // GameMaker Blend Modes
-#define bm_complex -1
+#define bm_complex (-1)
 
 #define bm_normal 0
 #define bm_add 1
