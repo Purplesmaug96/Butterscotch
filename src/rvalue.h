@@ -404,61 +404,58 @@ static inline char* RValue_toStringTyped(RValue val) {
 }
 
 static inline void RValue_free(RValue* val) {
-    if (val->type == RVALUE_STRING && val->ownsReference && val->string != nullptr) {
+    if (!val->ownsReference)
+        return;
+    if (val->type == RVALUE_STRING && val->string != nullptr) {
         free((void*) val->string);
-        val->string = nullptr;
-        val->ownsReference = false;
-    } else if (val->type == RVALUE_ARRAY && val->ownsReference && val->array != nullptr) {
+    } else if (val->type == RVALUE_ARRAY && val->array != nullptr) {
         GMLArray_decRef(val->array);
-        val->array = nullptr;
-        val->ownsReference = false;
 #if IS_WAD17_OR_HIGHER_ENABLED
-    } else if (val->type == RVALUE_METHOD && val->ownsReference && val->method != nullptr) {
+    } else if (val->type == RVALUE_METHOD && val->method != nullptr) {
         GMLMethod_decRef(val->method);
-        val->method = nullptr;
-        val->ownsReference = false;
 #endif
-    } else if (val->type == RVALUE_STRUCT && val->ownsReference && val->structInst != nullptr) {
+    } else if (val->type == RVALUE_STRUCT && val->structInst != nullptr) {
         Instance_structDecRef(val->structInst);
-        val->structInst = nullptr;
-        val->ownsReference = false;
+    } else {
+        return;
     }
+    val->ownsReference = false;
 }
 
 static inline GMLReal RValue_toReal(RValue val) {
     switch (val.type) {
-        case RVALUE_REAL:   return val.real;
         case RVALUE_INT32:  return (GMLReal) val.int32;
+        case RVALUE_REAL:   return val.real;
+        case RVALUE_BOOL:   return (GMLReal) val.int32;
 #ifndef NO_RVALUE_INT64
         case RVALUE_INT64:  return (GMLReal) val.int64;
 #endif
-        case RVALUE_BOOL:   return (GMLReal) val.int32;
         case RVALUE_STRING: return GMLReal_strtod(val.string, nullptr);
-        case RVALUE_ARRAY:  return 0.0;
+        case RVALUE_ASSETREF: return (GMLReal) val.int32;
+        case RVALUE_STRUCT: return val.structInst != nullptr ? (GMLReal) Instance_getInstanceId(val.structInst) : 0.0;
 #if IS_WAD17_OR_HIGHER_ENABLED
         case RVALUE_METHOD: return 0.0;
 #endif
-        case RVALUE_STRUCT: return val.structInst != nullptr ? (GMLReal) Instance_getInstanceId(val.structInst) : 0.0;
-        case RVALUE_ASSETREF: return (GMLReal) val.int32;
+        case RVALUE_ARRAY:
         default:            return 0.0;
     }
 }
 
 static inline int32_t RValue_toInt32(RValue val) {
     switch (val.type) {
-        case RVALUE_REAL:   return (int32_t) val.real;
         case RVALUE_INT32:  return val.int32;
+        case RVALUE_REAL:   return (int32_t) val.real;
+        case RVALUE_BOOL:   return val.int32;
 #ifndef NO_RVALUE_INT64
         case RVALUE_INT64:  return (int32_t) val.int64;
 #endif
-        case RVALUE_BOOL:   return val.int32;
         case RVALUE_STRING: return (int32_t) GMLReal_strtod(val.string, nullptr);
-        case RVALUE_ARRAY:  return 0;
+        case RVALUE_ASSETREF: return val.int32;
+        case RVALUE_STRUCT: return val.structInst != nullptr ? (int32_t) Instance_getInstanceId(val.structInst) : 0;
 #if IS_WAD17_OR_HIGHER_ENABLED
         case RVALUE_METHOD: return 0;
 #endif
-        case RVALUE_STRUCT: return val.structInst != nullptr ? (int32_t) Instance_getInstanceId(val.structInst) : 0;
-        case RVALUE_ASSETREF: return val.int32;
+        case RVALUE_ARRAY:
         default:            return 0;
     }
 }
@@ -484,19 +481,19 @@ static inline int64_t RValue_toInt64(RValue val) {
 
 static inline bool RValue_toBool(RValue val) {
     switch (val.type) {
-        case RVALUE_REAL:   return val.real > 0.5;
         case RVALUE_INT32:  return val.int32 > 0;
+        case RVALUE_REAL:   return val.real > 0.5;
+        case RVALUE_BOOL:   return val.int32 != 0;
 #ifndef NO_RVALUE_INT64
         case RVALUE_INT64:  return val.int64 > 0;
 #endif
-        case RVALUE_BOOL:   return val.int32 != 0;
         case RVALUE_STRING: return val.string != nullptr && val.string[0] != '\0';
-        case RVALUE_ARRAY:  return false;
+        case RVALUE_ASSETREF: return val.int32 > 0;
+        case RVALUE_STRUCT: return val.structInst != nullptr;
 #if IS_WAD17_OR_HIGHER_ENABLED
         case RVALUE_METHOD: return true;
 #endif
-        case RVALUE_STRUCT: return val.structInst != nullptr;
-        case RVALUE_ASSETREF: return val.int32 > 0;
+        case RVALUE_ARRAY:
         default:            return false;
     }
 }

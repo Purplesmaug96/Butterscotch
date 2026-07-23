@@ -391,7 +391,7 @@ static const char* varTypeToString(uint8_t varType) {
 // Pops array index (and optional stacktop value) from the stack if the varRef
 // indicates an array or stacktop access. Returns { .arrayIndex = -1, .isArray = false }
 // for plain variable access.
-static ArrayAccess popArrayAccess(VMContext* ctx, uint32_t varRef) {
+static inline ArrayAccess popArrayAccess(VMContext* ctx, uint32_t varRef) {
     uint8_t varType = (varRef >> 24) & 0xF8;
     ArrayAccess ret = {0};
     if (varType == VARTYPE_ARRAY) {
@@ -443,11 +443,10 @@ static const char* instanceObjectName(VMContext* ctx, Instance* inst) {
 
 #endif
 
-static Variable* resolveVarDef(VMContext* ctx, uint32_t varRef) {
+static inline Variable* resolveVarDef(VMContext* ctx, uint32_t varRef) {
     uint32_t varIndex = varRef & 0x07FFFFFF;
     require(ctx->dataWin->vari.variableCount > varIndex);
-    Variable* varDef = &ctx->dataWin->vari.variables[varIndex];
-    return varDef;
+    return &ctx->dataWin->vari.variables[varIndex];
 }
 
 // Maps a GML local's varID to its slot position in the current code's localVars[] array.
@@ -1282,7 +1281,7 @@ static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraD
     stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
 }
 
-static void handlePushI(VMContext* ctx, uint32_t instr) {
+MAYBE_UNUSED static void handlePushI(VMContext* ctx, uint32_t instr) {
     int16_t value = (int16_t) (instr & 0xFFFF);
     RValue val = RValue_makeInt32((int32_t) value);
     stackPushTyped(ctx, val, GML_TYPE_INT16);
@@ -2978,9 +2977,11 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_PUSHBLTN:
                 handlePushBltn(ctx, instr, extraData);
                 break;
-            case OP_PUSHI:
-                handlePushI(ctx, instr);
+            case OP_PUSHI: {
+                int16_t pushIValue = (int16_t) (instr & 0xFFFF);
+                stackPushTyped(ctx, RValue_makeInt32((int32_t) pushIValue), GML_TYPE_INT16);
                 break;
+            }
 
             // Pop instructions
             case OP_POP: {
@@ -3197,9 +3198,11 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_CMP: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
+                uint8_t aType = slotA->type;
+                uint8_t bType = slotB->type;
 
                 // Inline fast path for INT32/INT32
-                if (slotA->type == RVALUE_INT32 && slotB->type == RVALUE_INT32) {
+                if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                     int32_t a = slotA->int32;
                     int32_t b = slotB->int32;
                     bool result;
@@ -3211,6 +3214,26 @@ static RValue executeLoop(VMContext* ctx) {
                         case CMP_GTE: result = a >= b; break;
                         case CMP_GT:  result = a > b;  break;
                         default:      result = false;  break;
+                    }
+                    slotA->int32 = result ? 1 : 0;
+                    slotA->type = RVALUE_BOOL;
+                    slotA->gmlStackType = GML_TYPE_BOOL;
+                    ctx->stack.top--;
+                } else if ((aType == RVALUE_REAL || aType == RVALUE_INT32) &&
+                           (bType == RVALUE_REAL || bType == RVALUE_INT32)) {
+                    GMLReal a = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
+                    GMLReal b = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
+                    GMLReal diff = a - b;
+                    int cmp = GMLReal_fabs(diff) <= GML_MATH_EPSILON ? 0 : (diff < 0 ? -1 : 1);
+                    bool result;
+                    switch (instrCmpKind(instr)) {
+                        case CMP_LT:  result = cmp < 0;  break;
+                        case CMP_LTE: result = cmp <= 0; break;
+                        case CMP_EQ:  result = cmp == 0; break;
+                        case CMP_NEQ: result = cmp != 0; break;
+                        case CMP_GTE: result = cmp >= 0; break;
+                        case CMP_GT:  result = cmp > 0;  break;
+                        default:      result = false;    break;
                     }
                     slotA->int32 = result ? 1 : 0;
                     slotA->type = RVALUE_BOOL;
