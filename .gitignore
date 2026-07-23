@@ -1,7 +1,9 @@
 build*/
+gitignore/
 .gitignore
 .cache
 CMakeUserPresets.json
 .devcontainer/
 compat/config.mk
 /.vs
+gmon.out
