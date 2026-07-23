@@ -2377,12 +2377,11 @@ static char* stripShaderSource(const char* src) {
         while (lineLen > 0 && (*trimmed == ' ' || *trimmed == '\t')) { trimmed++; lineLen--; }
         int skip = 0;
         if (lineLen == 0) skip = 1;
-        else if (lineLen >= 8 && memcmp(trimmed, "#pragma ", 8) == 0) skip = 1;
-        else if (lineLen >= 7 && memcmp(trimmed, "#ifdef ", 7) == 0) skip = 1;
-        else if (lineLen >= 5 && memcmp(trimmed, "#else", 5) == 0) skip = 1;
-        else if (lineLen >= 6 && memcmp(trimmed, "#endif", 6) == 0) skip = 1;
+        else if (lineLen >= 15 && memcmp(trimmed, "#pragma warning", 15) == 0) skip = 1;
+        // else if (lineLen >= 7 && memcmp(trimmed, "#ifdef ", 7) == 0) skip = 1;
+        // else if (lineLen >= 5 && memcmp(trimmed, "#else", 5) == 0) skip = 1;
+        // else if (lineLen >= 6 && memcmp(trimmed, "#endif", 6) == 0) skip = 1;
         else if (lineLen >= 2 && memcmp(trimmed, "//", 2) == 0) skip = 1;
-        else if (lineLen >= 12 && memcmp(trimmed, "static const", 12) == 0) skip = 1;
         if (!skip) {
             memcpy(dp, line, lineLen);
             dp += lineLen;
@@ -2394,30 +2393,16 @@ static char* stripShaderSource(const char* src) {
     return out;
 }
 
-// Max HLSL source size that D3DXCompileShader can handle on 360 without crashing.
-// Empirically: 862 bytes works reliably, ~1461+ consistently crashes on shd_colormask.
-// Stripping removes ~300 bytes, so ~1400 is a safe post-strip ceiling.
-#define XBOX360_MAX_SHADER_SIZE 1400
-
 HRESULT compileShader(
 	const char* source,
 	const char* profile,
 	void** outBytecode,
 	size_t* outSize) {
-	// Strip to minimize size, then skip if still over the crash threshold
+	// Strip non-essential content (pragmas, comments, #ifdef blocks, etc.) for smaller HLSL.
 	char* stripped = stripShaderSource(source);
 	if (stripped) {
-		size_t strippedLen = strlen(stripped);
 		if (debugMode) fprintf(stderr, "D3D9:   compileShader(360) stripped %u -> %u bytes\n",
-			(unsigned)(source ? strlen(source) : 0), (unsigned)strippedLen);
-		if (strippedLen > XBOX360_MAX_SHADER_SIZE) {
-			fprintf(stderr, "D3D9: SKIP %s shader (%u bytes exceeds %u limit)\n",
-				profile, (unsigned)strippedLen, (unsigned)XBOX360_MAX_SHADER_SIZE);
-			free(stripped);
-			*outBytecode = nullptr;
-			*outSize = 0;
-			return E_FAIL;
-		}
+			(unsigned)(source ? strlen(source) : 0), (unsigned)strlen(stripped));
 		source = stripped;
 	}
 	ID3DXBuffer* shader = nullptr;
