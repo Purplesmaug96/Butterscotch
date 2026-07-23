@@ -2,6 +2,8 @@
 
 #include "renderer.h"
 
+
+
 #define RENDER_PHASE_NONE 0
 #define RENDER_PHASE_PRE 1
 #define RENDER_PHASE_WORLD 2

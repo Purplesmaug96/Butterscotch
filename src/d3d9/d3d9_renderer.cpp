@@ -2488,6 +2488,9 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
 // Forward declaration of compileShader
 HRESULT compileShader(const char* source, const char* profile, void** outBytecode, size_t* outSize);
 
+// Debug mode flag (defined in main.cpp)
+extern bool debugMode;
+
 // Parses HLSL source to extract uniform declarations and assign register slots.
 // Returns the number of uniforms found (capped at D3D9_MAX_SHADER_UNIFORMS).
 // uniformDeclarations must be D3D9ShaderUniform[D3D9_MAX_SHADER_UNIFORMS].
@@ -2722,24 +2725,8 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		return false;
 	}
 
-	// // TEST: compile PS first to check if prior VS compilation corrupts D3DX state
-	// fprintf(stderr, "D3D9: === TEST PS-FIRST compile for %s ===\n", name ? name : "unknown");
-	// void* testPsFirst = nullptr;
-	// size_t testPsFirstSize = 0;
-	// HRESULT testPsFirstHr = compileShader("float4 main() : COLOR0 { return float4(0,0,0,1); }", "ps_2_0", &testPsFirst, &testPsFirstSize);
-	// fprintf(stderr, "D3D9: === TEST PS-FIRST hr=0x%08X %s ===\n", (unsigned)testPsFirstHr, SUCCEEDED(testPsFirstHr) ? "OK" : "FAIL");
-	// if (testPsFirst) free(testPsFirst);
-
-	// // TEST: compile VS first again for comparison
-	// fprintf(stderr, "D3D9: === TEST VS-TEST compile for %s ===\n", name ? name : "unknown");
-	// void* testVs = nullptr;
-	// size_t testVsSize = 0;
-	// HRESULT testVsHr = compileShader("float4x4 m; float4 main(float4 pos:POSITION):POSITION{return mul(pos,m);}", "vs_2_0", &testVs, &testVsSize);
-	// fprintf(stderr, "D3D9: === TEST VS-TEST hr=0x%08X %s ===\n", (unsigned)testVsHr, SUCCEEDED(testVsHr) ? "OK" : "FAIL");
-	// if (testVs) free(testVs);
-
-	// fprintf(stderr, "D3D9: === STEP 1: compile vertex shader for %s ===\n", name ? name : "unknown");
-	// fprintf(stderr, "D3D9: VS source for %s:\n%s\n\n", name ? name : "unknown", vertexShaderSource);
+	if (debugMode) fprintf(stderr, "D3D9: === STEP 1: compile vertex shader for %s ===\n", name ? name : "unknown");
+	if (debugMode) fprintf(stderr, "D3D9: VS source for %s:\n%s\n\n", name ? name : "unknown", vertexShaderSource);
 	// Compile vertex shader
 	void* vsBytecode = nullptr;
 	size_t vsBytecodeSize = 0;
@@ -2748,7 +2735,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		fprintf(stderr, "D3D9: Failed to compile vertex shader %s\nSource:\n%s\n\n", name ? name : "unknown", vertexShaderSource ? vertexShaderSource : "(null)");
 		return false;
 	}
-	// fprintf(stderr, "D3D9: === STEP 2: CreateVertexShader for %s ===\n", name ? name : "unknown");
+	if (debugMode) fprintf(stderr, "D3D9: === STEP 2: CreateVertexShader for %s ===\n", name ? name : "unknown");
 
 	IDirect3DVertexShader9* vs = nullptr;
 	hr = dev->CreateVertexShader((const DWORD*)vsBytecode, &vs);
@@ -2757,8 +2744,8 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		fprintf(stderr, "D3D9: CreateVertexShader failed for %s hr=0x%08X\n", name ? name : "unknown", (unsigned)hr);
 		return false;
 	}
-	// fprintf(stderr, "D3D9: === STEP 3: compile pixel shader for %s ===\n", name ? name : "unknown");
-	// fprintf(stderr, "D3D9: PS source for %s:\n%s\n\n", name ? name : "unknown", fragmentShaderSource);
+	if (debugMode) fprintf(stderr, "D3D9: === STEP 3: compile pixel shader for %s ===\n", name ? name : "unknown");
+	if (debugMode) fprintf(stderr, "D3D9: PS source for %s:\n%s\n\n", name ? name : "unknown", fragmentShaderSource);
 
 	// Compile pixel shader (ps_3_0 on 360 for discard support)
 	const char* psProfile = "ps_2_0";
@@ -2773,7 +2760,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 		vs->Release();
 		return false;
 	}
-	// fprintf(stderr, "D3D9: === STEP 4: CreatePixelShader for %s ===\n", name ? name : "unknown");
+	if (debugMode) fprintf(stderr, "D3D9: === STEP 4: CreatePixelShader for %s ===\n", name ? name : "unknown");
 
 	IDirect3DPixelShader9* ps = nullptr;
 	hr = dev->CreatePixelShader((const DWORD*)psBytecode, &ps);
@@ -4512,9 +4499,7 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 	// This backend overloads sprite IDs returned by createSpriteFromSurface.
 	// We tagged dynamic sprites by making their tpagIndices point at a
 	// renderer-side dynamic texture page (dr->textureCount+ growth), and
-	// by appending a TPAG entry at the end of dw->tpag.
-	//
-	// Delete must be conservative: never touch original data.win sprites.
+	// by appending a TPAG entry at the end of dw->tpag.build-x360-xdk/bin/xenon-x86/Release/butterscotch.xex
 	DataWin* dw = renderer->dataWin;
 	if (!dw) {
 		return;

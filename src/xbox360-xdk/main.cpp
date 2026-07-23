@@ -130,6 +130,8 @@ static int gDiagSpeedCapRemoved = 0;
 static uint32_t gDiagRoomAgeFrames = 0;
 static uint32_t gDiagRoomTransitionHolds = 0;
 
+bool debugMode = false;
+
 static bool diagOpenPath(const char* path, bool overwrite) {
 	FILE* f = fopen(path, overwrite ? "wb" : "ab");
 	if (f) {
@@ -1856,6 +1858,13 @@ VOID __cdecl main() {
 				}
 			}
 			prevButtons = buttons;
+			BYTE leftTrigger = controllerConnected ? state.Gamepad.bLeftTrigger : 0;
+			if (leftTrigger >= 128 && prevLeftTrigger < 128) {
+				debugMode = !debugMode;
+				fprintf(stderr, "D3D9: shader debug mode %s\n", debugMode ? "ON" : "OFF");
+			}
+			prevLeftTrigger = leftTrigger;
+
 			prevRightTrigger = controllerConnected ? state.Gamepad.bRightTrigger : 0;
 
 			bool speedCapRemoved = prevRightTrigger > 128;
