@@ -37,7 +37,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	if(WERROR)
 		add_compile_options(/WX)
 	endif()
-	add_compile_options(-DNO_ISNAN -DNO_ISINF)
+	add_compile_options(-DNO_ISNAN -DNO_ISINF -DNO_SNPRINTF)
 	# Unreachable code
 	add_link_options(/ignore:4702)
 else()
@@ -152,15 +152,18 @@ file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c src/${PLATFORM}/*.cpp)
 
 if(PLATFORM STREQUAL "xbox360-xdk")
 	file(GLOB ATG_SOURCES vendor/Atg/src/*.c vendor/Atg/src/*.cpp)
+	file(GLOB PRINTF_SOURCES compat/stdio/*.c)
 	set(ALL_XENON_SOURCES
 		# ${ATG_SOURCES}
         ${SOURCES}
         ${PLATFORM_SOURCES}
         ${AUDIO_SOURCES}
+		${PRINTF_SOURCES}
     )
 	add_xenon_executable(butterscotch cmake/xex-conf.xml ${ALL_XENON_SOURCES})
 	target_sources(butterscotch PRIVATE ${ALL_XENON_SOURCES})
 	target_include_directories(butterscotch PRIVATE vendor/bzip2 vendor/Atg/include)
+	target_include_directories(butterscotch PRIVATE compat/stdio)
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
 	option(XENON_ENABLE_LTO "Enable link-time optimization (/LTCG) for Xbox 360 Xenon builds" ON)
