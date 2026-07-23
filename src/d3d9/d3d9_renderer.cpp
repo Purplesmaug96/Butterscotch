@@ -546,13 +546,13 @@ static bool bindBackbuffer(D3D9Renderer* dr) {
 	IDirect3DSurface9* backbuffer = nullptr;
 	HRESULT hr = dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
 	if (FAILED(hr) || !backbuffer) {
-		Butterscotch_xdkDiagTrace("D3D9: GetBackBuffer failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: GetBackBuffer failed hr=0x%08X\n", (unsigned)hr);
 		return false;
 	}
 	hr = dev->SetRenderTarget(0, backbuffer);
 	backbuffer->Release();
 	if (FAILED(hr)) {
-		Butterscotch_xdkDiagTrace("D3D9: SetRenderTarget(backbuffer) failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: SetRenderTarget(backbuffer) failed hr=0x%08X\n", (unsigned)hr);
 		return false;
 	}
 	return true;
@@ -1415,7 +1415,7 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
 				dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
 			} else {
 				dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
-				Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u", item.textureIndex);
+				Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u\n", item.textureIndex);
 			}
 			dr->textureDecodeInFlight--;
 			LeaveCriticalSection(&pool->mutex);
@@ -1501,7 +1501,7 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
 				dr->textureLoadState[item.textureIndex] = TEX_LOAD_DECODED;
 			} else {
 				dr->textureLoadState[item.textureIndex] = TEX_LOAD_FAILED;
-				Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u", item.textureIndex);
+				Butterscotch_xdkDiagTrace("D3D9: async decode failed for texture page %u\n", item.textureIndex);
 			}
 			dr->textureDecodeInFlight--;
 		}
@@ -1693,7 +1693,7 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 		dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE;
 		dr->textureDecodeInFlight--;
 		LeaveCriticalSection(&pool->mutex);
-		Butterscotch_xdkDiagTrace("D3D9: async decode queue full for texture page %u", textureIndex);
+		Butterscotch_xdkDiagTrace("D3D9: async decode queue full for texture page %u\n", textureIndex);
 		return;
 	}
 	LeaveCriticalSection(&pool->mutex);
@@ -1753,7 +1753,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
-		Butterscotch_xdkDiagTrace("D3D9: async createXGTexture failed page=%u %dx%d", textureIndex, w, h);
+		Butterscotch_xdkDiagTrace("D3D9: async createXGTexture failed page=%u %dx%d\n", textureIndex, w, h);
 		stbi_image_free(pixels);
 		dr->texturePendingRGBA[textureIndex] = nullptr;
 		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
@@ -1763,7 +1763,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 #else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
-		Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X", textureIndex, w, h, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: async CreateTexture failed page=%u %dx%d hr=0x%08X\n", textureIndex, w, h, (unsigned)hr);
 		stbi_image_free(pixels);
 		dr->texturePendingRGBA[textureIndex] = nullptr;
 		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
@@ -1773,14 +1773,14 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, (int32_t)w, (int32_t)h)) {
 #ifdef PLATFORM_XBOX360_XDK
-		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u", textureIndex);
+		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u\n", textureIndex);
 		delete tex;
 		if (dr->textureWCAlloc[textureIndex]) {
 			XPhysicalFree(dr->textureWCAlloc[textureIndex]);
 			dr->textureWCAlloc[textureIndex] = nullptr;
 		}
 #else
-		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X", textureIndex, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u hr=0x%08X\n", textureIndex, (unsigned)hr);
 		tex->Release();
 #endif
 		stbi_image_free(pixels);
@@ -1812,7 +1812,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	dr->loadedTexturePages++;
 	dr->textureLoadState[textureIndex] = TEX_LOAD_IDLE; // Reset to idle (loaded)
 
-	Butterscotch_xdkDiagTrace("D3D9: async loaded texture page %u %dx%d", textureIndex, w, h);
+	Butterscotch_xdkDiagTrace("D3D9: async loaded texture page %u %dx%d\n", textureIndex, w, h);
 	return true;
 }
 
@@ -2118,9 +2118,9 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	bool gm2022_5 = DataWin_isVersionAtLeast(((Renderer*)dr)->dataWin, 2022, 5, 0, 0);
 	uint8_t* pixels = ImageDecoder_decodeToRgba(bytes, byteSize, gm2022_5, &w, &h);
 	if (!pixels) {
-		Butterscotch_xdkDiagTrace("D3D9: failed to decode texture page %u from %s bytes=%d", index, label ? label : "(memory)", byteSize);
-		Butterscotch_xdkDiagTrace("D3D9: Free memory: %f", GetFreeMemMB());
-		Butterscotch_xdkDiagTrace("D3D9: Failure reason: %s", stbi_failure_reason());
+		Butterscotch_xdkDiagTrace("D3D9: failed to decode texture page %u from %s bytes=%d\n", index, label ? label : "(memory)", byteSize);
+		Butterscotch_xdkDiagTrace("D3D9: Free memory: %f\n", GetFreeMemMB());
+		Butterscotch_xdkDiagTrace("D3D9: Failure reason: %s\n", stbi_failure_reason());
 		return false;
 	}
 
@@ -2131,7 +2131,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
-		Butterscotch_xdkDiagTrace("D3D9: createXGTexture failed page=%u %dx%d", index, w, h);
+		Butterscotch_xdkDiagTrace("D3D9: createXGTexture failed page=%u %dx%d\n", index, w, h);
 		stbi_image_free(pixels);
 		return false;
 	}
@@ -2139,7 +2139,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 #else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
-		Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X", index, w, h, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: CreateTexture failed page=%u %dx%d hr=0x%08X\n", index, w, h, (unsigned)hr);
 		stbi_image_free(pixels);
 		return false;
 	}
@@ -2147,7 +2147,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, w, h)) {
 #ifdef PLATFORM_XBOX360_XDK
-		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u", index);
+		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u\n", index);
 		delete tex;
 		if (dr->textureWCAlloc[index]) {
 			XPhysicalFree(dr->textureWCAlloc[index]);
@@ -2175,7 +2175,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 #endif
 	dr->textureBlobSizes[index] = memSize;
 	dr->textureBytesUsed += memSize;
-	Butterscotch_xdkDiagTrace("D3D9: loaded texture page %u %dx%d from %s", index, w, h, label ? label : "(memory)");
+	Butterscotch_xdkDiagTrace("D3D9: loaded texture page %u %dx%d from %s\n", index, w, h, label ? label : "(memory)");
 	return true;
 }
 
@@ -2207,7 +2207,7 @@ static bool loadExternalTexturePage(D3D9Renderer* dr, uint32_t index) {
 		}
 	}
 
-	Butterscotch_xdkDiagTrace("D3D9: external texture page %u missing; tried texture_%u.png / texture_page_%u.png", index, index, index);
+	Butterscotch_xdkDiagTrace("D3D9: external texture page %u missing; tried texture_%u.png / texture_page_%u.png\n", index, index, index);
 	return false;
 }
 
@@ -2948,7 +2948,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 #endif
 	dr->loadedTexturePages = 0;
 	dr->frameCounter = 1;
-	Butterscotch_xdkDiagTrace("D3D9: texture pages will be loaded lazily count=%u", dr->textureCount);
+	Butterscotch_xdkDiagTrace("D3D9: texture pages will be loaded lazily count=%u\n", dr->textureCount);
 
 	// Initialize async texture loading system
 	dr->textureLoadState = (uint8_t*)safeCalloc(dr->textureCount, sizeof(uint8_t));
@@ -4903,7 +4903,7 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
 	HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
 									D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_create CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_create CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X\n", width, height, allocW, allocH, (unsigned)hr);
 		return -1;
 	}
 
@@ -4911,7 +4911,7 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
 	IDirect3DSurface9* surface = nullptr;
 	hr = tex->GetSurfaceLevel(0, &surface);
 	if (FAILED(hr) || !surface) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_create GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_create GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X\n", width, height, allocW, allocH, (unsigned)hr);
 		tex->Release();
 		return -1;
 	}
@@ -4921,7 +4921,7 @@ static int32_t d3d9CreateSurface(Renderer* renderer, int32_t width, int32_t heig
 	dr->surfaceWidth[slot] = width;
 	dr->surfaceHeight[slot] = height;
 
-	Butterscotch_xdkDiagTrace("D3D9: created surface %u size=%dx%d (alloc=%dx%d)", slot, width, height, allocW, allocH);
+	Butterscotch_xdkDiagTrace("D3D9: created surface %u size=%dx%d (alloc=%dx%d)\n", slot, width, height, allocW, allocH);
 	return (int32_t)slot;
 }
 
@@ -5120,7 +5120,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 									D3DPOOL_DEFAULT, &sampleTex, nullptr);
 #endif
 	if (FAILED(hr) || !sampleTex) {
-		Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: CreateTexture(app) failed %dx%d hr=0x%08X\n", allocW, allocH, (unsigned)hr);
 		return APPLICATION_SURFACE_ID;
 	}
 
@@ -5132,7 +5132,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 	// Get the surface level from the render-target texture itself
 	hr = sampleTex->GetSurfaceLevel(0, &surface);
 	if (FAILED(hr) || !surface) {
-		Butterscotch_xdkDiagTrace("D3D9: GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: GetSurfaceLevel(app) failed hr=0x%08X\n", (unsigned)hr);
 		sampleTex->Release();
 		return APPLICATION_SURFACE_ID;
 	}
@@ -5146,7 +5146,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 	dr->appSurfaceAllocW = allocW;
 	dr->appSurfaceAllocH = allocH;
 	dr->appSurfaceResolved = false;
-	Butterscotch_xdkDiagTrace("D3D9: application_surface created %dx%d alloc=%dx%d", width, height, allocW, allocH);
+	Butterscotch_xdkDiagTrace("D3D9: application_surface created %dx%d alloc=%dx%d\n", width, height, allocW, allocH);
 	return APPLICATION_SURFACE_ID;
 }
 
@@ -5309,7 +5309,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 	IDirect3DDevice9* dev = Dev(dr);
 
 	if (surfaceID == APPLICATION_SURFACE_ID) {
-		Butterscotch_xdkDiagTrace("D3D9: application_surface resize requested %dx%d old=%dx%d room=%d",
+		Butterscotch_xdkDiagTrace("D3D9: application_surface resize requested %dx%d old=%dx%d room=%d\n",
 								  width, height, dr->appSurfaceW, dr->appSurfaceH,
 								  renderer->runner ? renderer->runner->currentRoomIndex : -1);
 		if (width > 0 && height > 0 && (width != dr->appSurfaceW || height != dr->appSurfaceH)) {
@@ -5336,7 +5336,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 											D3DPOOL_DEFAULT, &sampleTex, nullptr);
 #endif
 			if (FAILED(hr) || !sampleTex) {
-				Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X", allocW, allocH, (unsigned)hr);
+				Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture(app) failed %dx%d hr=0x%08X\n", allocW, allocH, (unsigned)hr);
 				return;
 			}
 
@@ -5348,7 +5348,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			// Get the surface level from the render-target texture itself
 			hr = sampleTex->GetSurfaceLevel(0, &surface);
 			if (FAILED(hr) || !surface) {
-				Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel(app) failed hr=0x%08X", (unsigned)hr);
+				Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel(app) failed hr=0x%08X\n", (unsigned)hr);
 				sampleTex->Release();
 				return;
 			}
@@ -5363,7 +5363,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			dr->appSurfaceResolved = false;
 			*gGameW = width;
 			*gGameH = height;
-			Butterscotch_xdkDiagTrace("D3D9: application_surface recreated %dx%d alloc=%dx%d", width, height, allocW, allocH);
+			Butterscotch_xdkDiagTrace("D3D9: application_surface recreated %dx%d alloc=%dx%d\n", width, height, allocW, allocH);
 		}
 		return;
 	}
@@ -5387,7 +5387,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 	HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, D3DUSAGE_RENDERTARGET,
 									D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr);
 	if (FAILED(hr) || !tex) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_resize CreateTexture failed %dx%d (alloc=%dx%d) hr=0x%08X\n", width, height, allocW, allocH, (unsigned)hr);
 		return;
 	}
 
@@ -5395,7 +5395,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 	IDirect3DSurface9* surface = nullptr;
 	hr = tex->GetSurfaceLevel(0, &surface);
 	if (FAILED(hr) || !surface) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X", width, height, allocW, allocH, (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_resize GetSurfaceLevel failed %dx%d (alloc=%dx%d) hr=0x%08X\n", width, height, allocW, allocH, (unsigned)hr);
 		tex->Release();
 		return;
 	}
@@ -5405,7 +5405,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 	dr->surfaceWidth[surfaceID] = width;
 	dr->surfaceHeight[surfaceID] = height;
 
-	Butterscotch_xdkDiagTrace("D3D9: surface resize %d to %dx%d (alloc=%dx%d)", surfaceID, width, height, allocW, allocH);
+	Butterscotch_xdkDiagTrace("D3D9: surface resize %d to %dx%d (alloc=%dx%d)\n", surfaceID, width, height, allocW, allocH);
 }
 
 static void d3d9SurfaceFree(Renderer* renderer, int32_t surfaceID) {
@@ -5423,7 +5423,7 @@ static void d3d9SurfaceFree(Renderer* renderer, int32_t surfaceID) {
 	flushBatch(dr);
 	d3d9ReleaseSurfaceSlot(dr, (uint32_t)surfaceID);
 	dr->currentTextureIndex = -2; // Invalidate cached texture since we might be freeing it
-	Butterscotch_xdkDiagTrace("D3D9: surface_free %d", surfaceID);
+	Butterscotch_xdkDiagTrace("D3D9: surface_free %d\n", surfaceID);
 }
 
 static void d3d9SurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t destX, int32_t destY,
@@ -5533,7 +5533,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 	HRESULT hr = dev->CreateTexture((UINT)w, (UINT)h, 1, 0, D3DFMT_A8R8G8B8,
 									D3DPOOL_SYSTEMMEM, &resolveTex, nullptr);
 	if (FAILED(hr) || !resolveTex) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels CreateTexture(sysmem) failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels CreateTexture(sysmem) failed hr=0x%08X\n", (unsigned)hr);
 		return false;
 	}
 
@@ -5551,7 +5551,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 	staging->Release();
 
 	if (FAILED(hr)) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels D3DXLoadSurfaceFromSurface failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels D3DXLoadSurfaceFromSurface failed hr=0x%08X\n", (unsigned)hr);
 		resolveTex->Release();
 		return false;
 	}
@@ -5560,7 +5560,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 	D3DLOCKED_RECT lr;
 	hr = resolveTex->LockRect(0, &lr, nullptr, D3DLOCK_READONLY);
 	if (FAILED(hr)) {
-		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels LockRect failed hr=0x%08X", (unsigned)hr);
+		Butterscotch_xdkDiagTrace("D3D9: surface_get_pixels LockRect failed hr=0x%08X\n", (unsigned)hr);
 		resolveTex->Release();
 		return false;
 	}
