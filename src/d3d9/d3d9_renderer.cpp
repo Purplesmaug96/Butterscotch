@@ -369,10 +369,10 @@ static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
 	Butterscotch_xdkDiagTrace("%s", line);
 }
 
-#define D3D9_DIAG_LIMITED(limit, fmt, ...)                                                           \
-	do {                                                                                             \
-		static int _d3d9_diag_limited_counter_line_##__LINE__ = 0;                                   \
-		(void)_d3d9_diag_limited_counter_line_##__LINE__;                                            \
+#define D3D9_DIAG_LIMITED(limit, fmt, ...) \
+	do { \
+		static int _d3d9_diag_limited_counter_line_##__LINE__ = 0; \
+		(void)_d3d9_diag_limited_counter_line_##__LINE__; \
 		d3d9DiagLimited(&_d3d9_diag_limited_counter_line_##__LINE__, (limit), (fmt), ##__VA_ARGS__); \
 	} while (0)
 
@@ -3527,7 +3527,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 	DataWin* dw = renderer->dataWin;
 
 	if (0 > tpagIndex || (uint32_t)tpagIndex >= dw->tpag.count) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite invalid tpag=%d count=%u x=%.2f y=%.2f",
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite invalid tpag=%d count=%u x=%.2f y=%.2f\n",
 						  tpagIndex, dw->tpag.count, x, y);
 		return;
 	}
@@ -3535,7 +3535,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 	TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 	int32_t texPageId = tpag->texturePageId;
 	if (0 > texPageId || (uint32_t)texPageId >= dr->textureCount) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite invalid texPage=%d textureCount=%u tpag=%d",
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite invalid texPage=%d textureCount=%u tpag=%d\n",
 						  texPageId, dr->textureCount, tpagIndex);
 		return;
 	}
@@ -3544,7 +3544,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		return;
 	}
 	if (!dr->textures[texPageId]) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite null texture page=%d tpag=%d", texPageId, tpagIndex);
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite null texture page=%d tpag=%d\n", texPageId, tpagIndex);
 		return;
 	}
 
@@ -3561,7 +3561,7 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 		int limit = roomIndex >= 288 ? 96 : 120;
 		if (roomIndex >= 288 || tpag->sourceWidth >= 64 || tpag->sourceHeight >= 64 || x <= 8.0f || y <= 8.0f) {
 			D3D9_DIAG_LIMITED(limit,
-							  "D3D9WORLD: sprite tpag=%d texPage=%d tex=%dx%d tpagSrc=%d,%d %dx%d target=%d,%d bound=%dx%d dst=%.2f,%.2f origin=%.2f,%.2f scale=%.3f,%.3f angle=%.2f room=%d",
+							  "D3D9WORLD: sprite tpag=%d texPage=%d tex=%dx%d tpagSrc=%d,%d %dx%d target=%d,%d bound=%dx%d dst=%.2f,%.2f origin=%.2f,%.2f scale=%.3f,%.3f angle=%.2f room=%d\n",
 							  tpagIndex, texPageId, (int)texW, (int)texH,
 							  tpag->sourceX, tpag->sourceY, tpag->sourceWidth, tpag->sourceHeight,
 							  tpag->targetX, tpag->targetY, tpag->boundingWidth, tpag->boundingHeight,
@@ -3655,14 +3655,14 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
 	DataWin* dw = renderer->dataWin;
 
 	if (0 > tpagIndex || (uint32_t)tpagIndex >= dw->tpag.count) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart invalid tpag=%d count=%u src=%d,%d %dx%d dst=%.2f,%.2f",
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart invalid tpag=%d count=%u src=%d,%d %dx%d dst=%.2f,%.2f\n",
 						  tpagIndex, dw->tpag.count, srcOffX, srcOffY, srcW, srcH, x, y);
 		return;
 	}
 	TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 	int32_t texPageId = tpag->texturePageId;
 	if (0 > texPageId || (uint32_t)texPageId >= dr->textureCount) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart invalid texPage=%d textureCount=%u tpag=%d",
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart invalid texPage=%d textureCount=%u tpag=%d\n",
 						  texPageId, dr->textureCount, tpagIndex);
 		return;
 	}
@@ -3671,7 +3671,7 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
 		return;
 	}
 	if (!dr->textures[texPageId]) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart null texture page=%d tpag=%d", texPageId, tpagIndex);
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePart null texture page=%d tpag=%d\n", texPageId, tpagIndex);
 		return;
 	}
 
@@ -3688,7 +3688,7 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
 		int limit = roomIndex >= 288 ? 128 : 180;
 		if (roomIndex >= 288 || srcW >= 16 || srcH >= 16 || x <= 4.0f || y <= 4.0f) {
 			D3D9_DIAG_LIMITED(limit,
-							  "D3D9PART: phase=%d tpag=%d texPage=%d tex=%dx%d tpagSrc=%d,%d %dx%d target=%d,%d bound=%dx%d srcOff=%d,%d src=%dx%d dst=%.2f,%.2f scale=%.2f,%.2f room=%d",
+							  "D3D9PART: phase=%d tpag=%d texPage=%d tex=%dx%d tpagSrc=%d,%d %dx%d target=%d,%d bound=%dx%d srcOff=%d,%d src=%dx%d dst=%.2f,%.2f scale=%.2f,%.2f room=%d\n",
 							  dr->drawPhase,
 							  tpagIndex, texPageId, (int)texW, (int)texH,
 							  tpag->sourceX, tpag->sourceY, tpag->sourceWidth, tpag->sourceHeight,
@@ -3748,13 +3748,13 @@ static void d3d9DrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, f
 	DataWin* dw = renderer->dataWin;
 
 	if (0 > tpagIndex || (uint32_t)tpagIndex >= dw->tpag.count) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePos invalid tpag=%d count=%u", tpagIndex, dw->tpag.count);
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePos invalid tpag=%d count=%u\n", tpagIndex, dw->tpag.count);
 		return;
 	}
 	TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 	int32_t texPageId = tpag->texturePageId;
 	if (0 > texPageId || (uint32_t)texPageId >= dr->textureCount) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePos invalid texPage=%d textureCount=%u tpag=%d",
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSpritePos invalid texPage=%d textureCount=%u tpag=%d\n",
 						  texPageId, dr->textureCount, tpagIndex);
 		return;
 	}
@@ -3763,7 +3763,7 @@ static void d3d9DrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, f
 		return;
 	}
 	if (!dr->textures[texPageId]) {
-		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite null texture page=%d tpag=%d", texPageId, tpagIndex);
+		D3D9_DIAG_LIMITED(64, "D3D9: drawSprite null texture page=%d tpag=%d\n", texPageId, tpagIndex);
 		return;
 	}
 
@@ -4959,7 +4959,7 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 			flushBatch(dr);
 			HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->appSurfaceLevel);
 			if (FAILED(hr)) {
-				D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(app_surface implicit) failed hr=0x%08X", (unsigned)hr);
+				D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(app_surface implicit) failed hr=0x%08X\n", (unsigned)hr);
 				return false;
 			}
 			D3DVIEWPORT9 vp;
@@ -4994,7 +4994,7 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 		flushBatch(dr);
 		HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->appSurfaceLevel);
 		if (FAILED(hr)) {
-			D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(app_surface) failed hr=0x%08X", (unsigned)hr);
+			D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(app_surface) failed hr=0x%08X\n", (unsigned)hr);
 			return false;
 		}
 		D3DVIEWPORT9 vp;
@@ -5026,14 +5026,14 @@ static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool impl
 	}
 
 	if (surfaceID < 0 || (uint32_t)surfaceID >= dr->surfaceCount || !dr->surfaces[surfaceID]) {
-		D3D9_DIAG_LIMITED(32, "D3D9: surface_set_target invalid id=%d", surfaceID);
+		D3D9_DIAG_LIMITED(32, "D3D9: surface_set_target invalid id=%d\n", surfaceID);
 		return false;
 	}
 
 	flushBatch(dr);
 	HRESULT hr = dev->SetRenderTarget(0, (IDirect3DSurface9*)dr->surfaces[surfaceID]);
 	if (FAILED(hr)) {
-		D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(surface %d) failed hr=0x%08X", surfaceID, (unsigned)hr);
+		D3D9_DIAG_LIMITED(64, "D3D9: SetRenderTarget(surface %d) failed hr=0x%08X\n", surfaceID, (unsigned)hr);
 		return false;
 	}
 
@@ -5183,7 +5183,7 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 
 	if (surfaceID == APPLICATION_SURFACE_ID) {
 		if (!dr->appSurfaceTexture) {
-			D3D9_DIAG_LIMITED(64, "D3D9: draw_surface no app surface id=%d", surfaceID);
+			D3D9_DIAG_LIMITED(64, "D3D9: draw_surface no app surface id=%d\n", surfaceID);
 			return;
 		}
 		drawTex = (IDirect3DTexture9*)dr->appSurfaceTexture;
@@ -5194,7 +5194,7 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		texW = (dr->surfaceWidth[surfaceID] + 7) & ~7;
 		texH = (dr->surfaceHeight[surfaceID] + 7) & ~7;
 	} else {
-		D3D9_DIAG_LIMITED(128, "D3D9: draw_surface unsupported id=%d src=%d,%d %dx%d",
+		D3D9_DIAG_LIMITED(128, "D3D9: draw_surface unsupported id=%d src=%d,%d %dx%d\n",
 						  surfaceID, srcLeft, srcTop, srcWidth, srcHeight);
 		return;
 	}
@@ -5593,7 +5593,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 	resolveTex->UnlockRect(0);
 	resolveTex->Release();
 
-	D3D9_DIAG_LIMITED(16, "D3D9: surface_get_pixels %d (%dx%d) ok", surfaceID, w, h);
+	D3D9_DIAG_LIMITED(16, "D3D9: surface_get_pixels %d (%dx%d) ok\n", surfaceID, w, h);
 	return true;
 }
 
@@ -5620,7 +5620,7 @@ static void d3d9DrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t src
 
 	if (dr->drawPhase == RENDER_PHASE_POST) {
 		D3D9_DIAG_LIMITED(96,
-						  "D3D9POST: tiledPart tpag=%d src=%d,%d %dx%d dst=%.2f,%.2f %.2fx%.2f room=%d",
+						  "D3D9POST: tiledPart tpag=%d src=%d,%d %dx%d dst=%.2f,%.2f %.2fx%.2f room=%d\n",
 						  tpagIndex, srcX, srcY, srcW, srcH,
 						  dstX, dstY, dstW, dstH,
 						  renderer->runner ? renderer->runner->currentRoomIndex : -1);

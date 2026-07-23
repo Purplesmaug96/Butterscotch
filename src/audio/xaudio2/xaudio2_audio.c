@@ -129,7 +129,7 @@ static short* resamplePcm16(short* input, uint32_t inputFrames, uint16_t channel
 	uint32_t outputFrames = (uint32_t)(((uint64_t)inputFrames * outputRate + inputRate - 1) / inputRate);
 	short* output = (short*)safeMalloc(outputFrames * channels * sizeof(short));
 	if (!output) {
-		audioTrace(true, "AUD2: resample safeMalloc failed inFrames=%u ch=%u inRate=%u outRate=%u",
+		audioTrace(true, "AUD2: resample safeMalloc failed inFrames=%u ch=%u inRate=%u outRate=%u\n",
 				   inputFrames, channels, inputRate, outputRate);
 		return input;
 	}
@@ -504,7 +504,7 @@ static bool decodeWav16(const uint8_t* data, int size, XAudio2DecodedSound* deco
 	}
 
 	if (!fmtData || !pcmData || fmtSize < 16) {
-		audioTrace(true, "AUD2: WAV parse failed missing fmt/data name=%s", name ? name : "?");
+		audioTrace(true, "AUD2: WAV parse failed missing fmt/data name=%s\n", name ? name : "?");
 		return false;
 	}
 
@@ -513,7 +513,7 @@ static bool decodeWav16(const uint8_t* data, int size, XAudio2DecodedSound* deco
 	uint32_t rate = readLe32(fmtData + 4);
 	uint16_t bits = readLe16(fmtData + 14);
 	if (format != WAVE_FORMAT_PCM || channels == 0 || channels > 2 || rate == 0 || bits != 16 || pcmSize == 0) {
-		audioTrace(true, "AUD2: WAV unsupported name=%s fmt=%u ch=%u rate=%u bits=%u bytes=%u",
+		audioTrace(true, "AUD2: WAV unsupported name=%s fmt=%u ch=%u rate=%u bits=%u bytes=%u\n",
 				   name ? name : "?", format, channels, rate, bits, pcmSize);
 		return false;
 	}
@@ -547,7 +547,7 @@ static bool decodeOgg(const uint8_t* data, int size, XAudio2DecodedSound* decode
 	int stbErr = 0;
 	stb_vorbis* vorbis = stb_vorbis_open_memory((unsigned char*)data, size, &stbErr, NULL);
 	if (!vorbis) {
-		audioTrace(true, "AUD2: vorbis open failed name=%s err=%d size=%d", name ? name : "?", stbErr, size);
+		audioTrace(true, "AUD2: vorbis open failed name=%s err=%d size=%d\n", name ? name : "?", stbErr, size);
 		return false;
 	}
 
@@ -571,7 +571,7 @@ static bool decodeOgg(const uint8_t* data, int size, XAudio2DecodedSound* decode
 			pcm = (short*)safeMalloc(outputBytes);
 			if (pcm) {
 				if (decimation > 2) {
-					audioTrace(true, "AUD2: using 1/%u-rate ogg fallback name=%s outBytes=%u fullBytes=%u",
+					audioTrace(true, "AUD2: using 1/%u-rate ogg fallback name=%s outBytes=%u fullBytes=%u\n",
 							   decimation, name ? name : "?", outputBytes, bytes);
 				}
 				break;
@@ -579,7 +579,7 @@ static bool decodeOgg(const uint8_t* data, int size, XAudio2DecodedSound* decode
 		}
 		short* chunk = (short*)safeMalloc(XAUDIO2_AUDIO_DECODE_CHUNK_FRAMES * info.channels * sizeof(short));
 		if (!pcm || !chunk) {
-			audioTrace(true, "AUD2: vorbis downsample safeMalloc failed name=%s div=%u outBytes=%u chunkBytes=%u fullBytes=%u",
+			audioTrace(true, "AUD2: vorbis downsample safeMalloc failed name=%s div=%u outBytes=%u chunkBytes=%u fullBytes=%u\n",
 					   name ? name : "?", decimation, outputBytes,
 					   (unsigned)(XAUDIO2_AUDIO_DECODE_CHUNK_FRAMES * info.channels * sizeof(short)), bytes);
 			if (pcm) {
@@ -626,7 +626,7 @@ static bool decodeOgg(const uint8_t* data, int size, XAudio2DecodedSound* decode
 		decoded->sampleFrames = dstFrame;
 		decoded->valid = true;
 		decoded->failed = false;
-		audioTrace(true, "AUD2: decoded 1/%u-rate ogg name=%s fullBytes=%u rate=%d->%u frames=%d->%u bytes=%u",
+		audioTrace(true, "AUD2: decoded 1/%u-rate ogg name=%s fullBytes=%u rate=%d->%u frames=%d->%u bytes=%u\n",
 				   decimation, name ? name : "?", bytes,
 				   info.sample_rate, decoded->sampleRate, totalFrames, decoded->sampleFrames, decoded->pcmSize);
 		return true;
@@ -634,7 +634,7 @@ static bool decodeOgg(const uint8_t* data, int size, XAudio2DecodedSound* decode
 
 	short* pcm = (short*)safeMalloc(bytes);
 	if (!pcm) {
-		audioTrace(true, "AUD2: vorbis pcm safeMalloc failed name=%s bytes=%u frames=%d ch=%d",
+		audioTrace(true, "AUD2: vorbis pcm safeMalloc failed name=%s bytes=%u frames=%d ch=%d\n",
 				   name ? name : "?", bytes, totalFrames, info.channels);
 		stb_vorbis_close(vorbis);
 		return false;
@@ -756,18 +756,18 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
 	bool freeBytes = false;
 	bool inAudo = soundUsesAudo(sound);
 
-	audioTrace(logToFile, "AUD2: decode idx=%d name=%s flags=0x%X group=%d audioFile=%d inAudo=%d file=%s",
+	audioTrace(logToFile, "AUD2: decode idx=%d name=%s flags=0x%X group=%d audioFile=%d inAudo=%d file=%s\n",
 			   soundIndex, sound->name ? sound->name : "?", (unsigned)sound->flags,
 			   sound->audioGroup, sound->audioFile, inAudo ? 1 : 0, sound->file ? sound->file : "(null)");
 
 	if (inAudo) {
 		if (!audoDw) {
-			audioTrace(true, "AUD2: audio group not loaded idx=%d name=%s group=%d audioFile=%d",
+			audioTrace(true, "AUD2: audio group not loaded idx=%d name=%s group=%d audioFile=%d\n",
 					   soundIndex, sound->name ? sound->name : "?", sound->audioGroup, sound->audioFile);
 			return NULL;
 		}
 		if (sound->audioFile < 0 || (uint32_t)sound->audioFile >= audoDw->audo.count) {
-			audioTrace(true, "AUD2: invalid AUDO idx=%d name=%s audioFile=%d count=%u",
+			audioTrace(true, "AUD2: invalid AUDO idx=%d name=%s audioFile=%d count=%u\n",
 					   soundIndex, sound->name ? sound->name : "?", sound->audioFile, audoDw->audo.count);
 			if (cache) {
 				cache->failed = true;
@@ -780,15 +780,15 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
 	} else {
 		char* path = resolveExternalPath(xa, sound);
 		if (!path) {
-			audioTrace(true, "AUD2: no external path idx=%d name=%s", soundIndex, sound->name ? sound->name : "?");
+			audioTrace(true, "AUD2: no external path idx=%d name=%s\n", soundIndex, sound->name ? sound->name : "?");
 			if (cache) {
 				cache->failed = true;
 			}
 			return NULL;
 		}
-		audioTrace(logToFile, "AUD2: external path idx=%d %s", soundIndex, path);
+		audioTrace(logToFile, "AUD2: external path idx=%d %s\n", soundIndex, path);
 		if (!readWholeFile(path, &bytes, &byteCount)) {
-			audioTrace(true, "AUD2: external read failed idx=%d path=%s", soundIndex, path);
+			audioTrace(true, "AUD2: external read failed idx=%d path=%s\n", soundIndex, path);
 			free(path);
 			if (cache) {
 				cache->failed = true;
@@ -808,7 +808,7 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
 		return NULL;
 	}
 
-	audioTrace(logToFile, "AUD2: decoded idx=%d name=%s ch=%u rate=%u frames=%u bytes=%u seconds=%.3f",
+	audioTrace(logToFile, "AUD2: decoded idx=%d name=%s ch=%u rate=%u frames=%u bytes=%u seconds=%.3f\n",
 			   soundIndex, sound->name ? sound->name : "?", decoded.channels, decoded.sampleRate,
 			   decoded.sampleFrames, decoded.pcmSize, decodedDurationSeconds(&decoded));
 
@@ -829,7 +829,7 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
 
 	XAudio2DecodedSound* owned = (XAudio2DecodedSound*)safeMalloc(sizeof(XAudio2DecodedSound));
 	if (!owned) {
-		audioTrace(true, "AUD2: decoded struct safeMalloc failed idx=%d bytes=%u", soundIndex, decoded.pcmSize);
+		audioTrace(true, "AUD2: decoded struct safeMalloc failed idx=%d bytes=%u\n", soundIndex, decoded.pcmSize);
 		free(decoded.pcmData);
 		if (cache) {
 			cache->failed = true;
@@ -840,7 +840,7 @@ static XAudio2DecodedSound* decodeSoundCached(XAudio2AudioSystem* xa, int32_t so
 	if (outOwned) {
 		*outOwned = true;
 	}
-	audioTrace(logToFile, "AUD2: uncached decoded idx=%d bytes=%u cacheUsed=%u limit=%u",
+	audioTrace(logToFile, "AUD2: uncached decoded idx=%d bytes=%u cacheUsed=%u limit=%u\n",
 			   soundIndex, decoded.pcmSize, gSoundCacheBytes, (unsigned)XAUDIO2_AUDIO_CACHE_LIMIT_BYTES);
 	return owned;
 }
@@ -904,14 +904,14 @@ static bool submitStreamingBuffers(XAudio2SoundInstance* inst, bool logToFile) {
 		if (frames <= 0) {
 			if (inst->loop) {
 				if (!stb_vorbis_seek_start(inst->streamVorbis)) {
-					audioTrace(true, "AUD2: stream seek_start failed idx=%d", inst->soundIndex);
+					audioTrace(true, "AUD2: stream seek_start failed idx=%d\n", inst->soundIndex);
 					inst->streamEof = true;
 					return false;
 				}
 				frames = stb_vorbis_get_samples_short_interleaved(inst->streamVorbis,
 																  inst->streamChannels, buffer, XAUDIO2_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels);
 				if (frames <= 0) {
-					audioTrace(true, "AUD2: stream loop refill failed idx=%d", inst->soundIndex);
+					audioTrace(true, "AUD2: stream loop refill failed idx=%d\n", inst->soundIndex);
 					inst->streamEof = true;
 					return false;
 				}
@@ -927,7 +927,7 @@ static bool submitStreamingBuffers(XAudio2SoundInstance* inst, bool logToFile) {
 		xaBuf.pAudioData = (BYTE*)buffer;
 		HRESULT hr = inst->pVoice->SubmitSourceBuffer(&xaBuf);
 		if (FAILED(hr)) {
-			audioTrace(true, "AUD2: stream SubmitSourceBuffer failed idx=%d hr=0x%08X bytes=%u",
+			audioTrace(true, "AUD2: stream SubmitSourceBuffer failed idx=%d hr=0x%08X bytes=%u\n",
 					   inst->soundIndex, (unsigned)hr, xaBuf.AudioBytes);
 			inst->streamEof = true;
 			return false;
@@ -937,7 +937,7 @@ static bool submitStreamingBuffers(XAudio2SoundInstance* inst, bool logToFile) {
 		queued++;
 	}
 
-	audioTrace(logToFile, "AUD2: stream filled idx=%d queued=%u submitted=%u eof=%d",
+	audioTrace(logToFile, "AUD2: stream filled idx=%d queued=%u submitted=%u eof=%d\n",
 			   inst->soundIndex, queued, inst->streamSubmitted, inst->streamEof ? 1 : 0);
 	return true;
 }
@@ -972,14 +972,14 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 
 		hr = pXA->CreateSourceVoice(&inst->pVoice, (const WAVEFORMATEX*)&xma2Wfx);
 		if (FAILED(hr) || !inst->pVoice) {
-			audioTrace(true, "AUD2: CreateSourceVoice XMA2 failed idx=%d hr=0x%08X ch=%u rate=%u",
+			audioTrace(true, "AUD2: CreateSourceVoice XMA2 failed idx=%d hr=0x%08X ch=%u rate=%u\n",
 					   inst->soundIndex, (unsigned)hr, decoded->channels, decoded->sampleRate);
 			return false;
 		}
 
 		hr = submitFromFrame(inst, 0);
 		if (FAILED(hr)) {
-			audioTrace(true, "AUD2: SubmitSourceBuffer XMA2 failed idx=%d hr=0x%08X", inst->soundIndex, (unsigned)hr);
+			audioTrace(true, "AUD2: SubmitSourceBuffer XMA2 failed idx=%d hr=0x%08X\n", inst->soundIndex, (unsigned)hr);
 			return false;
 		}
 
@@ -997,7 +997,7 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 			inst->fadeTotalTime = 0.08f;
 			inst->fadeTimeRemaining = 0.08f;
 		}
-		audioTrace(logToFile, "AUD2: start XMA2 idx=%d instance=%d loop=%d rate=%u",
+		audioTrace(logToFile, "AUD2: start XMA2 idx=%d instance=%d loop=%d rate=%u\n",
 				   inst->soundIndex, inst->instanceId, inst->loop ? 1 : 0, decoded->sampleRate);
 		return SUCCEEDED(hr);
 	}
@@ -1015,14 +1015,14 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 
 	hr = pXA->CreateSourceVoice(&inst->pVoice, &wfx);
 	if (FAILED(hr) || !inst->pVoice) {
-		audioTrace(true, "AUD2: CreateSourceVoice failed idx=%d hr=0x%08X ch=%u rate=%u",
+		audioTrace(true, "AUD2: CreateSourceVoice failed idx=%d hr=0x%08X ch=%u rate=%u\n",
 				   inst->soundIndex, (unsigned)hr, decoded->channels, decoded->sampleRate);
 		return false;
 	}
 
 	hr = submitFromFrame(inst, 0);
 	if (FAILED(hr)) {
-		audioTrace(true, "AUD2: SubmitSourceBuffer failed idx=%d hr=0x%08X", inst->soundIndex, (unsigned)hr);
+		audioTrace(true, "AUD2: SubmitSourceBuffer failed idx=%d hr=0x%08X\n", inst->soundIndex, (unsigned)hr);
 		return false;
 	}
 
@@ -1045,7 +1045,7 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 		inst->fadeTotalTime = 0.08f;
 		inst->fadeTimeRemaining = 0.08f;
 	}
-	audioTrace(logToFile, "AUD2: start idx=%d instance=%d loop=%d voiceRate=%u ratio=%.5f ratioHr=0x%08X actual=%.5f fade=%d startHr=0x%08X",
+	audioTrace(logToFile, "AUD2: start idx=%d instance=%d loop=%d voiceRate=%u ratio=%.5f ratioHr=0x%08X actual=%.5f fade=%d startHr=0x%08X\n",
 			   inst->soundIndex, inst->instanceId, inst->loop ? 1 : 0, decoded->sampleRate,
 			   ratio, (unsigned)ratioHr, actualRatio, startupFade ? 1 : 0, (unsigned)hr);
 	return SUCCEEDED(hr);
@@ -1055,7 +1055,7 @@ static bool createStreamingVoiceForInstance(XAudio2AudioSystem* xa, XAudio2Sound
 	int err = 0;
 	inst->streamVorbis = stb_vorbis_open_filename(path, &err, NULL);
 	if (!inst->streamVorbis) {
-		audioTrace(true, "AUD2: stream open failed idx=%d path=%s err=%d",
+		audioTrace(true, "AUD2: stream open failed idx=%d path=%s err=%d\n",
 				   inst->soundIndex, path ? path : "?", err);
 		return false;
 	}
@@ -1063,7 +1063,7 @@ static bool createStreamingVoiceForInstance(XAudio2AudioSystem* xa, XAudio2Sound
 	stb_vorbis_info info = stb_vorbis_get_info(inst->streamVorbis);
 	int totalFrames = stb_vorbis_stream_length_in_samples(inst->streamVorbis);
 	if (info.channels <= 0 || info.channels > 2 || info.sample_rate <= 0) {
-		audioTrace(true, "AUD2: stream unsupported idx=%d ch=%d rate=%d",
+		audioTrace(true, "AUD2: stream unsupported idx=%d ch=%d rate=%d\n",
 				   inst->soundIndex, info.channels, info.sample_rate);
 		return false;
 	}
@@ -1078,7 +1078,7 @@ static bool createStreamingVoiceForInstance(XAudio2AudioSystem* xa, XAudio2Sound
 	for (int i = 0; i < XAUDIO2_AUDIO_STREAM_BUFFER_COUNT; i++) {
 		inst->streamBuffers[i] = (short*)safeMalloc(XAUDIO2_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels * sizeof(short));
 		if (!inst->streamBuffers[i]) {
-			audioTrace(true, "AUD2: stream buffer safeMalloc failed idx=%d buffer=%d bytes=%u",
+			audioTrace(true, "AUD2: stream buffer safeMalloc failed idx=%d buffer=%d bytes=%u\n",
 					   inst->soundIndex, i,
 					   (unsigned)(XAUDIO2_AUDIO_STREAM_BUFFER_FRAMES * inst->streamChannels * sizeof(short)));
 			return false;
@@ -1097,7 +1097,7 @@ static bool createStreamingVoiceForInstance(XAudio2AudioSystem* xa, XAudio2Sound
 	IXAudio2* pXA = (IXAudio2*)xa->pXAudio2;
 	HRESULT hr = pXA->CreateSourceVoice(&inst->pVoice, &wfx);
 	if (FAILED(hr) || !inst->pVoice) {
-		audioTrace(true, "AUD2: stream CreateSourceVoice failed idx=%d hr=0x%08X ch=%u rate=%u",
+		audioTrace(true, "AUD2: stream CreateSourceVoice failed idx=%d hr=0x%08X ch=%u rate=%u\n",
 				   inst->soundIndex, (unsigned)hr, inst->streamChannels, inst->streamSampleRate);
 		return false;
 	}
@@ -1123,7 +1123,7 @@ static bool createStreamingVoiceForInstance(XAudio2AudioSystem* xa, XAudio2Sound
 	inst->fadeTotalTime = 0.08f;
 	inst->fadeTimeRemaining = 0.08f;
 
-	audioTrace(logToFile, "AUD2: stream start idx=%d instance=%d loop=%d rate=%u ch=%u totalFrames=%u queued=%u ratio=%.5f ratioHr=0x%08X actual=%.5f startHr=0x%08X vol=%.3f",
+	audioTrace(logToFile, "AUD2: stream start idx=%d instance=%d loop=%d rate=%u ch=%u totalFrames=%u queued=%u ratio=%.5f ratioHr=0x%08X actual=%.5f startHr=0x%08X vol=%.3f\n",
 			   inst->soundIndex, inst->instanceId, inst->loop ? 1 : 0, inst->streamSampleRate,
 			   inst->streamChannels, inst->streamTotalFrames, streamQueuedBuffers(inst),
 			   ratio, (unsigned)ratioHr, actualRatio, (unsigned)hr, finalVolume);
@@ -1145,7 +1145,7 @@ static void rememberSuspendedRoomMusic(XAudio2SoundInstance* active, Sound* acti
 
 	gSuspendedRoomMusicIndex = active->soundIndex;
 	gSuspendedRoomMusicLoop = active->loop;
-	audioTrace(true, "AUD2: suspend room music idx=%d name=%s loop=%d for=%s",
+	audioTrace(true, "AUD2: suspend room music idx=%d name=%s loop=%d for=%s\n",
 			   gSuspendedRoomMusicIndex, activeSound->name ? activeSound->name : "?",
 			   gSuspendedRoomMusicLoop ? 1 : 0, newSound->name ? newSound->name : "?");
 }
@@ -1161,7 +1161,7 @@ static void maybeResumeSuspendedRoomMusic(AudioSystem* audio, const char* stoppe
 	if (gInBattleRoom) {
 		gAwaitingBattleExitMusicIndex = gSuspendedRoomMusicIndex;
 		gAwaitingBattleExitMusicLoop = gSuspendedRoomMusicLoop;
-		audioTrace(true, "AUD2: defer suspended room music idx=%d loop=%d until battle room exit after=%s",
+		audioTrace(true, "AUD2: defer suspended room music idx=%d loop=%d until battle room exit after=%s\n",
 				   gAwaitingBattleExitMusicIndex, gAwaitingBattleExitMusicLoop ? 1 : 0,
 				   stoppedName ? stoppedName : "?");
 		gSuspendedRoomMusicIndex = -1;
@@ -1174,7 +1174,7 @@ static void maybeResumeSuspendedRoomMusic(AudioSystem* audio, const char* stoppe
 	gSuspendedRoomMusicIndex = -1;
 	gSuspendedRoomMusicLoop = true;
 
-	audioTrace(true, "AUD2: battle music stopped outside battle room; resume room music now after=%s",
+	audioTrace(true, "AUD2: battle music stopped outside battle room; resume room music now after=%s\n",
 			   stoppedName ? stoppedName : "?");
 	XAudio2AudioSystem_onRoomChanged(audio, -1, NULL);
 }
@@ -1185,7 +1185,7 @@ void XAudio2AudioSystem_onRoomChanged(AudioSystem* audio, int32_t roomIndex, con
 	gInBattleRoom = isBattleRoomName(roomName);
 
 	if (roomName) {
-		audioTrace(true, "AUD2: room changed idx=%d name=%s battle=%d awaiting=%d",
+		audioTrace(true, "AUD2: room changed idx=%d name=%s battle=%d awaiting=%d\n",
 				   roomIndex, roomName, gInBattleRoom ? 1 : 0, gAwaitingBattleExitMusicIndex);
 	}
 
@@ -1201,7 +1201,7 @@ void XAudio2AudioSystem_onRoomChanged(AudioSystem* audio, int32_t roomIndex, con
 			if (dw && inst->soundIndex >= 0 && (uint32_t)inst->soundIndex < dw->sond.count) {
 				stoppedName = dw->sond.sounds[inst->soundIndex].name;
 			}
-			audioTrace(true, "AUD2: gameover cut music idx=%d name=%s instance=%d",
+			audioTrace(true, "AUD2: gameover cut music idx=%d name=%s instance=%d\n",
 					   inst->soundIndex, stoppedName ? stoppedName : "?", inst->instanceId);
 			destroyInstance(inst);
 		}
@@ -1224,10 +1224,10 @@ void XAudio2AudioSystem_onRoomChanged(AudioSystem* audio, int32_t roomIndex, con
 	gAwaitingBattleExitMusicLoop = true;
 
 	gResumingSuspendedMusic = true;
-	audioTrace(true, "AUD2: resume suspended room music idx=%d loop=%d on room=%s",
+	audioTrace(true, "AUD2: resume suspended room music idx=%d loop=%d on room=%s\n",
 			   resumeIndex, resumeLoop ? 1 : 0, roomName ? roomName : "(already outside battle)");
 	int32_t instance = xdkPlaySound(audio, resumeIndex, 10, resumeLoop);
-	audioTrace(true, "AUD2: resume result idx=%d instance=%d", resumeIndex, instance);
+	audioTrace(true, "AUD2: resume result idx=%d instance=%d\n", resumeIndex, instance);
 	gResumingSuspendedMusic = false;
 }
 
@@ -1239,7 +1239,7 @@ static void xdkAudioInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileS
 
 	HRESULT hr = XAudio2Create((IXAudio2**)&xa->pXAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	if (FAILED(hr)) {
-		audioTrace(true, "AUD2: XAudio2Create failed hr=0x%08X", (unsigned)hr);
+		audioTrace(true, "AUD2: XAudio2Create failed hr=0x%08X\n", (unsigned)hr);
 		return;
 	}
 
@@ -1247,12 +1247,12 @@ static void xdkAudioInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileS
 	hr = pXA->CreateMasteringVoice((IXAudio2MasteringVoice**)&xa->pMasterVoice,
 								   XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE, 0, 0, NULL);
 	if (FAILED(hr)) {
-		audioTrace(true, "AUD2: CreateMasteringVoice failed hr=0x%08X", (unsigned)hr);
+		audioTrace(true, "AUD2: CreateMasteringVoice failed hr=0x%08X\n", (unsigned)hr);
 		return;
 	}
 
 	xa->initialized = true;
-	audioTrace(true, "AUD2: clean audio backend %s", XAUDIO2_AUDIO_FIX_TAG);
+	audioTrace(true, "AUD2: clean audio backend %s\n", XAUDIO2_AUDIO_FIX_TAG);
 }
 
 static void xdkAudioDestroy(AudioSystem* audio) {
@@ -1332,7 +1332,7 @@ static void xdkAudioUpdate(AudioSystem* audio, float deltaTime) {
 				stoppedName = dw->sond.sounds[inst->soundIndex].name;
 			}
 			if (inst->music) {
-				audioTrace(true, "AUD2: finished music idx=%d name=%s instance=%d",
+				audioTrace(true, "AUD2: finished music idx=%d name=%s instance=%d\n",
 						   inst->soundIndex, stoppedName ? stoppedName : "?", inst->instanceId);
 			}
 			destroyInstance(inst);
@@ -1352,14 +1352,14 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 	if (isStreamIndex(soundIndex)) {
 		int32_t streamSlot = soundIndex - XAUDIO2_AUDIO_STREAM_INDEX_BASE;
 		if (streamSlot < 0 || streamSlot >= XAUDIO2_MAX_AUDIO_STREAMS || !xa->streams[streamSlot].active) {
-			audioTrace(true, "AUD2: play invalid stream index %d", soundIndex);
+			audioTrace(true, "AUD2: play invalid stream index %d\n", soundIndex);
 			return -1;
 		}
 		AudioStreamEntry* stream = &xa->streams[streamSlot];
 
 		XAudio2SoundInstance* inst = findFreeSlot(xa);
 		if (!inst) {
-			audioTrace(true, "AUD2: no free slot for stream %d", soundIndex);
+			audioTrace(true, "AUD2: no free slot for stream %d\n", soundIndex);
 			return -1;
 		}
 
@@ -1386,7 +1386,7 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 			destroyInstance(inst);
 			return -1;
 		}
-		audioTrace(true, "AUD2: playing stream %d instance=%d path=%s loop=%d",
+		audioTrace(true, "AUD2: playing stream %d instance=%d path=%s loop=%d\n",
 				   soundIndex, inst->instanceId, stream->filePath, loop ? 1 : 0);
 		return inst->instanceId;
 	}
@@ -1410,7 +1410,7 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 
 	if (isMusic) {
 		if (!gResumingSuspendedMusic && gAwaitingBattleExitMusicIndex >= 0 && soundIndex != gAwaitingBattleExitMusicIndex) {
-			audioTrace(true, "AUD2: cancel battle-exit music resume idx=%d because new music idx=%d name=%s",
+			audioTrace(true, "AUD2: cancel battle-exit music resume idx=%d because new music idx=%d name=%s\n",
 					   gAwaitingBattleExitMusicIndex, soundIndex, sound->name ? sound->name : "?");
 			gAwaitingBattleExitMusicIndex = -1;
 			gAwaitingBattleExitMusicLoop = true;
@@ -1423,26 +1423,26 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 				continue;
 			}
 			if (active->soundIndex == soundIndex) {
-				audioTrace(true, "AUD2: reuse active music idx=%d name=%s instance=%d",
+				audioTrace(true, "AUD2: reuse active music idx=%d name=%s instance=%d\n",
 						   soundIndex, sound->name ? sound->name : "?", active->instanceId);
 				return active->instanceId;
 			}
 			Sound* activeSound = &dw->sond.sounds[active->soundIndex];
 			if (isMusicSoundName(activeSound->name)) {
 				if (canLayerMusicSoundNames(activeSound->name, sound->name)) {
-					audioTrace(true, "AUD2: keep layered music oldIdx=%d oldName=%s newIdx=%d newName=%s",
+					audioTrace(true, "AUD2: keep layered music oldIdx=%d oldName=%s newIdx=%d newName=%s\n",
 							   active->soundIndex, activeSound->name ? activeSound->name : "?",
 							   soundIndex, sound->name ? sound->name : "?");
 					continue;
 				}
 				if (active->loop && !loop && !isBattleMusicSoundName(sound->name)) {
-					audioTrace(true, "AUD2: keep looped music under stinger oldIdx=%d oldName=%s newIdx=%d newName=%s",
+					audioTrace(true, "AUD2: keep looped music under stinger oldIdx=%d oldName=%s newIdx=%d newName=%s\n",
 							   active->soundIndex, activeSound->name ? activeSound->name : "?",
 							   soundIndex, sound->name ? sound->name : "?");
 					continue;
 				}
 				rememberSuspendedRoomMusic(active, activeSound, sound);
-				audioTrace(true, "AUD2: pre-stop music oldIdx=%d oldName=%s newIdx=%d newName=%s",
+				audioTrace(true, "AUD2: pre-stop music oldIdx=%d oldName=%s newIdx=%d newName=%s\n",
 						   active->soundIndex, activeSound->name ? activeSound->name : "?",
 						   soundIndex, sound->name ? sound->name : "?");
 				destroyInstance(active);
@@ -1453,13 +1453,13 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 	if (shouldStreamExternalMusic(sound)) {
 		char* path = resolveExternalPath(xa, sound);
 		if (!path) {
-			audioTrace(true, "AUD2: stream no external path idx=%d name=%s", soundIndex, sound->name ? sound->name : "?");
+			audioTrace(true, "AUD2: stream no external path idx=%d name=%s\n", soundIndex, sound->name ? sound->name : "?");
 			return -1;
 		}
 
 		XAudio2SoundInstance* inst = findFreeSlot(xa);
 		if (!inst) {
-			audioTrace(true, "AUD2: no free stream slot idx=%d name=%s", soundIndex, sound->name ? sound->name : "?");
+			audioTrace(true, "AUD2: no free stream slot idx=%d name=%s\n", soundIndex, sound->name ? sound->name : "?");
 			free(path);
 			return -1;
 		}
@@ -1499,7 +1499,7 @@ static int32_t xdkPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prio
 
 	XAudio2SoundInstance* inst = findFreeSlot(xa);
 	if (!inst) {
-		audioTrace(true, "AUD2: no free slot idx=%d name=%s", soundIndex, sound->name ? sound->name : "?");
+		audioTrace(true, "AUD2: no free slot idx=%d name=%s\n", soundIndex, sound->name ? sound->name : "?");
 		return -1;
 	}
 
@@ -1543,7 +1543,7 @@ static void xdkStopSound(AudioSystem* audio, int32_t soundOrInstance) {
 				stoppedName = dw->sond.sounds[inst->soundIndex].name;
 			}
 			bool stoppedMusic = inst->music;
-			audioTrace(stoppedMusic, "AUD2: stop instance=%d idx=%d name=%s music=%d",
+			audioTrace(stoppedMusic, "AUD2: stop instance=%d idx=%d name=%s music=%d\n",
 					   soundOrInstance, inst->soundIndex, stoppedName ? stoppedName : "?", stoppedMusic ? 1 : 0);
 			destroyInstance(inst);
 			maybeResumeSuspendedRoomMusic(audio, stoppedName);
@@ -1558,7 +1558,7 @@ static void xdkStopSound(AudioSystem* audio, int32_t soundOrInstance) {
 				stoppedName = dw->sond.sounds[soundOrInstance].name;
 			}
 			bool stoppedMusic = arr->instances[i].music;
-			audioTrace(stoppedMusic, "AUD2: stop sound idx=%d name=%s instance=%d music=%d",
+			audioTrace(stoppedMusic, "AUD2: stop sound idx=%d name=%s instance=%d music=%d\n",
 					   soundOrInstance, stoppedName ? stoppedName : "?", arr->instances[i].instanceId, stoppedMusic ? 1 : 0);
 			destroyInstance(&arr->instances[i]);
 			maybeResumeSuspendedRoomMusic(audio, stoppedName);
@@ -1571,7 +1571,7 @@ static void xdkStopAll(AudioSystem* audio) {
 	XAudio2InstanceArray* arr = Instances(xa);
 	DataWin* dw = getAudioGroup(xa, 0);
 	const char* stoppedBattleName = NULL;
-	audioTrace(true, "AUD2: stop all");
+	audioTrace(true, "AUD2: stop all\n");
 	for (int i = 0; i < XAUDIO2_MAX_SOUND_INSTANCES; i++) {
 		if (arr->instances[i].active) {
 			XAudio2SoundInstance* inst = &arr->instances[i];
@@ -1580,7 +1580,7 @@ static void xdkStopAll(AudioSystem* audio) {
 				stoppedName = dw->sond.sounds[inst->soundIndex].name;
 			}
 			if (inst->music) {
-				audioTrace(true, "AUD2: stop all music idx=%d name=%s instance=%d",
+				audioTrace(true, "AUD2: stop all music idx=%d name=%s instance=%d\n",
 						   inst->soundIndex, stoppedName ? stoppedName : "?", inst->instanceId);
 				if (!stoppedBattleName && isBattleMusicSoundName(stoppedName)) {
 					stoppedBattleName = stoppedName;
@@ -1970,7 +1970,7 @@ static void xdkGroupLoad(AudioSystem* audio, int32_t groupIndex) {
 			}
 		}
 	}
-	audioTrace(true, "AUD2: loaded audio group %d", groupIndex);
+	audioTrace(true, "AUD2: loaded audio group %d\n", groupIndex);
 }
 
 static bool xdkGroupIsLoaded(AudioSystem* audio, int32_t groupIndex) {
