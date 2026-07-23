@@ -5971,11 +5971,11 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 
 	fprintf(stderr, "D3D9: patchVertexShaderForGenerateOutput found %d varyings\n", varCount);
 
-	char structAdditions[384] = "";
+	char structAdditions[2048] = "";
 	size_t structAddLen = 0;
 	if (vsOutputBody && vsOutputEnd) {
-		fprintf(stderr, "D3D9:   VS_OUTPUT struct found at body+0 end+%zu\n",
-				(size_t)(vsOutputEnd - vsOutputBody));
+		fprintf(stderr, "D3D9:   VS_OUTPUT struct found at body+0 end+%u\n",
+				(unsigned int)(vsOutputEnd - vsOutputBody));
 		int nextSlot = 0;
 		{
 			const char* line = vsOutputBody + 1;
@@ -6225,7 +6225,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 			}
 		}
 	}
-	fprintf(stderr, "D3D9: patchPixelShaderInputStruct total varyings=%d sourceLen=%zu\n", varCount, source ? strlen(source) : 0);
+	fprintf(stderr, "D3D9: patchPixelShaderInputStruct total varyings=%d sourceLen=%u\n", varCount, (unsigned int)(source ? strlen(source) : 0));
 	if (varCount == 0) {
 		return NULL;
 	}
@@ -6342,7 +6342,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 	}
 
 	// Build a replacement struct with ALL fields
-	char newStruct[512] = "struct PS_INPUT\n{\n";
+	char newStruct[2048] = "struct PS_INPUT\n{\n";
 	size_t nsOff = strlen(newStruct);
 	int nextSlot = 0;
 
@@ -6437,8 +6437,8 @@ static char* patchPixelShaderInputStruct(const char* source) {
 		memcpy(result, source, beforeLen);
 		memcpy(result + beforeLen, newStruct, newStructLen);
 		memcpy(result + beforeLen + newStructLen, source + structEndOff, afterLen + 1);
-		fprintf(stderr, "D3D9: patchPixelShaderInputStruct replaced PS_INPUT (%zu -> %zu bytes)\n",
-				structEndOff - structStartOff, newStructLen);
+		fprintf(stderr, "D3D9: patchPixelShaderInputStruct replaced PS_INPUT (%u -> %u bytes)\n",
+				(unsigned int)(structEndOff - structStartOff), (unsigned int)newStructLen);
 		return result;
 	}
 
@@ -6455,7 +6455,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 	memcpy(result, source, beforeMain);
 	memcpy(result + beforeMain, newStruct, newStructLen);
 	memcpy(result + beforeMain + newStructLen, mainPos, sourceLen - beforeMain + 1);
-	fprintf(stderr, "D3D9: patchPixelShaderInputStruct created PS_INPUT (%zu bytes)\n", newStructLen);
+	fprintf(stderr, "D3D9: patchPixelShaderInputStruct created PS_INPUT (%u bytes)\n", (unsigned int)newStructLen);
 	return result;
 }
 
@@ -6572,7 +6572,7 @@ static char* patchPixelShaderPrologue(const char* source) {
 	}
 
 	// Determine which are missing from the prologue
-	char additions[384] = "";
+	char additions[2048] = "";
 	size_t addLen = 0;
 
 	for (int i = 0; i < varCount; i++) {
@@ -6650,7 +6650,7 @@ static char* patchPixelShaderPrologue(const char* source) {
 	memcpy(result, source, insertOff);
 	memcpy(result + insertOff, additions, addLen);
 	memcpy(result + insertOff + addLen, insertPos, sourceLen - insertOff + 1);
-	fprintf(stderr, "D3D9: patchPixelShaderPrologue added %zu bytes\n", addLen);
+	fprintf(stderr, "D3D9: patchPixelShaderPrologue added %u bytes\n", (unsigned int)addLen);
 	return result;
 }
 
