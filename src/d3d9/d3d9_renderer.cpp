@@ -5826,7 +5826,7 @@ static char* patchVertexShaderInputStruct(const char* source) {
 	size_t sourceLen = strlen(source);
 	size_t colourGrow = needsColorFix ? (9 - colourSemOldLen) : 0; // "TEXCOORD1" = 9 bytes
 	size_t totalSize = sourceLen + (attrInsert ? texcoordStaticLen : 0) + (needsTexcoord ? texcoordFieldLen : 0) + colourGrow + 1;
-	char* result = (char*)malloc(totalSize);
+	char* result = (char*)safeMalloc(totalSize);
 	if (!result) {
 		return NULL;
 	}
@@ -5940,13 +5940,13 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 				varCount++;
 			} else if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
 				size_t fnLen = varLen - 1;
-				char* fn = (char*)malloc(fnLen + 1);
+				char* fn = (char*)safeMalloc(fnLen + 1);
 				if (!fn) {
 					continue;
 				}
 				memcpy(fn, varStart + 1, fnLen);
 				fn[fnLen] = '\0';
-				char* sn = (char*)malloc(varLen + 1);
+				char* sn = (char*)safeMalloc(varLen + 1);
 				if (!sn) {
 					free(fn);
 					continue;
@@ -6110,7 +6110,7 @@ static char* patchVertexShaderForGenerateOutput(const char* source) {
 	size_t afterMainLen = strlen(mainStart);
 
 	size_t totalSize = beforeMainLen + funcSize + afterMainLen + 1;
-	char* patched = (char*)malloc(totalSize);
+	char* patched = (char*)safeMalloc(totalSize);
 	if (!patched) {
 		for (int i = 0; i < varCount; i++) {
 			free(vars[i].fieldName);
@@ -6204,7 +6204,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 			}
 			size_t varLen = (size_t)(p - varStart);
 			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
-				char* fn = (char*)malloc(varLen);
+				char* fn = (char*)safeMalloc(varLen);
 				if (!fn) {
 					continue;
 				}
@@ -6426,7 +6426,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 		size_t structEndOff = (size_t)(psEnd + 2 - source); // past "};"
 		size_t beforeLen = structStartOff;
 		size_t afterLen = sourceLen - structEndOff;
-		char* result = (char*)malloc(beforeLen + newStructLen + afterLen + 1);
+		char* result = (char*)safeMalloc(beforeLen + newStructLen + afterLen + 1);
 		if (!result) {
 			return NULL;
 		}
@@ -6444,7 +6444,7 @@ static char* patchPixelShaderInputStruct(const char* source) {
 		return NULL;
 	}
 	size_t beforeMain = (size_t)(mainPos - source);
-	char* result = (char*)malloc(sourceLen + newStructLen + 1);
+	char* result = (char*)safeMalloc(sourceLen + newStructLen + 1);
 	if (!result) {
 		return NULL;
 	}
@@ -6542,13 +6542,13 @@ static char* patchPixelShaderPrologue(const char* source) {
 			}
 			size_t varLen = (size_t)(p - varStart);
 			if (varLen > 3 && memcmp(varStart, "_v_", 3) == 0) {
-				char* fn = (char*)malloc(varLen + 1);
+				char* fn = (char*)safeMalloc(varLen + 1);
 				if (!fn) {
 					continue;
 				}
 				memcpy(fn, varStart, varLen);
 				fn[varLen] = '\0';
-				char* sn = (char*)malloc(varLen);
+				char* sn = (char*)safeMalloc(varLen);
 				if (!sn) {
 					free(fn);
 					continue;
@@ -6639,7 +6639,7 @@ static char* patchPixelShaderPrologue(const char* source) {
 
 	size_t sourceLen = strlen(source);
 	size_t insertOff = (size_t)(insertPos - source);
-	char* result = (char*)malloc(sourceLen + addLen + 1);
+	char* result = (char*)safeMalloc(sourceLen + addLen + 1);
 	if (!result) {
 		return NULL;
 	}
@@ -6697,7 +6697,7 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 	if (needsColourDecl && colourInsertPos) {
 		extra += colourDeclLen;
 	}
-	char* result = (char*)malloc(sourceLen - pixelOutputLen + extra + 1);
+	char* result = (char*)safeMalloc(sourceLen - pixelOutputLen + extra + 1);
 	if (!result) {
 		return NULL;
 	}
@@ -6760,7 +6760,7 @@ static char* patchFragmentShaderForGenerateOutput(const char* source) {
 			size_t before = (size_t)(dp - result);
 			size_t afterLen = strlen(dp + discardLen);
 			size_t newSize = before + waLen + afterLen + 1;
-			char* newResult = (char*)malloc(newSize);
+			char* newResult = (char*)safeMalloc(newSize);
 			if (newResult) {
 				memcpy(newResult, result, before);
 				memcpy(newResult + before, workaround, waLen);
@@ -6858,7 +6858,7 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 			const char* uniformLine = "uniform float4 dx_WorldOffset : register(c23);\n";
 			size_t uniformLen = strlen(uniformLine);
 			size_t newLen = uniformLen + oldLen - oldPatLen + newPatLen;
-			char* newSrc = (char*)malloc(newLen + 1);
+			char* newSrc = (char*)safeMalloc(newLen + 1);
 			if (newSrc) {
 				char* dp = newSrc;
 				memcpy(dp, uniformLine, uniformLen);
