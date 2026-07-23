@@ -43,7 +43,7 @@ static char* formatStackContents(VMContext* ctx) {
 
 // Returns the native byte size of a GML data type on the runner's stack.
 // The Dup instruction (and several BC17+ BREAK sub-opcodes) encode byte counts, not slot counts.
-static int gmlTypeNativeSize(uint8_t gmlType) {
+static inline int gmlTypeNativeSize(uint8_t gmlType) {
     switch (gmlType) {
         case GML_TYPE_DOUBLE:   return 8;
         case GML_TYPE_FLOAT:    return 4;
@@ -57,7 +57,7 @@ static int gmlTypeNativeSize(uint8_t gmlType) {
     }
 }
 
-static void stackPush(VMContext* ctx, RValue val) {
+static inline void stackPush(VMContext* ctx, RValue val) {
     require(VM_STACK_SIZE > ctx->stack.top);
 #ifdef ENABLE_VM_TRACING
     if (shouldTraceStack(ctx)) {
@@ -73,12 +73,12 @@ static void stackPush(VMContext* ctx, RValue val) {
     ctx->stack.slots[ctx->stack.top++] = val;
 }
 
-static void stackPushTyped(VMContext* ctx, RValue val, uint8_t gmlStackType) {
+static inline void stackPushTyped(VMContext* ctx, RValue val, uint8_t gmlStackType) {
     val.gmlStackType = gmlStackType;
     stackPush(ctx, val);
 }
 
-static RValue stackPop(VMContext* ctx) {
+static inline RValue stackPop(VMContext* ctx) {
     require(ctx->stack.top > 0);
     RValue val = ctx->stack.slots[--ctx->stack.top];
 #ifdef ENABLE_VM_TRACING
@@ -94,7 +94,7 @@ static RValue stackPop(VMContext* ctx) {
 }
 
 // Helper function that calls stackPop and returns the result as an int32_t
-static int32_t stackPopInt32(VMContext* ctx) {
+static inline int32_t stackPopInt32(VMContext* ctx) {
     RValue rvalue = stackPop(ctx);
     int32_t value = RValue_toInt32(rvalue);
     RValue_free(&rvalue);
@@ -112,36 +112,36 @@ static RValue* stackPeek(VMContext* ctx) {
 
 // ===[ Instruction Decoding ]===
 
-static uint8_t instrOpcode(uint32_t instr) {
+static inline uint8_t instrOpcode(uint32_t instr) {
     return (instr >> 24) & 0xFF;
 }
 
-static uint8_t instrType1(uint32_t instr) {
+static inline uint8_t instrType1(uint32_t instr) {
     return (instr >> 16) & 0xF;
 }
 
-static uint8_t instrType2(uint32_t instr) {
+static inline uint8_t instrType2(uint32_t instr) {
     return (instr >> 20) & 0xF;
 }
 
-static int16_t instrInstanceType(uint32_t instr) {
+static inline int16_t instrInstanceType(uint32_t instr) {
     return (int16_t) (instr & 0xFFFF);
 }
 
-static uint8_t instrCmpKind(uint32_t instr) {
+static inline uint8_t instrCmpKind(uint32_t instr) {
     return (instr >> 8) & 0xFF;
 }
 
-static bool instrHasExtraData(uint32_t instr) {
+static inline bool instrHasExtraData(uint32_t instr) {
     return (instr & 0x40000000) != 0;
 }
 
 // Jump offset for branch instructions: sign-extend 23 bits, multiply by 4
-static int32_t instrJumpOffset(uint32_t instr) {
+static inline int32_t instrJumpOffset(uint32_t instr) {
     return ((int32_t) (instr << 9)) >> 7;
 }
 
-static uint32_t extraDataSize(uint8_t type1) {
+static inline uint32_t extraDataSize(uint8_t type1) {
     switch (type1) {
         case GML_TYPE_DOUBLE: return 8;
         case GML_TYPE_INT64:  return 8;
@@ -218,12 +218,12 @@ static void patchReferenceOperands(VMContext* ctx) {
 }
 
 // Resolve a variable operand: returns upper bits | varIndex (read directly from patched bytecode)
-static uint32_t resolveVarOperand(const uint8_t* extraData) {
+static inline uint32_t resolveVarOperand(const uint8_t* extraData) {
     return BinaryUtils_readUint32Aligned(extraData);
 }
 
 // Resolve a function operand: returns funcIndex (read directly from patched bytecode)
-static uint32_t resolveFuncOperand(const uint8_t* extraData) {
+static inline uint32_t resolveFuncOperand(const uint8_t* extraData) {
     return BinaryUtils_readUint32Aligned(extraData);
 }
 
