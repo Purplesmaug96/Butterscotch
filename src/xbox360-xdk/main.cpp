@@ -796,7 +796,7 @@ static void diagOverlayDraw(Runner* runner, Renderer* renderer, int32_t frameW, 
 	float y = y0 + 12.0f;
 	diagOverlayDrawLine("Butterscotch Debug Overlay (LB+RB)", &y, 0.42f, 1.0f, 0.90f, 0.45f, 1.0f);
 
-	_snprintf(line, sizeof(line) - 1, "FPS: %.1f  dt: %.2fms  steps: %d  speed: %u", gDiagOverlayFps, gDiagOverlayDtMs, gDiagOverlaySteps, roomSpeed);
+	_snprintf(line, sizeof(line) - 1, "FPS: %.1f  dt: %.2fms  steps: %d  speed: %u debug: %s", gDiagOverlayFps, gDiagOverlayDtMs, gDiagOverlaySteps, roomSpeed, debugMode ? "ON" : "OFF");
 	line[sizeof(line) - 1] = '\0';
 	diagOverlayDrawLine(line, &y, 0.36f, 1.0f, 1.0f, 1.0f, 0.95f);
 
