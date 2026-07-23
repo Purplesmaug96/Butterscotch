@@ -21,7 +21,32 @@
 
 // According to ai 1900 is the magic number
 #if (defined(_MSC_VER) && _MSC_VER < 1900)
-#define snprintf _snprintf
+#include <stdarg.h>
+#include <stdio.h>
+static inline int snprintfFunction(char* dst, size_t n, const char* fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+
+	va_list va2;
+	va_start(va2, fmt);
+    int formatted_len = _vscprintf(fmt, va2);
+	va_end(va2);
+
+    if (dst != NULL && n > 0) {
+        int ret = _vsnprintf(dst, n, fmt, va);
+
+        // _vsnprintf returns -1 or n when output is truncated,
+        // so we must manually force null-termination on the last character.
+        if (ret < 0 || (size_t)ret >= n) {
+            dst[n - 1] = '\0';
+        }
+    }
+
+    va_end(va);
+
+    return formatted_len;
+}
+#define snprintf(dst, size, fmt, ...) snprintfFunction(dst, size, fmt, __VA_ARGS__)
 #endif
 
 #if (defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)) || defined(__BIG_ENDIAN__)
