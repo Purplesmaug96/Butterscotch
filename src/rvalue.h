@@ -404,21 +404,26 @@ static inline char* RValue_toStringTyped(RValue val) {
 }
 
 static inline void RValue_free(RValue* val) {
-    if (!val->ownsReference)
-        return;
+    if (!val->ownsReference) return;
+
     if (val->type == RVALUE_STRING && val->string != nullptr) {
         free((void*) val->string);
-    } else if (val->type == RVALUE_ARRAY && val->array != nullptr) {
+		val->string = nullptr;
+	} else if (val->type == RVALUE_ARRAY && val->array != nullptr) {
         GMLArray_decRef(val->array);
+		val->array = nullptr;
 #if IS_WAD17_OR_HIGHER_ENABLED
     } else if (val->type == RVALUE_METHOD && val->method != nullptr) {
         GMLMethod_decRef(val->method);
+		val->method = nullptr;
 #endif
     } else if (val->type == RVALUE_STRUCT && val->structInst != nullptr) {
         Instance_structDecRef(val->structInst);
+		val->structInst = nullptr;
     } else {
         return;
     }
+
     val->ownsReference = false;
 }
 
