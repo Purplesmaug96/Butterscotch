@@ -10,7 +10,7 @@
 #include "matrix_math.h"
 #include "utils.h"
 
-#include <stdio.h>
+#include "stdio_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include "math_compat.h"
@@ -7171,7 +7171,7 @@ static RValue builtin_file_text_close(VMContext* ctx, RValue* args, int32_t argC
     free(file->content);
     free(file->writeBuffer);
     free(file->filePath);
-	ZERO_STRUCT(*file);
+    ZERO_STRUCT(*file);
     return RValue_makeUndefined();
 }
 

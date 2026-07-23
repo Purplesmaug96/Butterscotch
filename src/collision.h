@@ -35,10 +35,12 @@ static inline Sprite* Collision_getSprite(DataWin* dataWin, Instance* inst) {
 
 // Computes the axis-aligned bounding box for an instance using its collision sprite
 static inline InstanceBBox Collision_computeBBox(Runner* runner, Instance* inst) {
+    InstanceBBox ret;
     Sprite* spr = Collision_getSprite(runner->dataWin, inst);
-	InstanceBBox returnInstanceBBox;
-	ZERO_STRUCT(returnInstanceBBox);
-    if (spr == nullptr) return returnInstanceBBox;
+    if (spr == nullptr) {
+        ZERO_STRUCT(ret);
+        return ret;
+    }
 
     GMLReal marginL = (spr->bboxMode == 1) ? 0.0 : (GMLReal) spr->marginLeft;
     GMLReal marginR = (spr->bboxMode == 1) ? (GMLReal) spr->width : (GMLReal) (spr->marginRight + 1);
@@ -98,12 +100,12 @@ static inline InstanceBBox Collision_computeBBox(Runner* runner, Instance* inst)
         bottom = GMLReal_bankersRound(bottom);
     }
 
-	returnInstanceBBox.left = left;
-	returnInstanceBBox.right = right;
-	returnInstanceBBox.top = top;
-	returnInstanceBBox.bottom = bottom;
-	returnInstanceBBox.valid = true;
-    return returnInstanceBBox;
+    ret.left = left;
+    ret.right = right;
+    ret.top = top;
+    ret.bottom = bottom;
+    ret.valid = true;
+    return ret;
 }
 
 static inline bool Collision_hasFrameMasks(Sprite* sprite) {

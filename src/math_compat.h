@@ -106,15 +106,6 @@ static float roundf(float x) {
 
 #endif
 
-#ifndef INFINITY
-#ifdef PLATFORM_XBOX360_XDK
-#include <float.h>
-#define INFINITY (FLT_MAX + FLT_MAX)
-#else
-#define INFINITY (1.0f / 0.0f)
-#endif
-#endif
-
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -125,9 +116,6 @@ static float roundf(float x) {
 
 #define round(x) ((x) >= 0.0 ? floor((x) + 0.5) : ceil((x) - 0.5))
 #define roundf(x) ((x) >= 0.0f ? floorf((x) + 0.5f) : ceilf((x) - 0.5f))
-
-#define isnan(x) _isnan((double)(x))
-#define isinf(x) (!_finite((double)(x)) && !_isnan((double)(x)))
 
 #define fmax(x, y) (x > y ? x : y)
 #define fmin(x, y) (x < y ? x : y)

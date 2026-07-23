@@ -8,7 +8,7 @@
 #include "collision.h"
 
 #include <stdint.h>
-#include <stdio.h>
+#include "stdio_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include "math_compat.h"
@@ -1918,7 +1918,7 @@ static void cleanupState(Runner* runner) {
             free(file->content);
             free(file->writeBuffer);
             free(file->filePath);
-			ZERO_STRUCT(*file);
+            ZERO_STRUCT(*file);
         }
     }
 

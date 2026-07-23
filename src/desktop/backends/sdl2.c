@@ -1,5 +1,5 @@
 #include <ctype.h>
-#include <stdio.h>
+#include "stdio_compat.h"
 
 #define SDL_VIDEO_DRIVER_WAYLAND
 #include <SDL2/SDL.h>

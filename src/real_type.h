@@ -6,7 +6,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "math_compat.h"
+#ifndef INFINITY
+#define INFINITY ((float)1e39)
+#endif
+
+#ifdef NO_ISNAN
+#define isnan(x) (x != x)
+#endif
+#ifdef NO_ISINF
+#define isinf(x) ((x) == INFINITY || (x) == -INFINITY)
+#endif
 
 #ifdef USE_FLOAT_REALS
 
