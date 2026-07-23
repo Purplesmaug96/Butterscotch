@@ -37,6 +37,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	if(WERROR)
 		add_compile_options(/WX)
 	endif()
+	add_compile_options(-DNO_ISNAN -DNO_ISINF)
 	# Unreachable code
 	add_link_options(/ignore:4702)
 else()
@@ -162,8 +163,6 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	target_include_directories(butterscotch PRIVATE vendor/bzip2 vendor/Atg/include)
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
-	# Optional LTO toggle for Xenon/xbox360-xdk.
-	# Default: ON (do not strip /LTCG), so toolchain can apply link-time optimization.
 	option(XENON_ENABLE_LTO "Enable link-time optimization (/LTCG) for Xbox 360 Xenon builds" ON)
 	if(NOT XENON_ENABLE_LTO)
 		string(REPLACE "/LTCG" "" CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
