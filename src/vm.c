@@ -1281,7 +1281,7 @@ static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraD
     stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
 }
 
-MAYBE_UNUSED static void handlePushI(VMContext* ctx, uint32_t instr) {
+static inline void handlePushI(VMContext* ctx, uint32_t instr) {
     int16_t value = (int16_t) (instr & 0xFFFF);
     RValue val = RValue_makeInt32((int32_t) value);
     stackPushTyped(ctx, val, GML_TYPE_INT16);
@@ -2978,8 +2978,7 @@ static RValue executeLoop(VMContext* ctx) {
                 handlePushBltn(ctx, instr, extraData);
                 break;
             case OP_PUSHI: {
-                int16_t pushIValue = (int16_t) (instr & 0xFFFF);
-                stackPushTyped(ctx, RValue_makeInt32((int32_t) pushIValue), GML_TYPE_INT16);
+                handlePushI(ctx, instr);
                 break;
             }
 
@@ -3011,8 +3010,8 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_ADD: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
-                uint8_t aType = slotA->type;
-                uint8_t bType = slotB->type;
+                const uint8_t aType = slotA->type;
+                const uint8_t bType = slotB->type;
                 if ((aType == RVALUE_INT32 || aType == RVALUE_REAL) && (bType == RVALUE_INT32 || bType == RVALUE_REAL)) {
                     if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                         slotA->int32 = slotA->int32 + slotB->int32;
@@ -3050,8 +3049,8 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_SUB: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
-                uint8_t aType = slotA->type;
-                uint8_t bType = slotB->type;
+                const uint8_t aType = slotA->type;
+                const uint8_t bType = slotB->type;
                 if ((aType == RVALUE_INT32 || aType == RVALUE_REAL) && (bType == RVALUE_INT32 || bType == RVALUE_REAL)) {
                     if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                         slotA->int32 = slotA->int32 - slotB->int32;
@@ -3083,8 +3082,8 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_MUL: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
-                uint8_t aType = slotA->type;
-                uint8_t bType = slotB->type;
+                const uint8_t aType = slotA->type;
+                const uint8_t bType = slotB->type;
                 if ((aType == RVALUE_INT32 || aType == RVALUE_REAL) && (bType == RVALUE_INT32 || bType == RVALUE_REAL)) {
                     if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                         slotA->int32 = slotA->int32 * slotB->int32;
@@ -3198,8 +3197,8 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_CMP: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
-                uint8_t aType = slotA->type;
-                uint8_t bType = slotB->type;
+                const uint8_t aType = slotA->type;
+                const uint8_t bType = slotB->type;
 
                 // Inline fast path for INT32/INT32
                 if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
