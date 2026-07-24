@@ -1463,8 +1463,6 @@ int main(int argc, char* argv[]) {
         hmputs(previousSignalActions, p2);
 #endif
 
-		return 0;
-
         // Initialize the first room and fire Game Start / Room Start events
         Runner_initFirstRoom(runner);
 
