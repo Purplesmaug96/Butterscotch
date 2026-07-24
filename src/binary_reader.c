@@ -26,10 +26,10 @@ void BinaryReader_clearBuffer(BinaryReader* reader) {
     reader->bufferPos = 0;
 }
 
-static void readCheck(BinaryReader* reader, void* dest, size_t bytes) {
+static void readCheck(BinaryReader* reader, void* dest, const size_t bytes) {
     if (reader->buffer != nullptr) {
         if (reader->bufferPos + bytes > reader->bufferSize) {
-            size_t absPos = reader->bufferBase + reader->bufferPos;
+            const size_t absPos = reader->bufferBase + reader->bufferPos;
             fprintf(stderr, "BinaryReader: buffer read error at position 0x%zX (requested %zu bytes, buffer has %zu remaining)\n", absPos, bytes, reader->bufferSize - reader->bufferPos);
             abort();
         }
@@ -38,9 +38,9 @@ static void readCheck(BinaryReader* reader, void* dest, size_t bytes) {
         return;
     }
 
-    size_t read = fread(dest, 1, bytes, reader->file);
+    const size_t read = fread(dest, 1, bytes, reader->file);
     if (read != bytes) {
-        long pos = ftell(reader->file) - (long) read;
+        const long pos = ftell(reader->file) - (long) read;
         fprintf(stderr, "BinaryReader: read error at position 0x%lX (requested %zu bytes, got %zu, file size 0x%zX)\n", pos, bytes, read, reader->fileSize);
         abort();
     }
