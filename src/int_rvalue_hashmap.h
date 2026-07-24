@@ -32,11 +32,11 @@ typedef struct {
 void IntRValueHashMap_freeAllValues(IntRValueHashMap* map);
 
 // Returns a pointer to the value slot for key, or nullptr if absent. The pointer is valid until the next mutation of the map.
-static inline RValue* IntRValueHashMap_findSlot(IntRValueHashMap* map, int32_t key) {
+static inline RValue* IntRValueHashMap_findSlot(const IntRValueHashMap* map, const int32_t key) {
     if (map->capacity == 0) return nullptr;
     uint32_t idx = ((uint32_t) key * 0x9E3779B9u) & map->mask;
     while (true) {
-        int32_t slotKey = map->entries[idx].key;
+        const int32_t slotKey = map->entries[idx].key;
         if (slotKey == key) return &map->entries[idx].value;
         if (slotKey == INT_RVALUE_HASHMAP_EMPTY_KEY) return nullptr;
         idx = (idx + 1) & map->mask;

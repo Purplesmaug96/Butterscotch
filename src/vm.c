@@ -500,12 +500,12 @@ Instance* VM_findInstanceByTarget(VMContext* ctx, int32_t target) {
 // Inline read of a non-array, non-builtin variable from a simple scope.
 // Returns false when the instanceType isn't covered or the scope's instance pointer is unavailable, so the caller can fall through to the full resolveVariableRead.
 // Used by the OP_PUSH/PUSHLOC/PUSHGLB fast paths in executeLoop to skip the entire resolveVariableRead dispatch overhead.
-static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable* varDef, RValue* out) {
+static inline bool tryFastVarRead(VMContext* ctx, const int32_t instanceType, const Variable* varDef, RValue* out) {
     switch (instanceType) {
         case INSTANCE_SELF: {
-            Instance* inst = (Instance*) ctx->currentInstance;
+            const Instance* inst = (Instance*) ctx->currentInstance;
             if (inst == nullptr) return false;
-            RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
+            const RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
             if (slot == nullptr)
                 return false;
             *out = *slot;
@@ -513,15 +513,15 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
             return true;
         }
         case INSTANCE_LOCAL: {
-            uint32_t localSlot = resolveLocalSlot(ctx, varDef->varID);
+            const uint32_t localSlot = resolveLocalSlot(ctx, varDef->varID);
             require(ctx->localVarCount > localSlot);
             *out = ctx->localVars[localSlot];
             out->ownsReference = false;
             return true;
         }
         case INSTANCE_GLOBAL: {
-            Instance* inst = (Instance*) ctx->globalScopeInstance;
-            RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
+            const Instance* inst = (Instance*) ctx->globalScopeInstance;
+            const RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
             if (slot == nullptr)
                 return false;
             *out = *slot;
@@ -529,9 +529,9 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
             return true;
         }
         case INSTANCE_OTHER: {
-            Instance* inst = (Instance*) ctx->otherInstance;
+            const Instance* inst = (Instance*) ctx->otherInstance;
             if (inst == nullptr) return false;
-            RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
+            const RValue* slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
             if (slot == nullptr)
                 return false;
             *out = *slot;
@@ -2802,7 +2802,7 @@ static RValue executeLoop(VMContext* ctx) {
             }
 
             // We DO NOT want to pop the handler, it will be popped by @@try_unhook@@
-            bool isException = exceptionHandlerFrame->jumpToOnException != -1;
+            const bool isException = exceptionHandlerFrame->jumpToOnException != -1;
             ip = isException ? exceptionHandlerFrame->jumpToOnException : exceptionHandlerFrame->jumpToOnSuccess;
             unwindVMStack(ctx, exceptionHandlerFrame->stackTop);
 
@@ -2903,15 +2903,15 @@ static RValue executeLoop(VMContext* ctx) {
         switch (opcode) {
             // Push instructions
             case OP_PUSH: {
-                uint8_t type1 = instrType1(instr);
+                const uint8_t type1 = instrType1(instr);
                 // Inline fast paths for variable reads (not ints, doubles, etc, only VARIABLES) that are "normal" type (not arrays, not stacktop, and not the new fangled BC17 array reads)
                 if (type1 == GML_TYPE_VARIABLE) {
-                    uint32_t varRef = resolveVarOperand(extraData);
-                    uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
+                    const uint32_t varRef = resolveVarOperand(extraData);
+                    const uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
                     if (varType == VARTYPE_NORMAL) {
                         Variable* varDef = resolveVarDef(ctx, varRef);
                         if (varDef->varID >= 0) {
-                            int32_t instanceType = (int32_t) instrInstanceType(instr);
+                            const int32_t instanceType = (int32_t) instrInstanceType(instr);
                             RValue val;
                             if (tryFastVarRead(ctx, instanceType, varDef, &val)) {
                                 stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
@@ -2944,7 +2944,7 @@ static RValue executeLoop(VMContext* ctx) {
                 break;
             }
             case OP_PUSHLOC: {
-                uint32_t varRef = resolveVarOperand(extraData);
+                const uint32_t varRef = resolveVarOperand(extraData);
 #if IS_WAD17_OR_HIGHER_ENABLED
                 uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
                 if (varType == VARTYPE_ARRAYPUSHAF || varType == VARTYPE_ARRAYPOPAF) {
@@ -2956,8 +2956,8 @@ static RValue executeLoop(VMContext* ctx) {
                 }
 #endif
                 // Locals are always non-builtin (varID >= 0); inline the read straight from localVars[].
-                Variable* varDef = resolveVarDef(ctx, varRef);
-                uint32_t localSlot = resolveLocalSlot(ctx, varDef->varID);
+                const Variable* varDef = resolveVarDef(ctx, varRef);
+                const uint32_t localSlot = resolveLocalSlot(ctx, varDef->varID);
                 require(ctx->localVarCount > localSlot);
                 RValue val = ctx->localVars[localSlot];
                 val.ownsReference = false;
@@ -2968,9 +2968,9 @@ static RValue executeLoop(VMContext* ctx) {
                 break;
             }
             case OP_PUSHGLB: {
-                uint32_t varRef = resolveVarOperand(extraData);
+                const uint32_t varRef = resolveVarOperand(extraData);
                 // TODO: Re-add fast-path here!
-                RValue val = resolveVariableRead(ctx, INSTANCE_GLOBAL, varRef);
+                const RValue val = resolveVariableRead(ctx, INSTANCE_GLOBAL, varRef);
                 stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
                 break;
             }
@@ -2984,13 +2984,13 @@ static RValue executeLoop(VMContext* ctx) {
 
             // Pop instructions
             case OP_POP: {
-                uint8_t type1 = instrType1(instr);
-                uint32_t varRef = resolveVarOperand(extraData);
-                uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
+                const uint8_t type1 = instrType1(instr);
+                const uint32_t varRef = resolveVarOperand(extraData);
+                const uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
                 int32_t instanceType = instrInstanceType(instr);
                 // BC17: VARTYPE_INSTANCE encodes (instanceId - INSTANCE_ID_BASE) in the instruction's lower 16 bits.
                 if (varType == VARTYPE_INSTANCE) instanceType += INSTANCE_ID_BASE;
-                int32_t type2 = instrType2(instr); // source type (what's on stack)
+                const int32_t type2 = instrType2(instr); // source type (what's on stack)
                 if (type1 == GML_TYPE_VARIABLE && varType == VARTYPE_NORMAL) {
                     // Inline fast path for the simple variable-assignment case: type1==VARIABLE, which is ~99.998% of all Pops in real workloads
                     RValue val = stackPop(ctx);
@@ -3018,15 +3018,15 @@ static RValue executeLoop(VMContext* ctx) {
                     } else {
                         // Read both operands as locals before writing back, since the union means
                         // slotA->real and slotA->int32 share storage.
-                        GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
-                        GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
+                        const GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
+                        const GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
                         slotA->real = aVal + bVal;
                         slotA->type = RVALUE_REAL;
                     }
                     slotA->gmlStackType = instrType2(instr);
                     ctx->stack.top--;
                 } else {
-                    uint8_t resultType = instrType2(instr);
+                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
                     if (a.type == RVALUE_STRING || b.type == RVALUE_STRING) {
@@ -3039,7 +3039,7 @@ static RValue executeLoop(VMContext* ctx) {
                         break;
                     }
 #endif
-                    GMLReal result = RValue_toReal(a) + RValue_toReal(b);
+                    const GMLReal result = RValue_toReal(a) + RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
                     stackPushTyped(ctx, RValue_makeReal(result), resultType);
@@ -3055,15 +3055,15 @@ static RValue executeLoop(VMContext* ctx) {
                     if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                         slotA->int32 = slotA->int32 - slotB->int32;
                     } else {
-                        GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
-                        GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
+                        const GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
+                        const GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
                         slotA->real = aVal - bVal;
                         slotA->type = RVALUE_REAL;
                     }
                     slotA->gmlStackType = instrType2(instr);
                     ctx->stack.top--;
                 } else {
-                    uint8_t resultType = instrType2(instr);
+                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
 #ifndef NO_RVALUE_INT64
@@ -3072,7 +3072,7 @@ static RValue executeLoop(VMContext* ctx) {
                         break;
                     }
 #endif
-                    GMLReal result = RValue_toReal(a) - RValue_toReal(b);
+                    const GMLReal result = RValue_toReal(a) - RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
                     stackPushTyped(ctx, RValue_makeReal(result), resultType);
@@ -3088,15 +3088,15 @@ static RValue executeLoop(VMContext* ctx) {
                     if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
                         slotA->int32 = slotA->int32 * slotB->int32;
                     } else {
-                        GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
-                        GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
+                        const GMLReal aVal = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
+                        const GMLReal bVal = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
                         slotA->real = aVal * bVal;
                         slotA->type = RVALUE_REAL;
                     }
                     slotA->gmlStackType = instrType2(instr);
                     ctx->stack.top--;
                 } else {
-                    uint8_t resultType = instrType2(instr);
+                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
                     if (a.type == RVALUE_STRING) {
@@ -3109,7 +3109,7 @@ static RValue executeLoop(VMContext* ctx) {
                         break;
                     }
 #endif
-                    GMLReal result = RValue_toReal(a) * RValue_toReal(b);
+                    const GMLReal result = RValue_toReal(a) * RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
                     stackPushTyped(ctx, RValue_makeReal(result), resultType);
@@ -3133,9 +3133,9 @@ static RValue executeLoop(VMContext* ctx) {
 
             // Type conversion
             case OP_CONV: {
-                uint8_t srcType = instrType1(instr);
-                uint8_t dstType = instrType2(instr);
-                uint8_t convKey = (uint8_t) ((dstType << 4) | srcType);
+                const uint8_t srcType = instrType1(instr);
+                const uint8_t dstType = instrType2(instr);
+                const uint8_t convKey = (uint8_t) ((dstType << 4) | srcType);
                 RValue* top = &ctx->stack.slots[ctx->stack.top - 1];
                 bool fastHit = false;
 
@@ -3202,8 +3202,8 @@ static RValue executeLoop(VMContext* ctx) {
 
                 // Inline fast path for INT32/INT32
                 if (aType == RVALUE_INT32 && bType == RVALUE_INT32) {
-                    int32_t a = slotA->int32;
-                    int32_t b = slotB->int32;
+                    const int32_t a = slotA->int32;
+                    const int32_t b = slotB->int32;
                     bool result;
                     switch (instrCmpKind(instr)) {
                         case CMP_LT:  result = b > a;  break;
@@ -3220,10 +3220,10 @@ static RValue executeLoop(VMContext* ctx) {
                     ctx->stack.top--;
                 } else if ((aType == RVALUE_REAL || aType == RVALUE_INT32) &&
                            (bType == RVALUE_REAL || bType == RVALUE_INT32)) {
-                    GMLReal a = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
-                    GMLReal b = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
-                    GMLReal diff = a - b;
-                    int cmp = GMLReal_fabs(diff) <= GML_MATH_EPSILON ? 0 : (diff < 0 ? -1 : 1);
+                    const GMLReal a = (aType == RVALUE_INT32) ? (GMLReal) slotA->int32 : slotA->real;
+                    const GMLReal b = (bType == RVALUE_INT32) ? (GMLReal) slotB->int32 : slotB->real;
+                    const GMLReal diff = a - b;
+                    const int cmp = GMLReal_fabs(diff) <= GML_MATH_EPSILON ? 0 : (diff < 0 ? -1 : 1);
                     bool result;
                     switch (instrCmpKind(instr)) {
                         case CMP_LT:  result = cmp < 0;  break;
@@ -3253,22 +3253,22 @@ static RValue executeLoop(VMContext* ctx) {
             // The reason why these (the branches opcodes) are inlined is because they access ctx->ip
             // So, because they are short n' sweet, we prefer to keep them inlined to avoid any reloading shenanigans that the compiler may do
             case OP_B: {
-                int32_t offset = instrJumpOffset(instr);
+                const int32_t offset = instrJumpOffset(instr);
                 ip = instrAddr + offset;
                 break;
             }
             case OP_BT: {
-                bool condition = stackPopInt32(ctx) != 0;
+                const bool condition = stackPopInt32(ctx) != 0;
                 if (condition == true) {
-                    int32_t offset = instrJumpOffset(instr);
+                    const int32_t offset = instrJumpOffset(instr);
                     ip = instrAddr + offset;
                 }
                 break;
             }
             case OP_BF: {
-                bool condition = stackPopInt32(ctx) != 0;
+                const bool condition = stackPopInt32(ctx) != 0;
                 if (condition == false) {
-                    int32_t offset = instrJumpOffset(instr);
+                    const int32_t offset = instrJumpOffset(instr);
                     ip = instrAddr + offset;
                 }
                 break;
@@ -3287,10 +3287,8 @@ static RValue executeLoop(VMContext* ctx) {
 #endif
 
             // Return
-            case OP_RET: {
-                RValue retVal = stackPop(ctx);
-                return retVal;
-            }
+            case OP_RET:
+                return stackPop(ctx);
 
             // Exit (no return value)
             case OP_EXIT:
