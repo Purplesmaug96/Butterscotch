@@ -11,6 +11,14 @@
 #define COMPRESSED_QOI_HEADER_SIZE_OLD 8
 #define COMPRESSED_QOI_HEADER_SIZE_NEW 12
 
+#if defined(__GNUC__) || defined(__clang__)
+#define LIKELY(x)   __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#define LIKELY(x)   (x)
+#define UNLIKELY(x) (x)
+#endif
+
 // Sign-extend the low "bits" bits of "val" to an 8-bit two's-complement value.
 static inline uint8_t signExtend(uint32_t val, int bits) {
     uint32_t mask = 1U << (bits - 1);
@@ -18,21 +26,21 @@ static inline uint8_t signExtend(uint32_t val, int bits) {
 }
 
 // Decodes GameMaker's custom QOI format (ported from UndertaleModTool's QoiConverter).
-static uint8_t* decodeQoi(const uint8_t* data, size_t dataSize, int* outW, int* outH) {
-    if (QOI_HEADER_SIZE > dataSize) return nullptr;
-    if (data[0] != 'f' || data[1] != 'i' || data[2] != 'o' || data[3] != 'q') return nullptr;
+static uint8_t* decodeQoi(const uint8_t* restrict data, size_t dataSize, int* outW, int* outH) {
+    if (UNLIKELY(QOI_HEADER_SIZE > dataSize)) return nullptr;
+    if (UNLIKELY(data[0] != 'f' || data[1] != 'i' || data[2] != 'o' || data[3] != 'q')) return nullptr;
 
     int width = data[4] | (data[5] << 8);
     int height = data[6] | (data[7] << 8);
     uint32_t length = (uint32_t)data[8] | ((uint32_t)data[9] << 8) | ((uint32_t)data[10] << 16) | ((uint32_t)data[11] << 24);
 
-    if (QOI_HEADER_SIZE + (size_t) length > dataSize) return nullptr;
-    if (0 >= width || 0 >= height) return nullptr;
+    if (UNLIKELY(QOI_HEADER_SIZE + (size_t) length > dataSize)) return nullptr;
+    if (UNLIKELY(0 >= width || 0 >= height)) return nullptr;
 
-    const uint8_t* pixelData = data + QOI_HEADER_SIZE;
+    const uint8_t* restrict pixelData = data + QOI_HEADER_SIZE;
     size_t pixelDataSize = length;
     size_t rawSize = (size_t)width * (size_t)height * 4;
-    uint8_t* raw = (uint8_t*) malloc(rawSize);
+    uint8_t* restrict raw = (uint8_t*) malloc(rawSize);
     if (!raw) return nullptr;
 
     uint8_t index[64 * 4];
@@ -45,22 +53,22 @@ static uint8_t* decodeQoi(const uint8_t* data, size_t dataSize, int* outW, int* 
     for (size_t rawDataPos = 0; rawSize > rawDataPos; rawDataPos += 4) {
         if (run > 0) {
             run--;
-        } else if (pixelDataSize > pos) {
+        } else if (LIKELY(pixelDataSize > pos)) {
             uint8_t b1 = pixelData[pos++];
 
             if ((b1 & 0xC0) == 0x00) {
-                // QOI_INDEX
+				// QOI_INDEX
                 int indexPos = (b1 & 0x3F) << 2;
                 r = index[indexPos];
                 g = index[indexPos + 1];
                 b = index[indexPos + 2];
                 a = index[indexPos + 3];
             } else if ((b1 & 0xE0) == 0x40) {
-                // QOI_RUN_8
+				// QOI_RUN_8
                 run = b1 & 0x1F;
             } else if ((b1 & 0xE0) == 0x60) {
-                // QOI_RUN_16
-                if (pixelDataSize <= pos) { free(raw); return nullptr; }
+				// QOI_RUN_16
+                if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; }
                 uint8_t b2 = pixelData[pos++];
                 run = (((b1 & 0x1F) << 8) | b2) + 32;
             } else if ((b1 & 0xC0) == 0x80) {
@@ -69,16 +77,14 @@ static uint8_t* decodeQoi(const uint8_t* data, size_t dataSize, int* outW, int* 
                 g += signExtend((b1 >> 2) & 3, 2);
                 b += signExtend(b1 & 3, 2);
             } else if ((b1 & 0xE0) == 0xC0) {
-                // QOI_DIFF_16 (5-4-4 signed deltas on r,g,b)
-                if (pixelDataSize <= pos) { free(raw); return nullptr; }
+                if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; }
                 uint8_t b2 = pixelData[pos++];
                 uint32_t merged = ((uint32_t)b1 << 8) | b2;
                 r += signExtend((merged >> 8) & 0x1F, 5);
                 g += signExtend((merged >> 4) & 0x0F, 4);
                 b += signExtend(merged & 0x0F, 4);
             } else if ((b1 & 0xF0) == 0xE0) {
-                // QOI_DIFF_24 (5-5-5-5 signed deltas on r,g,b,a)
-                if (pixelDataSize <= pos + 1) { free(raw); return nullptr; }
+                if (UNLIKELY(pixelDataSize <= pos + 1)) { free(raw); return nullptr; }
                 uint8_t b2 = pixelData[pos++];
                 uint8_t b3 = pixelData[pos++];
                 uint32_t merged = ((uint32_t)b1 << 16) | ((uint32_t)b2 << 8) | b3;
@@ -87,11 +93,11 @@ static uint8_t* decodeQoi(const uint8_t* data, size_t dataSize, int* outW, int* 
                 b += signExtend((merged >> 5) & 0x1F, 5);
                 a += signExtend(merged & 0x1F, 5);
             } else if ((b1 & 0xF0) == 0xF0) {
-                // QOI_COLOR (per-channel raw bytes, only those with set bit flag)
-                if (b1 & 8) { if (pixelDataSize <= pos) { free(raw); return nullptr; } r = pixelData[pos++]; }
-                if (b1 & 4) { if (pixelDataSize <= pos) { free(raw); return nullptr; } g = pixelData[pos++]; }
-                if (b1 & 2) { if (pixelDataSize <= pos) { free(raw); return nullptr; } b = pixelData[pos++]; }
-                if (b1 & 1) { if (pixelDataSize <= pos) { free(raw); return nullptr; } a = pixelData[pos++]; }
+				// QOI_COLOR (per-channel raw bytes, only those with set bit flag)
+                if (b1 & 8) { if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; } r = pixelData[pos++]; }
+                if (b1 & 4) { if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; } g = pixelData[pos++]; }
+                if (b1 & 2) { if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; } b = pixelData[pos++]; }
+                if (b1 & 1) { if (UNLIKELY(pixelDataSize <= pos)) { free(raw); return nullptr; } a = pixelData[pos++]; }
             }
 
             int indexPos2 = ((r ^ g ^ b ^ a) & 63) << 2;
