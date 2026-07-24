@@ -14,17 +14,17 @@
 // Platform-agnostic text measurement and processing helpers.
 // Used by both the renderer (for drawing text) and the VM (for string_width/string_height).
 
-static inline FontGlyph* TextUtils_findGlyph(Font* font, uint16_t ch) {
+static inline FontGlyph* TextUtils_findGlyph(const Font* font, const uint16_t ch) {
     // Fast path: ASCII codepoints go through a direct LUT, skipping the linear scan.
     if (128 > ch) return font->glyphLUT[ch];
-    repeat(font->glyphCount, i) {
+    repeat((unsigned int)font->glyphCount, i) {
         if (font->glyphs[i].character == ch) return &font->glyphs[i];
     }
     return nullptr;
 }
 
-static inline float TextUtils_getKerningOffset(FontGlyph* glyph, uint16_t nextCh) {
-    repeat(glyph->kerningCount, k) {
+static inline float TextUtils_getKerningOffset(const FontGlyph* glyph, const uint16_t nextCh) {
+    repeat((unsigned short)glyph->kerningCount, k) {
         if (glyph->kerning[k].character == (int16_t) nextCh) {
             return glyph->kerning[k].shiftModifier;
         }
@@ -34,7 +34,7 @@ static inline float TextUtils_getKerningOffset(FontGlyph* glyph, uint16_t nextCh
 
 // Decodes a single UTF-8 codepoint from str at *pos, advances *pos past the consumed bytes.
 // Returns the codepoint as uint16_t (sufficient for BMP glyphs). Returns 0xFFFD for invalid sequences.
-static inline uint16_t TextUtils_decodeUtf8(const char* str, int32_t len, int32_t* pos) {
+static inline uint16_t TextUtils_decodeUtf8(const char* str, const int32_t len, int32_t* pos) {
     uint8_t b = (uint8_t) str[*pos];
     if (128 > b) {
         // ASCII (0xxxxxxx)
@@ -66,7 +66,7 @@ static inline uint16_t TextUtils_decodeUtf8(const char* str, int32_t len, int32_
     return 0xFFFD;
 }
 
-static inline int32_t TextUtils_utf8AdvanceCodepoints(const char* str, int32_t byteLen, int32_t codepointsToSkip) {
+static inline int32_t TextUtils_utf8AdvanceCodepoints(const char* str, const int32_t byteLen, int32_t codepointsToSkip) {
     int32_t pos = 0;
     while (pos < byteLen && codepointsToSkip > 0) {
         pos++;
@@ -78,7 +78,7 @@ static inline int32_t TextUtils_utf8AdvanceCodepoints(const char* str, int32_t b
     return pos;
 }
 
-static inline int32_t TextUtils_utf8CodepointCount(const char* str, int32_t byteLen) {
+static inline int32_t TextUtils_utf8CodepointCount(const char* str, const int32_t byteLen) {
     int32_t count = 0;
     for (int32_t i = 0; i < byteLen; i++) {
         if (((uint8_t)str[i] & 0xC0) != 0x80) {
@@ -88,7 +88,7 @@ static inline int32_t TextUtils_utf8CodepointCount(const char* str, int32_t byte
     return count;
 }
 
-static inline int32_t TextUtils_utf8EncodeCodepoint(uint32_t cp, char* out) {
+static inline int32_t TextUtils_utf8EncodeCodepoint(const uint32_t cp, char* out) {
     if (cp <= 0x7FU) {
         out[0] = (char) cp;
         return 1;
@@ -119,12 +119,12 @@ static inline int32_t TextUtils_utf8EncodeCodepoint(uint32_t cp, char* out) {
 //   which is `max_glyph_height * scaleY`. We apply scaleY via the transform matrix already,
 //   so we return the raw max glyph height here.
 // - Falls back to emSize only if the font has no glyphs recorded.
-static inline float TextUtils_lineStride(Font* font) {
+static inline float TextUtils_lineStride(const Font* font) {
     if (font->maxGlyphHeight > 0) return (float) font->maxGlyphHeight;
     return font->emSize;
 }
 
-static inline float TextUtils_measureLineWidth(Font* font, const char* line, int32_t len) {
+static inline float TextUtils_measureLineWidth(const Font* font, const char* line, const int32_t len) {
     float width = 0;
     int32_t pos = 0;
     uint16_t ch = 0;
@@ -135,7 +135,7 @@ static inline float TextUtils_measureLineWidth(Font* font, const char* line, int
     }
 
     while (hasCh) {
-        FontGlyph* glyph = TextUtils_findGlyph(font, ch);
+        const FontGlyph* glyph = TextUtils_findGlyph(font, ch);
 
         // Decode the next codepoint once - reused for kerning AND as next iteration's ch
         uint16_t nextCh = 0;
@@ -168,7 +168,7 @@ static inline void PreprocessedText_free(PreprocessedText pt) {
 // Uses a fused single-pass approach: scans for # and only allocates if one is found.
 static inline PreprocessedText TextUtils_preprocessGmlText(const char* text) {
     PreprocessedText ret = {0};
-    int32_t len = (int32_t) strlen(text);
+    const int32_t len = (int32_t) strlen(text);
 
     // Scan until we find a #
     for (int32_t i = 0; len > i; i++) {
@@ -211,7 +211,7 @@ static inline PreprocessedText TextUtils_preprocessGmlText(const char* text) {
 }
 
 // Preprocess GML text ONLY if the runner is not GameMaker: Studio 2
-static inline PreprocessedText TextUtils_preprocessGmlTextIfNeeded(Runner* runner, const char* text) {
+static inline PreprocessedText TextUtils_preprocessGmlTextIfNeeded(const Runner* runner, const char* text) {
     if (DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0)) {
         PreprocessedText ret = {0};
         ret.text = text;
@@ -222,17 +222,17 @@ static inline PreprocessedText TextUtils_preprocessGmlTextIfNeeded(Runner* runne
 }
 
 // Returns true if c is \r or \n
-static inline bool TextUtils_isNewlineChar(char c) {
+static inline bool TextUtils_isNewlineChar(const char c) {
     return c == '\n' || c == '\r';
 }
 
 // Returns true if c is ' ' or \t
-static inline bool TextUtils_isWhitespaceChar(char c) {
+static inline bool TextUtils_isWhitespaceChar(const char c) {
     return c == ' ' || c == '\t';
 }
 
 // Counts the number of lines in preprocessed text, treating \r\n and \n\r as single breaks
-static inline int32_t TextUtils_countLines(const char* text, int32_t len) {
+static inline int32_t TextUtils_countLines(const char* text, const int32_t len) {
     int32_t count = 1;
     for (int32_t i = 0; len > i; i++) {
         if (TextUtils_isNewlineChar(text[i])) {
@@ -247,7 +247,7 @@ static inline int32_t TextUtils_countLines(const char* text, int32_t len) {
 }
 
 // Advances lineStart past the newline at lineEnd, treating \r\n and \n\r as single breaks
-static inline int32_t TextUtils_skipNewline(const char* text, int32_t lineEnd, int32_t textLen) {
+static inline int32_t TextUtils_skipNewline(const char* text, const int32_t lineEnd, const int32_t textLen) {
     int32_t next = lineEnd + 1;
     if (textLen > next && TextUtils_isNewlineChar(text[next]) && text[lineEnd] != text[next]) {
         next++;
@@ -257,7 +257,7 @@ static inline int32_t TextUtils_skipNewline(const char* text, int32_t lineEnd, i
 
 // Port of yyFontManager.prototype.Split_TextBlock from GameMaker-HTML5 to C.
 // Pass "0 > maxWidth" to disable wrapping (returns the original pointer non-owning).
-static inline PreprocessedText TextUtils_wrapText(Font* font, const char* text, int32_t maxWidth) {
+static inline PreprocessedText TextUtils_wrapText(const Font* font, const char* text, const int32_t maxWidth) {
     PreprocessedText ret = {0};
     int32_t len = 0;
     if (text != nullptr)
@@ -269,7 +269,7 @@ static inline PreprocessedText TextUtils_wrapText(Font* font, const char* text, 
         return ret;
     }
 
-    int32_t linewidth = (0 > maxWidth) ? 10000000 : maxWidth; // means nothing will "wrap"
+    const int32_t linewidth = (0 > maxWidth) ? 10000000 : maxWidth; // means nothing will "wrap"
 
     // Worst case: each byte becomes itself plus a '\n' separator.
     char* out = (char *)safeMalloc((size_t) len * 2 + 1);
@@ -311,7 +311,7 @@ static inline PreprocessedText TextUtils_wrapText(Font* font, const char* text, 
             // Skip leading whitespace
             while (len > end && (float) linewidth > total) {
                 if (pNew[end] != ' ') break;
-                FontGlyph* spGlyph = TextUtils_findGlyph(font, (uint16_t) ' ');
+                const FontGlyph* spGlyph = TextUtils_findGlyph(font, (uint16_t) ' ');
                 total += (spGlyph != nullptr) ? (float) spGlyph->shift : 0.0f;
                 end++;
             }
@@ -320,10 +320,10 @@ static inline PreprocessedText TextUtils_wrapText(Font* font, const char* text, 
             while (len > end && (float) linewidth > total) {
                 if (pNew[end] == '\n') break; // if we hit a newline, then "break" here...
                 int32_t tentative = end;
-                uint16_t cp = TextUtils_decodeUtf8(pNew, len, &tentative); // advance `end` by one codepoint
-                FontGlyph* glyph = TextUtils_findGlyph(font, cp);
-                float size = (glyph != nullptr) ? (float) glyph->shift : 0.0f; // width of character
-                float newTotal = total + size;
+                const uint16_t cp = TextUtils_decodeUtf8(pNew, len, &tentative); // advance `end` by one codepoint
+                const FontGlyph* glyph = TextUtils_findGlyph(font, cp);
+                const float size = (glyph != nullptr) ? (float) glyph->shift : 0.0f; // width of character
+                const float newTotal = total + size;
                 // Won't fit, bail out!
                 if (newTotal > (float) linewidth) break;
                 // It fits :3
