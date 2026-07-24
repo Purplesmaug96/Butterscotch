@@ -23,6 +23,12 @@ else()
 	endif()
 endif()
 
+# You shouldnt do this!
+# If you are _really_ starved for performance, do it, but its only like a 10% increase.
+if(DISABLE_REQUIRE)
+	add_compile_definitions(DISABLE_REQUIRE)
+endif()
+
 set(PLATFORM "desktop" CACHE STRING "Platform backend")
 set(DESKTOP_BACKEND "" CACHE STRING "Desktop platform backend")
 set(AUDIO_BACKEND "" CACHE STRING "Audio backend")

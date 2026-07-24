@@ -42,6 +42,18 @@
 
 #define repeat(n, it) for (TYPEOF(n) it = 0; it < (n); ++it)
 
+#ifdef DISABLE_REQUIRE
+
+#define require(condition) ((void)0)
+#define requireMessage(condition, message) ((void)0)
+
+static inline void requireMessageFormatted(MAYBE_UNUSED const char *file, MAYBE_UNUSED int line, MAYBE_UNUSED bool condition, MAYBE_UNUSED const char *fmt, ...) {}
+
+#define requireNotNull(ptr) (ptr)
+#define requireNotNullMessage(ptr, msg) (ptr)
+
+#else
+
 #define require(condition) \
     do { \
         if (!(condition)) { \
@@ -77,8 +89,11 @@ static inline void* requireNotNullFunction(void* ptr, const char* file, int line
     }
     return ptr;
 }
+
 #define requireNotNull(ptr) requireNotNullFunction((void*)ptr, __FILE__, __LINE__, #ptr)
 #define requireNotNullMessage(ptr, msg) requireNotNullFunction((void*)ptr, __FILE__, __LINE__, msg)
+
+#endif
 
 // Safe allocation macros - check for nullptr and abort with file/line info
 static inline void *safeMallocFunction(size_t size, const char *file, int line) {
