@@ -26,7 +26,7 @@ void BinaryReader_clearBuffer(BinaryReader* reader) {
     reader->bufferPos = 0;
 }
 
-static void readCheck(BinaryReader* reader, void* dest, const size_t bytes) {
+void BinaryReader_readCheck(BinaryReader* reader, void* dest, const size_t bytes) {
     if (reader->buffer != nullptr) {
         if (reader->bufferPos + bytes > reader->bufferSize) {
             const size_t absPos = reader->bufferBase + reader->bufferPos;
@@ -46,63 +46,8 @@ static void readCheck(BinaryReader* reader, void* dest, const size_t bytes) {
     }
 }
 
-uint8_t BinaryReader_readUint8(BinaryReader* reader) {
-    uint8_t value;
-    readCheck(reader, &value, 1);
-    return value;
-}
-
-int16_t BinaryReader_readInt16(BinaryReader* reader) {
-    uint16_t value;
-    readCheck(reader, &value, sizeof(value));
-    return (int16_t) BinaryUtils_toLittle16(value);
-}
-
-uint16_t BinaryReader_readUint16(BinaryReader* reader) {
-    uint16_t value;
-    readCheck(reader, &value, sizeof(value));
-    return BinaryUtils_toLittle16(value);
-}
-
-int32_t BinaryReader_readInt32(BinaryReader* reader) {
-    uint32_t value;
-    readCheck(reader, &value, sizeof(value));
-    return (int32_t) BinaryUtils_toLittle32(value);
-}
-
-uint32_t BinaryReader_readUint32(BinaryReader* reader) {
-    uint32_t value;
-    readCheck(reader, &value, sizeof(value));
-    return BinaryUtils_toLittle32(value);
-}
-
-float BinaryReader_readFloat32(BinaryReader* reader) {
-    uint32_t bits;
-    float value;
-    readCheck(reader, &bits, sizeof(bits));
-    bits = BinaryUtils_toLittle32(bits);
-    memcpy(&value, &bits, sizeof(value));
-    return value;
-}
-
-uint64_t BinaryReader_readUint64(BinaryReader* reader) {
-    uint64_t value;
-    readCheck(reader, &value, sizeof(value));
-    return BinaryUtils_toLittle64(value);
-}
-
-int64_t BinaryReader_readInt64(BinaryReader* reader) {
-    uint64_t value;
-    readCheck(reader, &value, sizeof(value));
-    return (int64_t) BinaryUtils_toLittle64(value);
-}
-
-bool BinaryReader_readBool32(BinaryReader* reader) {
-    return BinaryReader_readUint32(reader) != 0;
-}
-
 void BinaryReader_readBytes(BinaryReader* reader, void* dest, size_t count) {
-    readCheck(reader, dest, count);
+    BinaryReader_readCheck(reader, dest, count);
 }
 
 uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, size_t offset, size_t count) {
@@ -121,7 +66,7 @@ uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, size_t offset, size_t co
 
     long savedPos = ftell(reader->file);
     fseek(reader->file, (long) offset, SEEK_SET);
-    readCheck(reader, buf, count);
+    BinaryReader_readCheck(reader, buf, count);
     fseek(reader->file, savedPos, SEEK_SET);
     return buf;
 }

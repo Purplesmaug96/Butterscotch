@@ -7,6 +7,8 @@
 #include "stdio_compat.h"
 #include <stdbool.h>
 
+#include "binary_utils.h"
+
 typedef struct {
     FILE* file;
     size_t fileSize;
@@ -29,15 +31,62 @@ void BinaryReader_setBuffer(BinaryReader* reader, uint8_t* buffer, size_t baseOf
 // Clears the memory buffer, reverting to FILE*-based reads
 void BinaryReader_clearBuffer(BinaryReader* reader);
 
-uint8_t BinaryReader_readUint8(BinaryReader* reader);
-int16_t BinaryReader_readInt16(BinaryReader* reader);
-uint16_t BinaryReader_readUint16(BinaryReader* reader);
-int32_t BinaryReader_readInt32(BinaryReader* reader);
-uint32_t BinaryReader_readUint32(BinaryReader* reader);
-float BinaryReader_readFloat32(BinaryReader* reader);
-uint64_t BinaryReader_readUint64(BinaryReader* reader);
-int64_t BinaryReader_readInt64(BinaryReader* reader);
-bool BinaryReader_readBool32(BinaryReader* reader);
+void BinaryReader_readCheck(BinaryReader* reader, void* dest, const size_t bytes);
+
+static inline uint8_t BinaryReader_readUint8(BinaryReader* reader) {
+    uint8_t value;
+    BinaryReader_readCheck(reader, &value, 1);
+    return value;
+}
+
+static inline int16_t BinaryReader_readInt16(BinaryReader* reader) {
+    uint16_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return (int16_t) BinaryUtils_toLittle16(value);
+}
+
+static inline uint16_t BinaryReader_readUint16(BinaryReader* reader) {
+    uint16_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return BinaryUtils_toLittle16(value);
+}
+
+static inline int32_t BinaryReader_readInt32(BinaryReader* reader) {
+    uint32_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return (int32_t) BinaryUtils_toLittle32(value);
+}
+
+static inline uint32_t BinaryReader_readUint32(BinaryReader* reader) {
+    uint32_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return BinaryUtils_toLittle32(value);
+}
+
+static inline float BinaryReader_readFloat32(BinaryReader* reader) {
+    uint32_t bits;
+    float value;
+    BinaryReader_readCheck(reader, &bits, sizeof(bits));
+    bits = BinaryUtils_toLittle32(bits);
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static inline uint64_t BinaryReader_readUint64(BinaryReader* reader) {
+    uint64_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return BinaryUtils_toLittle64(value);
+}
+
+static inline int64_t BinaryReader_readInt64(BinaryReader* reader) {
+    uint64_t value;
+    BinaryReader_readCheck(reader, &value, sizeof(value));
+    return (int64_t) BinaryUtils_toLittle64(value);
+}
+
+static inline bool BinaryReader_readBool32(BinaryReader* reader) {
+    return BinaryReader_readUint32(reader) != 0;
+}
 
 // Copies 'count' bytes from the current position into 'dest'.
 void BinaryReader_readBytes(BinaryReader* reader, void* dest, size_t count);
