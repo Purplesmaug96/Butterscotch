@@ -13,42 +13,42 @@
 // functions or something. GCC versions as new as 4.6 give an implicit function declaration warning, so I'll just be safe.
 #if (defined(__clang__) && defined(__clang_major__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 1))) \
     || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
-static inline uint16_t BinaryUtils_bswap16(uint16_t value) {
+static inline uint16_t BinaryUtils_bswap16(const uint16_t value) {
     return __builtin_bswap16(value);
 }
 
-static inline uint32_t BinaryUtils_bswap32(uint32_t value) {
+static inline uint32_t BinaryUtils_bswap32(const uint32_t value) {
     return __builtin_bswap32(value);
 }
 
-static inline uint64_t BinaryUtils_bswap64(uint64_t value) {
+static inline uint64_t BinaryUtils_bswap64(const uint64_t value) {
     return __builtin_bswap64(value);
 }
 #elif defined(_MSC_VER)
-static inline uint16_t BinaryUtils_bswap16(uint16_t value) {
+static inline uint16_t BinaryUtils_bswap16(const uint16_t value) {
     return _byteswap_ushort(value);
 }
 
-static inline uint32_t BinaryUtils_bswap32(uint32_t value) {
+static inline uint32_t BinaryUtils_bswap32(const uint32_t value) {
     return _byteswap_ulong(value);
 }
 
-static inline uint64_t BinaryUtils_bswap64(uint64_t value) {
+static inline uint64_t BinaryUtils_bswap64(const uint64_t value) {
     return _byteswap_uint64(value);
 }
 #else
-static inline uint16_t BinaryUtils_bswap16(uint16_t value) {
+static inline uint16_t BinaryUtils_bswap16(const uint16_t value) {
     return (uint16_t) ((value >> 8) | (value << 8));
 }
 
-static inline uint32_t BinaryUtils_bswap32(uint32_t value) {
+static inline uint32_t BinaryUtils_bswap32(const uint32_t value) {
     return ((value & 0x000000FFu) << 24) |
            ((value & 0x0000FF00u) << 8)  |
            ((value & 0x00FF0000u) >> 8)  |
            ((value & 0xFF000000u) >> 24);
 }
 
-static inline uint64_t BinaryUtils_bswap64(uint64_t value) {
+static inline uint64_t BinaryUtils_bswap64(const uint64_t value) {
     return ((value & 0x00000000000000FFull) << 56) |
            ((value & 0x000000000000FF00ull) << 40) |
            ((value & 0x0000000000FF0000ull) << 24) |
@@ -60,7 +60,7 @@ static inline uint64_t BinaryUtils_bswap64(uint64_t value) {
 }
 #endif
 
-static inline uint16_t BinaryUtils_toLittle16(uint16_t value) {
+static inline uint16_t BinaryUtils_toLittle16(const uint16_t value) {
 #if defined(IS_BIG_ENDIAN)
     return BinaryUtils_bswap16(value);
 #else
@@ -68,7 +68,7 @@ static inline uint16_t BinaryUtils_toLittle16(uint16_t value) {
 #endif
 }
 
-static inline uint32_t BinaryUtils_toLittle32(uint32_t value) {
+static inline uint32_t BinaryUtils_toLittle32(const uint32_t value) {
 #if defined(IS_BIG_ENDIAN)
     return BinaryUtils_bswap32(value);
 #else
@@ -76,7 +76,7 @@ static inline uint32_t BinaryUtils_toLittle32(uint32_t value) {
 #endif
 }
 
-static inline uint64_t BinaryUtils_toLittle64(uint64_t value) {
+static inline uint64_t BinaryUtils_toLittle64(const uint64_t value) {
 #if defined(IS_BIG_ENDIAN)
     return BinaryUtils_bswap64(value);
 #else
