@@ -2538,7 +2538,6 @@ void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId) {
 
     tex->blobData = (uint8_t *)safeMalloc(tex->blobSize);
 
-    memset(tex->blobData, 0, tex->blobSize);
     long old_seek = ftell(dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, tex->blobOffset, SEEK_SET);
     size_t read = fread(tex->blobData, 1, tex->blobSize, dw->lazyLoadFile);
