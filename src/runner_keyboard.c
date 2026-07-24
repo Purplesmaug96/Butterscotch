@@ -21,7 +21,7 @@ RunnerKeyboardState* RunnerKeyboard_create(void) {
     return kb;
 }
 
-static int32_t mapKey(RunnerKeyboardState* kb, int32_t gmlKeyCode) {
+static int32_t mapKey(const RunnerKeyboardState* kb, int32_t gmlKeyCode) {
     if (!isValidKey(gmlKeyCode)) return gmlKeyCode;
     return kb->keyMap[gmlKeyCode];
 }
@@ -66,7 +66,7 @@ void RunnerKeyboard_onCharacter(RunnerKeyboardState* kb, unsigned int character)
     }
 }
 
-bool checkIfAnyKey(const bool* array) {
+static bool checkIfAnyKey(const bool* array) {
     for (int32_t i = 2; GML_KEY_COUNT > i; i++) {
         if (array[i]) {
             return true;
@@ -140,7 +140,7 @@ void RunnerKeyboard_setMap(RunnerKeyboardState* kb, int32_t fromKey, int32_t toK
     kb->keyMap[fromKey] = toKey;
 }
 
-int32_t RunnerKeyboard_getMap(RunnerKeyboardState* kb, int32_t fromKey) {
+int32_t RunnerKeyboard_getMap(const RunnerKeyboardState* kb, int32_t fromKey) {
     if (!isValidKey(fromKey)) return fromKey;
     return kb->keyMap[fromKey];
 }

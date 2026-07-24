@@ -91,7 +91,7 @@ void RunnerKeyboard_clear(RunnerKeyboardState* kb, int32_t gmlKeyCode);
 
 // keyboard_set_map / keyboard_get_map / keyboard_unset_map
 void RunnerKeyboard_setMap(RunnerKeyboardState* kb, int32_t fromKey, int32_t toKey);
-int32_t RunnerKeyboard_getMap(RunnerKeyboardState* kb, int32_t fromKey);
+int32_t RunnerKeyboard_getMap(const RunnerKeyboardState* kb, int32_t fromKey);
 void RunnerKeyboard_unsetMap(RunnerKeyboardState* kb);
 
 #endif /* _BS_RUNNER_KEYBOARD_H_ */

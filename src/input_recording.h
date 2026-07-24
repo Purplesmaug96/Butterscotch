@@ -40,9 +40,9 @@ void InputRecording_free(InputRecording* recording);
 void InputRecording_processFrame(InputRecording* recording, RunnerKeyboardState* kb, int frameNumber);
 
 // Write recorded frames to the JSON file (returns true on success)
-bool InputRecording_save(InputRecording* recording);
+bool InputRecording_save(const InputRecording* recording);
 
 // Null-safe check: returns true if recording is non-null and playback hasn't ended yet
-bool InputRecording_isPlaybackActive(InputRecording* recording);
+bool InputRecording_isPlaybackActive(const InputRecording* recording);
 
 #endif /* _BS_INPUT_RECORDING_H_ */

@@ -954,7 +954,7 @@ bool DataWin_isVersionAtLeast(const DataWin* dw, uint32_t major, uint32_t minor,
 // Raises the detected effective version to at least (major, minor, release, build). No-op if the detected version is already >= the target.
 void DataWin_bumpVersionTo(DataWin* dw, uint32_t major, uint32_t minor, uint32_t release, uint32_t build);
 void GamePath_computeInternal(GamePath* path);
-PathPositionResult GamePath_getPosition(GamePath* path, float t);
+PathPositionResult GamePath_getPosition(const GamePath* path, float t);
 void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId);
 
 #endif /* _BS_DATA_WIN_H_ */

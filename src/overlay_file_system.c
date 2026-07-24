@@ -399,7 +399,27 @@ static FileSystemDirEntry* overlayListDirectory(FileSystem* fs, const char* rela
 
 // ===[ Vtable ]===
 
-static FileSystemVtable overlayFileSystemVtable;
+static const FileSystemVtable overlayFileSystemVtable = {
+    .resolvePath = overlayResolvePath,
+    .fileExists = overlayFileExists,
+    .readFileText = overlayReadFileText,
+    .writeFileText = overlayWriteFileText,
+    .deleteFile = overlayDeleteFile,
+    .readFileBinary = overlayReadFileBinary,
+    .writeFileBinary = overlayWriteFileBinary,
+    .binaryOpen = overlayBinaryOpen,
+    .binaryClose = overlayBinaryClose,
+    .binaryRead = overlayBinaryRead,
+    .binaryWrite = overlayBinaryWrite,
+    .binaryTell = overlayBinaryTell,
+    .binarySeek = overlayBinarySeek,
+    .binarySize = overlayBinarySize,
+    .binaryRewrite = overlayBinaryRewrite,
+    .directoryExists = overlayDirectoryExists,
+    .createDirectory = overlayCreateDirectory,
+    .deleteDirectory = overlayDeleteDirectory,
+    .listDirectory = overlayListDirectory,
+};
 
 // ===[ Lifecycle ]===
 
@@ -422,26 +442,7 @@ static char* withTrailingSlash(const char* path) {
 
 OverlayFileSystem* OverlayFileSystem_create(const char* bundlePath, const char* savePath) {
     OverlayFileSystem* fs = (OverlayFileSystem *)safeCalloc(1, sizeof(OverlayFileSystem));
-    fs->base.vtable = &overlayFileSystemVtable;
-    overlayFileSystemVtable.resolvePath = overlayResolvePath;
-    overlayFileSystemVtable.fileExists = overlayFileExists;
-    overlayFileSystemVtable.readFileText = overlayReadFileText;
-    overlayFileSystemVtable.writeFileText = overlayWriteFileText;
-    overlayFileSystemVtable.deleteFile = overlayDeleteFile;
-    overlayFileSystemVtable.readFileBinary = overlayReadFileBinary;
-    overlayFileSystemVtable.writeFileBinary = overlayWriteFileBinary;
-    overlayFileSystemVtable.binaryOpen = overlayBinaryOpen;
-    overlayFileSystemVtable.binaryClose = overlayBinaryClose;
-    overlayFileSystemVtable.binaryRead = overlayBinaryRead;
-    overlayFileSystemVtable.binaryWrite = overlayBinaryWrite;
-    overlayFileSystemVtable.binaryTell = overlayBinaryTell;
-    overlayFileSystemVtable.binarySeek = overlayBinarySeek;
-    overlayFileSystemVtable.binarySize = overlayBinarySize;
-    overlayFileSystemVtable.binaryRewrite = overlayBinaryRewrite;
-    overlayFileSystemVtable.directoryExists = overlayDirectoryExists;
-    overlayFileSystemVtable.createDirectory = overlayCreateDirectory;
-    overlayFileSystemVtable.deleteDirectory = overlayDeleteDirectory;
-    overlayFileSystemVtable.listDirectory = overlayListDirectory;
+    fs->base.vtable = (FileSystemVtable*) &overlayFileSystemVtable;
     fs->bundlePath = withTrailingSlash(bundlePath);
     fs->savePath = withTrailingSlash(savePath);
     return fs;

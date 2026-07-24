@@ -653,7 +653,7 @@ void Runner_beginFrame(Runner* runner, int32_t gameW, int32_t gameH, int32_t win
 void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t targetW, int32_t targetH);
 void Runner_drawPre(Runner* runner, int32_t windowW, int32_t windowH);
 void Runner_drawPost(Runner* runner, int32_t windowW, int32_t windowH);
-void Runner_computeViewDisplayScale(Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY);
+void Runner_computeViewDisplayScale(const Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY);
 void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugShowCollisionMasks);
 void Runner_updateMousePosition(Runner* runner, int32_t windowWidth, int32_t windowHeight, double mouseXInWindow, double mouseYInWindow);
 // Converts the cached screen-space cursor (RunnerMouseState.screenX/screenY) to room/world coordinates using the LIVE camera/view state.
@@ -710,7 +710,7 @@ int32_t Runner_surfaceGetTarget(Runner* runner);
 void Runner_dumpState(Runner* runner);
 char* Runner_dumpStateJson(Runner* runner);
 void Runner_free(Runner* runner);
-RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, char* name);
+RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, const char* name);
 RuntimeLayer* Runner_findRuntimeLayerById(Runner* runner, int32_t id);
 RoomLayer* Runner_findRoomLayerById(Room* room, int32_t id);
 RuntimeLayerElement* Runner_findLayerElementById(Runner* runner, int32_t elementId, RuntimeLayer** outLayer);

@@ -52,14 +52,14 @@ void RunnerMouse_free(RunnerMouseState* m);
 void RunnerMouse_beginFrame(RunnerMouseState* m);
 void RunnerMouse_onButtonDown(RunnerMouseState* m, int32_t button);
 void RunnerMouse_onButtonUp(RunnerMouseState* m, int32_t button);
-bool RunnerMouse_checkButton(RunnerMouseState* m, int32_t button);
-bool RunnerMouse_checkButtonPressed(RunnerMouseState* m, int32_t button);
-bool RunnerMouse_checkButtonReleased(RunnerMouseState* m, int32_t button);
+bool RunnerMouse_checkButton(const RunnerMouseState* m, int32_t button);
+bool RunnerMouse_checkButtonPressed(const RunnerMouseState* m, int32_t button);
+bool RunnerMouse_checkButtonReleased(const RunnerMouseState* m, int32_t button);
 void RunnerMouse_clear(RunnerMouseState* m, int32_t button);
-int32_t RunnerMouse_getButton(RunnerMouseState* m);
-int32_t RunnerMouse_getLastButton(RunnerMouseState* m);
+int32_t RunnerMouse_getButton(const RunnerMouseState* m);
+int32_t RunnerMouse_getLastButton(const RunnerMouseState* m);
 void RunnerMouse_onWheel(RunnerMouseState* m, double yoffset);
-bool RunnerMouse_getWheelUp(RunnerMouseState* m);
-bool RunnerMouse_getWheelDown(RunnerMouseState* m);
+bool RunnerMouse_getWheelUp(const RunnerMouseState* m);
+bool RunnerMouse_getWheelDown(const RunnerMouseState* m);
 
 #endif /* _BS_RUNNER_MOUSE_H_ */

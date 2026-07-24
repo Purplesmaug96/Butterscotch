@@ -264,7 +264,7 @@ void Ini_deleteSection(IniFile* ini, const char* section) {
 
 // ===[ Serialization ]===
 
-char* Ini_serialize(const IniFile* ini, size_t initialCapacity) {
+char* Ini_serialize(const IniFile* ini, const size_t initialCapacity) {
     size_t capacity = initialCapacity;
     size_t length = 0;
     char* buffer = (char *)safeMalloc(capacity);

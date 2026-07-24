@@ -328,32 +328,33 @@ static FileSystemDirEntry* noopListDirectory(FileSystem* fs, const char* relativ
 
 // ===[ Vtable ]===
 
-static FileSystemVtable noopFileSystemVtable;
+static const FileSystemVtable noopFileSystemVtable = {
+    .resolvePath = noopResolvePath,
+    .fileExists = noopFileExists,
+    .readFileText = noopReadFileText,
+    .writeFileText = noopWriteFileText,
+    .deleteFile = noopDeleteFile,
+    .readFileBinary = noopReadFileBinary,
+    .writeFileBinary = noopWriteFileBinary,
+    .binaryOpen = noopBinaryOpen,
+    .binaryClose = noopBinaryClose,
+    .binaryRead = noopBinaryRead,
+    .binaryWrite = noopBinaryWrite,
+    .binaryTell = noopBinaryTell,
+    .binarySeek = noopBinarySeek,
+    .binarySize = noopBinarySize,
+    .binaryRewrite = noopBinaryRewrite,
+    .directoryExists = noopDirectoryExists,
+    .createDirectory = noopCreateDirectory,
+    .deleteDirectory = noopDeleteDirectory,
+    .listDirectory = noopListDirectory,
+};
 
 // ===[ Lifecycle ]===
 
 FileSystem* NoopFileSystem_create(void) {
     NoopFileSystem* nfs = (NoopFileSystem *)safeCalloc(1, sizeof(NoopFileSystem));
-    nfs->base.vtable = &noopFileSystemVtable;
-    noopFileSystemVtable.resolvePath = noopResolvePath;
-    noopFileSystemVtable.fileExists = noopFileExists;
-    noopFileSystemVtable.readFileText = noopReadFileText;
-    noopFileSystemVtable.writeFileText = noopWriteFileText;
-    noopFileSystemVtable.deleteFile = noopDeleteFile;
-    noopFileSystemVtable.readFileBinary = noopReadFileBinary;
-    noopFileSystemVtable.writeFileBinary = noopWriteFileBinary;
-    noopFileSystemVtable.binaryOpen = noopBinaryOpen;
-    noopFileSystemVtable.binaryClose = noopBinaryClose;
-    noopFileSystemVtable.binaryRead = noopBinaryRead;
-    noopFileSystemVtable.binaryWrite = noopBinaryWrite;
-    noopFileSystemVtable.binaryTell = noopBinaryTell;
-    noopFileSystemVtable.binarySeek = noopBinarySeek;
-    noopFileSystemVtable.binarySize = noopBinarySize;
-    noopFileSystemVtable.binaryRewrite = noopBinaryRewrite;
-    noopFileSystemVtable.directoryExists = noopDirectoryExists;
-    noopFileSystemVtable.createDirectory = noopCreateDirectory;
-    noopFileSystemVtable.deleteDirectory = noopDeleteDirectory;
-    noopFileSystemVtable.listDirectory = noopListDirectory;
+    nfs->base.vtable = (FileSystemVtable*) &noopFileSystemVtable;
     nfs->files = nullptr;
     sh_new_strdup(nfs->files);
     nfs->binaryFiles = nullptr;

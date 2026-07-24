@@ -154,13 +154,24 @@ void InputRecording_processFrame(InputRecording* recording, RunnerKeyboardState*
         int32_t* keysPressed = nullptr;
         int32_t* keysReleased = nullptr;
 
-        repeat(GML_KEY_COUNT, key) {
-            if (recording->filterDebugKeys && (key == 'P' || key == 'O')) continue;
-            if (kb->keyPressed[key]) {
-                arrput(keysPressed, (int32_t) key);
+        if (recording->filterDebugKeys) {
+            repeat(GML_KEY_COUNT, key) {
+                if (key == 'P' || key == 'O') continue;
+                if (kb->keyPressed[key]) {
+                    arrput(keysPressed, (int32_t) key);
+                }
+                if (kb->keyReleased[key]) {
+                    arrput(keysReleased, (int32_t) key);
+                }
             }
-            if (kb->keyReleased[key]) {
-                arrput(keysReleased, (int32_t) key);
+        } else {
+            repeat(GML_KEY_COUNT, key) {
+                if (kb->keyPressed[key]) {
+                    arrput(keysPressed, (int32_t) key);
+                }
+                if (kb->keyReleased[key]) {
+                    arrput(keysReleased, (int32_t) key);
+                }
             }
         }
 
@@ -172,7 +183,7 @@ void InputRecording_processFrame(InputRecording* recording, RunnerKeyboardState*
     }
 }
 
-bool InputRecording_save(InputRecording* recording) {
+bool InputRecording_save(const InputRecording* recording) {
     if (recording == nullptr || !recording->isRecording) return false;
 
     int32_t frameCount = (int32_t) arrlen(recording->recordedFrames);
@@ -229,6 +240,6 @@ bool InputRecording_save(InputRecording* recording) {
     return true;
 }
 
-bool InputRecording_isPlaybackActive(InputRecording* recording) {
+bool InputRecording_isPlaybackActive(const InputRecording* recording) {
     return recording != nullptr && recording->isPlayback && !recording->playbackEnded;
 }

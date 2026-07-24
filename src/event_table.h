@@ -62,7 +62,7 @@ typedef struct {
     uint32_t totalEntries;
 } ResolvedEventTable;
 
-void EventSlotMap_build(EventSlotMap* outMap, DataWin* dw);
+void EventSlotMap_build(EventSlotMap* outMap, const DataWin* dw);
 void EventSlotMap_destroy(EventSlotMap* m);
 
 void ResolvedEventTable_build(ResolvedEventTable* outTable, DataWin* dw, const EventSlotMap* slotMap);

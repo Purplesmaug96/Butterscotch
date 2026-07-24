@@ -31,7 +31,7 @@ void StringBuilder_clear(StringBuilder* sb) {
     if (sb->buffer != nullptr) sb->buffer[0] = '\0';
 }
 
-void StringBuilder_ensureCapacity(StringBuilder* sb, size_t additionalBytes) {
+void StringBuilder_ensureCapacity(StringBuilder* sb, const size_t additionalBytes) {
     size_t required = sb->length + additionalBytes + 1;
     if (sb->capacity >= required) return;
 
@@ -66,8 +66,8 @@ void StringBuilder_appendFormat(StringBuilder* sb, const char* fmt, ...) {
     // First pass: measure required length with a throwaway vsnprintf on the existing tail.
     va_list ap;
     va_start(ap, fmt);
-    size_t available = sb->capacity - sb->length;
-    int needed = vsnprintf(sb->buffer + sb->length, available, fmt, ap);
+    const size_t available = sb->capacity - sb->length;
+    const int needed = vsnprintf(sb->buffer + sb->length, available, fmt, ap);
     va_end(ap);
     if (0 >= needed) return;
 

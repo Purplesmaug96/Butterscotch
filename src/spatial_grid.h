@@ -24,7 +24,7 @@ typedef struct {
     Instance*** grid;
 } SpatialGrid;
 
-static inline int32_t SpatialGrid_cellIndex(SpatialGrid* grid, int32_t x, int32_t y) {
+static inline int32_t SpatialGrid_cellIndex(const SpatialGrid* grid, int32_t x, int32_t y) {
     return (y * grid->gridWidth) + x;
 }
 
@@ -47,7 +47,7 @@ typedef struct {
     uint16_t maxGridY;
 } SpatialGridRange;
 
-static inline SpatialGridRange SpatialGrid_computeCellRange(SpatialGrid* grid, GMLReal left, GMLReal top, GMLReal right, GMLReal bottom) {
+static inline SpatialGridRange SpatialGrid_computeCellRange(const SpatialGrid* grid, GMLReal left, GMLReal top, GMLReal right, GMLReal bottom) {
     int16_t minGridX = (int16_t) (left / SPATIAL_GRID_CELL_SIZE);
     int16_t minGridY = (int16_t) (top / SPATIAL_GRID_CELL_SIZE);
     int16_t maxGridX = (int16_t) (right / SPATIAL_GRID_CELL_SIZE);
@@ -68,7 +68,7 @@ static inline SpatialGridRange SpatialGrid_computeCellRange(SpatialGrid* grid, G
     return ret;
 }
 
-static inline bool SpatialGrid_instanceOverlapsRange(Instance* instance, SpatialGridRange range) {
+static inline bool SpatialGrid_instanceOverlapsRange(const Instance* instance, SpatialGridRange range) {
     repeat(arrlen(instance->collisionCells), i) {
         uint16_t cellX = SpatialGrid_unpackGridX(instance->collisionCells[i]);
         uint16_t cellY = SpatialGrid_unpackGridY(instance->collisionCells[i]);

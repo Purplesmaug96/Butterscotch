@@ -26,12 +26,12 @@ static void rawInsert(IntRValueHashMap* map, int32_t key, RValue value) {
 
 static void grow(IntRValueHashMap* map) {
     uint32_t oldCapacity = map->capacity;
-    IntRValueEntry* oldEntries = map->entries;
+    IntRValueEntry* const oldEntries = map->entries;
     uint32_t newCapacity = oldCapacity == 0 ? INITIAL_CAPACITY : oldCapacity * 2;
     allocEmpty(map, newCapacity);
     if (oldEntries != nullptr) {
         repeat(oldCapacity, i) {
-            int32_t k = oldEntries[i].key;
+            const int32_t k = oldEntries[i].key;
             if (k != INT_RVALUE_HASHMAP_EMPTY_KEY) {
                 rawInsert(map, k, oldEntries[i].value);
                 map->count++;

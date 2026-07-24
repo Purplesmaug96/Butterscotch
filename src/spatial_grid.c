@@ -5,7 +5,7 @@
 #include "runner.h"
 #include "utils.h"
 
-SpatialGrid* SpatialGrid_create(uint32_t roomWidth, uint32_t roomHeight) {
+SpatialGrid* SpatialGrid_create(const uint32_t roomWidth, const uint32_t roomHeight) {
     SpatialGrid* grid = (SpatialGrid *)safeCalloc(1, sizeof(SpatialGrid));
 
     // +1 to avoid truncation
@@ -35,13 +35,14 @@ void SpatialGrid_free(SpatialGrid* grid) {
 
 static void removeInstanceFromGridCells(SpatialGrid* grid, Instance* instance) {
     repeat(arrlen(instance->collisionCells), i) {
-        uint32_t gridCoordinates = instance->collisionCells[i];
-        int32_t gridX = SpatialGrid_unpackGridX(gridCoordinates);
-        int32_t gridY = SpatialGrid_unpackGridY(gridCoordinates);
-        int32_t cellIndex = SpatialGrid_cellIndex(grid, gridX, gridY);
-        repeat(arrlen(grid->grid[cellIndex]), j) {
-            if (grid->grid[cellIndex][j] == instance) {
-                arrdel(grid->grid[cellIndex], j);
+        const uint32_t gridCoordinates = instance->collisionCells[i];
+        const int32_t gridX = SpatialGrid_unpackGridX(gridCoordinates);
+        const int32_t gridY = SpatialGrid_unpackGridY(gridCoordinates);
+        const int32_t cellIndex = SpatialGrid_cellIndex(grid, gridX, gridY);
+        Instance** cell = grid->grid[cellIndex];
+        repeat(arrlen(cell), j) {
+            if (cell[j] == instance) {
+                arrdel(cell, j);
                 break;
             }
         }
@@ -49,14 +50,15 @@ static void removeInstanceFromGridCells(SpatialGrid* grid, Instance* instance) {
 }
 
 void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
-    bool requiresResync = arrlen(grid->dirtyInstances);
+    const bool requiresResync = arrlen(grid->dirtyInstances);
     if (!requiresResync) return;
 
 #ifdef ENABLE_SPATIAL_GRID_LOGS
     fprintf(stderr, "SpatialGrid: Syncing grid with %d dirty instances\n", arrlen(grid->dirtyInstances));
 #endif
 
-    repeat(arrlen(grid->dirtyInstances), i) {
+    int32_t dirtyCount = (int32_t) arrlen(grid->dirtyInstances);
+    repeat(dirtyCount, i) {
         int32_t instanceId = grid->dirtyInstances[i];
         Instance* instance = hmget(runner->instancesById, instanceId);
 

@@ -12,7 +12,7 @@ BinaryReader BinaryReader_create(FILE* file, size_t fileSize) {
     return br;
 }
 
-void BinaryReader_setBuffer(BinaryReader* reader, uint8_t* buffer, size_t baseOffset, size_t size) {
+void BinaryReader_setBuffer(BinaryReader* reader, uint8_t* buffer, const size_t baseOffset, const size_t size) {
     reader->buffer = buffer;
     reader->bufferBase = baseOffset;
     reader->bufferSize = size;
@@ -50,7 +50,7 @@ void BinaryReader_readBytes(BinaryReader* reader, void* dest, size_t count) {
     BinaryReader_readCheck(reader, dest, count);
 }
 
-uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, size_t offset, size_t count) {
+uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, const size_t offset, const size_t count) {
     uint8_t* buf = (uint8_t *)safeMalloc(count);
 
     if (reader->buffer != nullptr) {
@@ -71,7 +71,7 @@ uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, size_t offset, size_t co
     return buf;
 }
 
-void BinaryReader_skip(BinaryReader* reader, size_t bytes) {
+void BinaryReader_skip(BinaryReader* reader, const size_t bytes) {
     if (reader->buffer != nullptr) {
         reader->bufferPos += bytes;
         return;
@@ -79,7 +79,7 @@ void BinaryReader_skip(BinaryReader* reader, size_t bytes) {
     fseek(reader->file, (long) bytes, SEEK_CUR);
 }
 
-void BinaryReader_seek(BinaryReader* reader, size_t position) {
+void BinaryReader_seek(BinaryReader* reader, const size_t position) {
     if (reader->buffer != nullptr) {
         if (position < reader->bufferBase || position > reader->bufferBase + reader->bufferSize) {
             fprintf(stderr, "BinaryReader: buffer seek to 0x%zX out of buffer range [0x%zX, 0x%zX]\n", position, reader->bufferBase, reader->bufferBase + reader->bufferSize);
@@ -96,7 +96,7 @@ void BinaryReader_seek(BinaryReader* reader, size_t position) {
     fseek(reader->file, (long) position, SEEK_SET);
 }
 
-size_t BinaryReader_getPosition(BinaryReader* reader) {
+size_t BinaryReader_getPosition(const BinaryReader* reader) {
     if (reader->buffer != nullptr) {
         return reader->bufferBase + reader->bufferPos;
     }

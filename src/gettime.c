@@ -19,10 +19,10 @@ uint64_t nowNanos(void) {
 #if defined(PLATFORM_PS2)
     // kBUSCLK is bus clock ticks per second (~147 MHz).
     // Split to avoid u64 overflow in ticks * 1e9.
-    uint64_t t = (uint64_t) GetTimerSystemTime();
-    uint64_t clk = (uint64_t) kBUSCLK;
-    uint64_t sec = t / clk;
-    uint64_t rem = t % clk;
+    const uint64_t t = (uint64_t) GetTimerSystemTime();
+    const uint64_t clk = (uint64_t) kBUSCLK;
+    const uint64_t sec = t / clk;
+    const uint64_t rem = t % clk;
     return sec * 1000000000 + (rem * 1000000000) / clk;
 #elif defined(PLATFORM_PS3)
     return ((double)__builtin_ppc_get_timebase()/(double)sysGetTimebaseFrequency());
@@ -36,11 +36,11 @@ uint64_t nowNanos(void) {
         }
         freq = (uint64_t)f.QuadPart;
     }
-    LARGE_INTEGER now;
+    const LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
-    uint64_t count = (uint64_t) now.QuadPart;
-    uint64_t whole = count / freq;
-    uint64_t frac  = count % freq;
+    const uint64_t count = (uint64_t) now.QuadPart;
+    const uint64_t whole = count / freq;
+    const uint64_t frac  = count % freq;
     return whole * 1000000000 + frac * 1000000000 / freq;
 #elif defined(__APPLE__)
     /*

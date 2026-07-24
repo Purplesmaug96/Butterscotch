@@ -355,7 +355,7 @@ const char* Runner_getEventName(int32_t eventType, int32_t eventSubtype) {
 // Some events check if there's a pending room and, if there is, the events are NOT dispatched.
 // Persistent instances (or instances in a persistent room) still receive Create / Destroy / Alarm / Other / PreCreate so cleanup hooks still run.
 // This mirrors what the official YoYo runner does.
-static bool isEventBlockedByPendingRoom(Runner* runner, Instance* instance, int32_t eventType) {
+static bool isEventBlockedByPendingRoom(const Runner* runner, const Instance* instance, int32_t eventType) {
     if (0 > runner->pendingRoom)
         return false;
 
@@ -616,8 +616,8 @@ static int compareDrawKeys(const DrawKey* a, const DrawKey* b) {
 }
 
 static int compareDrawables(const void* a, const void* b) {
-    Drawable* drawableA = (Drawable*) a;
-    Drawable* drawableB = (Drawable*) b;
+    const Drawable* drawableA = (const Drawable*) a;
+    const Drawable* drawableB = (const Drawable*) b;
     DrawKey drawKeyA = drawableKey(drawableA);
     DrawKey drawKeyB = drawableKey(drawableB);
 
@@ -705,7 +705,7 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
 }
 
 // Returns true if "drawables" is already in compareDrawableDepth order. Used by the sort-dirty path to skip qsort when small depth perturbations didn't actually cross any neighbor.
-static bool isDrawableArraySorted(Drawable* drawables, int32_t count) {
+static bool isDrawableArraySorted(const Drawable* drawables, int32_t count) {
     for (int32_t i = 1; count > i; i++) {
         DrawKey drawKey1 = drawableKey(&drawables[i - 1]);
         DrawKey drawKey2 = drawableKey(&drawables[i]);
@@ -1098,7 +1098,7 @@ void Runner_drawPost(Runner* runner, int32_t windowW, int32_t windowH) {
     endGuiPass(runner);
 }
 
-void Runner_computeViewDisplayScale(Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY) {
+void Runner_computeViewDisplayScale(const Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY) {
     *outScaleX = 1.0f;
     *outScaleY = 1.0f;
 
@@ -1107,7 +1107,7 @@ void Runner_computeViewDisplayScale(Runner* runner, int32_t gameW, int32_t gameH
         int32_t minLeft = INT32_MAX, minTop = INT32_MAX;
         int32_t maxRight = INT32_MIN, maxBottom = INT32_MIN;
         repeat(MAX_VIEWS, vi) {
-            RuntimeView* view = &runner->views[vi];
+            const RuntimeView* view = &runner->views[vi];
             if (!view->enabled) continue;
             if (minLeft > view->portX) minLeft = view->portX;
             if (minTop > view->portY) minTop = view->portY;
@@ -1136,7 +1136,7 @@ static void expandViewAxis(int32_t pos, int32_t size, int32_t surfaceSize, int32
 }
 
 // Applies the visual-only free camera (pan + zoom) on top of a view rectangle, in place.
-static void applyFreeCamera(Runner* runner, int32_t* viewX, int32_t* viewY, int32_t* viewW, int32_t* viewH) {
+static void applyFreeCamera(const Runner* runner, int32_t* viewX, int32_t* viewY, int32_t* viewW, int32_t* viewH) {
     float zoom = runner->freeCamZoom;
     if (0.0f >= zoom) zoom = 1.0f;
     if (zoom == 1.0f && runner->freeCamPanX == 0.0f && runner->freeCamPanY == 0.0f) return;
@@ -1369,7 +1369,7 @@ GMLCamera* Runner_getCameraForView(Runner* runner, int32_t viewIndex) {
 }
 
 // Populates a default camera (slot == view index) from parsed room view data.
-static void initDefaultCameraFromRoomView(GMLCamera* camera, RoomView* roomView) {
+static void initDefaultCameraFromRoomView(GMLCamera* camera, const RoomView* roomView) {
     camera->allocated = true;
     camera->viewX = roomView->viewX;
     camera->viewY = roomView->viewY;
@@ -1387,7 +1387,7 @@ static void initDefaultCameraFromRoomView(GMLCamera* camera, RoomView* roomView)
 
 // Copies the viewport (port) properties and enabled flag from parsed room data.
 // Geometry goes to the camera (see initDefaultCameraFromRoomView); cameraId is assigned by the caller, which knows the view index.
-static void copyRoomViewToRuntimeView(RoomView* roomView, RuntimeView* runtimeView) {
+static void copyRoomViewToRuntimeView(const RoomView* roomView, RuntimeView* runtimeView) {
     runtimeView->enabled = roomView->enabled;
     runtimeView->portX = roomView->portX;
     runtimeView->portY = roomView->portY;
@@ -1994,8 +1994,8 @@ void Runner_reset(Runner* runner) {
 }
 
 static int compareTargetObjectIndexAscending(const void *a, const void *b) {
-    FlattenedCollisionEvent* flat1 = (FlattenedCollisionEvent*) a;
-    FlattenedCollisionEvent* flat2 = (FlattenedCollisionEvent*) b;
+    const FlattenedCollisionEvent* flat1 = (const FlattenedCollisionEvent*) a;
+    const FlattenedCollisionEvent* flat2 = (const FlattenedCollisionEvent*) b;
     if (flat1->targetObjectIndex > flat2->targetObjectIndex)
         return 1;
     else if (flat2->targetObjectIndex > flat1->targetObjectIndex)
@@ -2206,7 +2206,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     }
 
     // Collision compatibility mode is "enabled" for all pre-GM 2022.1 games AND for any post-GM 2022.1 games that have the bit 27 set
-    bool isVersionAtLeastGM_2022_1 = DataWin_isVersionAtLeast(dataWin, 2022, 1, 0, 0);
+    const bool isVersionAtLeastGM_2022_1 = DataWin_isVersionAtLeast(dataWin, 2022, 1, 0, 0);
     runner->collisionCompatibilityMode = !isVersionAtLeastGM_2022_1 || ((dataWin->optn.info >> 27) & 1) != 0;
 
     // Build the event dispatch acceleration tables.
@@ -2360,7 +2360,7 @@ void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst, bool ru
 #endif
 }
 
-RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, char* name) {
+RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, const char* name) {
     size_t count = arrlenu(runner->runtimeLayers);
     repeat(count, i) {
         if (strcmp(runner->runtimeLayers[i].dynamicName, name) == 0)
@@ -3011,8 +3011,8 @@ static void dispatchMouseEvents(Runner* runner) {
 }
 
 static int sortInstancesByObjectIndexThenInstanceIdAscending(const void* element1, const void* element2) {
-    Instance* instance1 = *(Instance**) element1;
-    Instance* instance2 = *(Instance**) element2;
+    const Instance* instance1 = *(const Instance* const*) element1;
+    const Instance* instance2 = *(const Instance* const*) element2;
 
     if (instance1->objectIndex != instance2->objectIndex) return instance1->objectIndex > instance2->objectIndex ? 1 : -1;
     if (instance1->instanceId != instance2->instanceId) return instance1->instanceId > instance2->instanceId ? 1 : -1;
@@ -3925,14 +3925,14 @@ void Runner_step(Runner* runner) {
 // * surface_reset_target is like a "pop"
 // * The top surface is the one that gets rendered to
 
-static int32_t findFreeStackSlot(Runner* runner) {
+static int32_t findFreeStackSlot(const Runner* runner) {
     repeat(MAX_SURFACES, i) {
         if (runner->surfaceStack[i] == -1) return i;
     }
     return -1;
 }
 
-static int32_t findStackTop(Runner* runner) {
+static int32_t findStackTop(const Runner* runner) {
     for (int32_t i = MAX_SURFACES - 1; i >= 0; i--) {
         if (runner->surfaceStack[i] != -1) return i;
     }

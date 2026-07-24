@@ -97,6 +97,6 @@ uint8_t* BinaryReader_readBytesAt(BinaryReader* reader, size_t offset, size_t co
 
 void BinaryReader_skip(BinaryReader* reader, size_t bytes);
 void BinaryReader_seek(BinaryReader* reader, size_t position);
-size_t BinaryReader_getPosition(BinaryReader* reader);
+size_t BinaryReader_getPosition(const BinaryReader* reader);
 
 #endif /* _BS_BINARY_READER_H_ */

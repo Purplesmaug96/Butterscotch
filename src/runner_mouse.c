@@ -53,7 +53,7 @@ void RunnerMouse_onButtonUp(RunnerMouseState* m, int32_t button) {
     }
 }
 
-bool RunnerMouse_checkButton(RunnerMouseState* m, int32_t button) {
+bool RunnerMouse_checkButton(const RunnerMouseState* m, int32_t button) {
     if (!isValidButtonVirtual(button)) return false;
 
     if (isValidButton(button)) {
@@ -70,7 +70,7 @@ bool RunnerMouse_checkButton(RunnerMouseState* m, int32_t button) {
     return false;
 }
 
-bool RunnerMouse_checkButtonPressed(RunnerMouseState* m, int32_t button) {
+bool RunnerMouse_checkButtonPressed(const RunnerMouseState* m, int32_t button) {
     if (!isValidButtonVirtual(button)) return false;
 
     if (isValidButton(button)) {
@@ -87,7 +87,7 @@ bool RunnerMouse_checkButtonPressed(RunnerMouseState* m, int32_t button) {
     return false;
 }
 
-bool RunnerMouse_checkButtonReleased(RunnerMouseState* m, int32_t button) {
+bool RunnerMouse_checkButtonReleased(const RunnerMouseState* m, int32_t button) {
     if (!isValidButtonVirtual(button)) return false;
 
     if (isValidButton(button)) {
@@ -120,11 +120,11 @@ void RunnerMouse_clear(RunnerMouseState* m, int32_t button) {
     }
 }
 
-int32_t RunnerMouse_getButton(RunnerMouseState* m) {
+int32_t RunnerMouse_getButton(const RunnerMouseState* m) {
     return m->currentButton;
 }
 
-int32_t RunnerMouse_getLastButton(RunnerMouseState* m) {
+int32_t RunnerMouse_getLastButton(const RunnerMouseState* m) {
     return m->lastButton;
 }
 
@@ -133,10 +133,10 @@ void RunnerMouse_onWheel(RunnerMouseState* m, double yoffset) {
     if (yoffset < 0) m->wheelDown = true;
 }
 
-bool RunnerMouse_getWheelUp(RunnerMouseState* m) {
+bool RunnerMouse_getWheelUp(const RunnerMouseState* m) {
     return m->wheelUp;
 }
 
-bool RunnerMouse_getWheelDown(RunnerMouseState* m) {
+bool RunnerMouse_getWheelDown(const RunnerMouseState* m) {
     return m->wheelDown;
 }

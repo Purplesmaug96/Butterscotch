@@ -6,7 +6,7 @@
 
 // ===[ EventSlotMap ]===
 
-void EventSlotMap_build(EventSlotMap* outMap, DataWin* dw) {
+void EventSlotMap_build(EventSlotMap* outMap, const DataWin* dw) {
     requireNotNull(outMap);
     requireNotNull(dw);
 
@@ -75,7 +75,7 @@ void EventSlotMap_destroy(EventSlotMap* m) {
 
 // Walk parent chain for one object and fill scratchCodeId / scratchOwner with the resolved handler for every slot the object responds to (-1 marks unused).
 // Closer descendants override ancestors (we visit child first and skip already-set slots).
-static void resolveHandlersForObject(DataWin* dw, const EventSlotMap* slotMap, int32_t startObj, int32_t* scratchCodeId, int16_t* scratchOwner) {
+static void resolveHandlersForObject(const DataWin* dw, const EventSlotMap* slotMap, int32_t startObj, int32_t* scratchCodeId, int16_t* scratchOwner) {
     int32_t slotCount = slotMap->slotCount;
     repeat(slotCount, s) scratchCodeId[s] = -1;
 

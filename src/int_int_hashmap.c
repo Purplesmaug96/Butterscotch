@@ -26,12 +26,12 @@ static void rawInsert(IntIntHashMap* map, int32_t key, uint32_t value) {
 
 static void grow(IntIntHashMap* map) {
     uint32_t oldCapacity = map->capacity;
-    IntIntEntry* oldEntries = map->entries;
+    IntIntEntry* const oldEntries = map->entries;
     uint32_t newCapacity = oldCapacity == 0 ? INITIAL_CAPACITY : oldCapacity * 2;
     allocEmpty(map, newCapacity);
     if (oldEntries != nullptr) {
         repeat(oldCapacity, i) {
-            int32_t k = oldEntries[i].key;
+            const int32_t k = oldEntries[i].key;
             if (k != INT_INT_HASHMAP_EMPTY_KEY) {
                 rawInsert(map, k, oldEntries[i].value);
                 map->count++;
@@ -64,7 +64,7 @@ uint32_t IntIntHashMap_getOrInsertSequential(IntIntHashMap* map, int32_t key) {
         int32_t slotKey = map->entries[idx].key;
         if (slotKey == key) return map->entries[idx].value;
         if (slotKey == INT_INT_HASHMAP_EMPTY_KEY) {
-            uint32_t newSlot = map->count;
+            const uint32_t newSlot = map->count;
             map->entries[idx].key = key;
             map->entries[idx].value = newSlot;
             map->count = newSlot + 1;

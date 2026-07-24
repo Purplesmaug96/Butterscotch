@@ -27,7 +27,7 @@ static void skipWhitespace(JsonParser* parser) {
     }
 }
 
-static char peek(JsonParser* parser) {
+static char peek(const JsonParser* parser) {
     if (parser->position >= parser->length) return '\0';
     return parser->input[parser->position];
 }
@@ -332,7 +332,7 @@ JsonValue* JsonReader_parse(const char* json) {
     if (json == nullptr) return nullptr;
 
     size_t pos = 0;
-    int len = strlen(json);
+    const size_t len = strlen(json);
     if (len >= 3 && memcmp(json, "\xEF\xBB\xBF", 3) == 0) {
         pos = 3;
     }
