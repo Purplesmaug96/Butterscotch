@@ -54,7 +54,7 @@ void GMLArray_incRef(GMLArray* arr);
 void GMLArray_decRef(GMLArray* arr);
 // Deep copy. Every inner owned-string is strdup'd. Nested arrays have their refCount bumped (shared by default).
 // New array starts at refCount=1, same shape as src, owner=newOwner.
-GMLArray* GMLArray_clone(GMLArray* src, void* newOwner);
+GMLArray* GMLArray_clone(const GMLArray* src, const void* newOwner);
 // Ensure flat index (minLength - 1) is writable: grow row (idx / STRIDE) to at least (col + 1) entries, filling gaps with RVALUE_UNDEFINED.
 void GMLArray_growTo(GMLArray* arr, int32_t minLength);
 // Pointer to the slot at flat index, or nullptr if out of range. Call GMLArray_growTo first if writing.

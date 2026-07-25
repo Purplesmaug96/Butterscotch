@@ -73,22 +73,22 @@ void GMLArray_decRef(GMLArray* arr) {
     free(arr);
 }
 
-GMLArray* GMLArray_clone(GMLArray* src, void* newOwner) {
+GMLArray* GMLArray_clone(const GMLArray* src, const void* newOwner) {
     if (src == nullptr) return nullptr;
     GMLArray* dst = (GMLArray *)safeCalloc(1, sizeof(GMLArray));
     dst->refCount = 1;
-    dst->owner = newOwner;
+    dst->owner = (void*)newOwner;
     dst->type = src->type;
     if (src->type == GML_LEGACY_ARRAY) {
         if (src->legacy.rowCount > 0) {
             ensureLegacyRowCapacity(dst, src->legacy.rowCount);
             dst->legacy.rowCount = src->legacy.rowCount;
-            repeat(src->legacy.rowCount, r) {
-                GMLArrayRow* srcRow = &src->legacy.rows[r];
+            repeat((int32_t)src->legacy.rowCount, r) {
+                const GMLArrayRow* srcRow = &src->legacy.rows[r];
                 GMLArrayRow* dstRow = &dst->legacy.rows[r];
                 if (srcRow->length == 0) continue;
                 growLegacyRow(dstRow, srcRow->length);
-                repeat(srcRow->length, c) {
+                repeat((int32_t)srcRow->length, c) {
                     RValue srcVal = srcRow->data[c];
                     dstRow->data[c] = RValue_makeIndependent(srcVal);
                 }
@@ -96,7 +96,7 @@ GMLArray* GMLArray_clone(GMLArray* src, void* newOwner) {
         }
     } else {
         GMLArray_growTo(dst, src->modern.length);
-        repeat(src->modern.length, i) {
+        repeat((int32_t)src->modern.length, i) {
             dst->modern.data[i] = RValue_makeIndependent(src->modern.data[i]);
         }
     }

@@ -326,7 +326,12 @@ RValue VM_structGetVariableByVarId(Instance* structInst, int32_t varId, int32_t 
 RValue VM_structGetVariableByVarName(VMContext* ctx, Instance* structInst, const char* name, int32_t arrayIndex);
 // Set a named field on a freshly-built GML struct.
 void VM_structSet(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
-void VM_structSetAndFreeVal(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
+// Creates a copy of "name"
+// This should ONLY be used for structs!
+static inline void VM_structSetAndFreeVal(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex) {
+    VM_structSet(ctx, structInst, name, val, arrayIndex);
+    RValue_free(&val);
+}
 
 // @@CopyStatic@@: chain the current constructor's static struct to a parent constructor's static struct (static inheritance).
 void VM_copyStatic(VMContext* ctx, RValue* parentRef);
