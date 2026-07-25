@@ -96,6 +96,12 @@ static float cosf(float x) { return cos(x); }
 
 #endif
 
+#ifdef NO_FLOORF
+
+static float floorf(float x) { return floor(x); }
+
+#endif
+
 #ifdef NO_ROUNDF
 
 static float roundf(float x) {

@@ -64,8 +64,8 @@ check() {
     shift
     output="$output_exe"
     [ -n "$nolink" ] && output="$compile_obj $output_obj" && nolink=
-    printf 'cmd: %s\n' "$CC $cflags tmp/test.c ${output}tmp/a.out $*" >> tmp/config.log
-    if $CC $cflags tmp/test.c ${output}tmp/a.out "$@" >> tmp/config.log 2>&1; then
+    printf 'cmd: %s\n' "$CC $cflags ${srcflag}tmp/test.c ${output}tmp/a.out $*" >> tmp/config.log
+    if $CC $cflags ${srcflag}tmp/test.c ${output}tmp/a.out "$@" >> tmp/config.log 2>&1; then
         printyes
         return 0
     else
@@ -161,10 +161,11 @@ int main(void){
 }
 " > tmp/test.c
 
-config "CCLINK := $CC"
 if ! nolink=1 check 'if C supports mixed declarations and code'; then
     if [ "$syntax" = 'msvc' ]; then
-        CC="$CC /TP"
+        # compile all sources as C++
+        srcflag='/Tp'
+        config 'SRCFLAG := /Tp'
     else
         printf 'Support for mixed declarations and code is required, maybe try building in C++ mode.\n'
         exit 1
@@ -245,12 +246,14 @@ int main(void){return 0;}
 if ! nolink=1 check 'if stdint.h works'; then
     include 'compat/stdint'
     config 'HEADERS += compat/stdint/stdint.h'
-    printf '%s' "\
+    if [ "$syntax" != 'msvc' ]; then
+        printf '%s' "\
 #include <sys/types.h>
 int main(void){return 0;}
 " > tmp/test.c
-    if nolink=1 check 'if sys/types.h works'; then
-        define 'HAVE_SYS_TYPES_H'
+        if nolink=1 check 'if sys/types.h works'; then
+            define 'HAVE_SYS_TYPES_H'
+        fi
     fi
 fi
 
@@ -354,6 +357,15 @@ int main(void){return cosf(0);}
 
 if ! check 'for cosf' $lm; then
     define 'NO_COSF'
+fi
+
+printf '%s' "\
+#include <math.h>
+int main(void){return floorf(0);}
+" > tmp/test.c
+
+if ! check 'for floorf' $lm; then
+    define 'NO_FLOORF'
 fi
 
 printf '%s' "\

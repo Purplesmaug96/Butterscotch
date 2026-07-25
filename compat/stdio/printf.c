@@ -61,8 +61,10 @@
 #endif /* !(defined(__cplusplus) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L)) */
 
 #if PRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD
+# define printf_    printf
 # define snprintf_  snprintf
 # define vsnprintf_ vsnprintf
+# define vprintf_   vprintf
 #endif /* PRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD */
 
 
@@ -235,8 +237,8 @@ typedef unsigned int printf_flags_t;
 typedef uint8_t numeric_base_t;
 
 #if PRINTF_SUPPORT_LONG_LONG
-typedef unsigned long long printf_unsigned_value_t;
-typedef long long          printf_signed_value_t;
+typedef uint64_t printf_unsigned_value_t;
+typedef int64_t  printf_signed_value_t;
 #else
 typedef unsigned long printf_unsigned_value_t;
 typedef long          printf_signed_value_t;
@@ -1388,7 +1390,7 @@ static inline void format_string_loop(output_gadget_t* output, const char* forma
 
           if (flags & FLAGS_LONG_LONG) {
 #if PRINTF_SUPPORT_LONG_LONG
-            const long long value = va_arg(args, long long);
+            const int64_t value = va_arg(args, int64_t);
             print_integer(output, ABS_FOR_PRINTING(value), value < 0, base, precision, width, flags);
 #endif
           }
@@ -1417,7 +1419,7 @@ static inline void format_string_loop(output_gadget_t* output, const char* forma
 
           if (flags & FLAGS_LONG_LONG) {
 #if PRINTF_SUPPORT_LONG_LONG
-            print_integer(output, (printf_unsigned_value_t) va_arg(args, unsigned long long), false, base, precision, width, flags);
+            print_integer(output, (printf_unsigned_value_t) va_arg(args, uint64_t), false, base, precision, width, flags);
 #endif
           }
           else if (flags & FLAGS_LONG) {
@@ -1538,7 +1540,7 @@ static inline void format_string_loop(output_gadget_t* output, const char* forma
         else if  (flags & FLAGS_SHORT)     *(va_arg(args, short*))     = (short) output->pos;
         else if  (flags & FLAGS_LONG)      *(va_arg(args, long*))      = (long) output->pos;
 #if PRINTF_SUPPORT_LONG_LONG
-        else if  (flags & FLAGS_LONG_LONG) *(va_arg(args, long long*)) = (long long int) output->pos;
+        else if  (flags & FLAGS_LONG_LONG) *(va_arg(args, int64_t*))   = (int64_t) output->pos;
 #endif /* PRINTF_SUPPORT_LONG_LONG */
         else                               *(va_arg(args, int*))       = (int) output->pos;
         format++;
@@ -1572,10 +1574,53 @@ static int vsnprintf_impl(output_gadget_t* output, const char* format, va_list a
 
 /*===========================================================================*/
 
+static void fputc_printf_(char c, void* stream)
+{
+  fputc(c, (FILE*)stream);
+}
+
+int vprintf_(const char* format, va_list arg)
+{
+  return vfctprintf(fputc_printf_, stdout, format, arg);
+}
+
+int vfprintf_(FILE* stream, const char* format, va_list arg)
+{
+  return vfctprintf(fputc_printf_, stream, format, arg);
+}
+
 int vsnprintf_(char* s, size_t n, const char* format, va_list arg)
 {
   output_gadget_t gadget = buffer_gadget(s, n);
   return vsnprintf_impl(&gadget, format, arg);
+}
+
+int vfctprintf(void (*out)(char c, void* extra_arg), void* extra_arg, const char* format, va_list arg)
+{
+  output_gadget_t gadget;
+  if (out == NULL) { return 0; }
+  gadget = function_gadget(out, extra_arg);
+  return vsnprintf_impl(&gadget, format, arg);
+}
+
+int printf_(const char* format, ...)
+{
+  int ret;
+  va_list args;
+  va_start(args, format);
+  ret = vprintf_(format, args);
+  va_end(args);
+  return ret;
+}
+
+int fprintf_(FILE* stream, const char* format, ...)
+{
+  int ret;
+  va_list args;
+  va_start(args, format);
+  ret = vfprintf_(stream, format, args);
+  va_end(args);
+  return ret;
 }
 
 int snprintf_(char* s, size_t n, const char* format, ...)
