@@ -100,7 +100,14 @@ static int32_t* gGameH = &_gGameH;
 
 static void FastSetVSConstF(IDirect3DDevice9* dev, UINT reg, const float* data, UINT count) {
 #ifdef PLATFORM_XBOX360_XDK
+	// Prefetch the constant data into L2 before the D3D call reads it.
+	// For large uniform arrays (matrices: 16 floats = 64 bytes), prefetch
+	// both the first and second cache lines to avoid a D-cache miss stall
+	// inside SetVertexShaderConstantF.
 	__dcbt(0, (const void*)data);
+	if (count > 2) {
+		__dcbt(0, (const void*)(data + 8));
+	}
 #endif
 	dev->SetVertexShaderConstantF(reg, data, count);
 }
@@ -108,6 +115,9 @@ static void FastSetVSConstF(IDirect3DDevice9* dev, UINT reg, const float* data, 
 static void FastSetPSConstF(IDirect3DDevice9* dev, UINT reg, const float* data, UINT count) {
 #ifdef PLATFORM_XBOX360_XDK
 	__dcbt(0, (const void*)data);
+	if (count > 2) {
+		__dcbt(0, (const void*)(data + 8));
+	}
 #endif
 	dev->SetPixelShaderConstantF(reg, data, count);
 }
@@ -204,13 +214,19 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 using namespace std;
 
 static inline uint8_t floatToByteClamped(float v) {
-	if (v <= 0.0f) {
-		return 0;
-	}
-	if (v >= 1.0f) {
-		return 255;
-	}
+#ifdef PLATFORM_XBOX360_XDK
+	double vd = (double)v;
+#pragma warning(push)
+#pragma warning(disable:4244)
+	vd = __fsel(vd, vd, 0.0);
+	vd = __fsel(vd - 1.0, 1.0, vd);
+	return (uint8_t)(vd * 255.0 + 0.5);
+#pragma warning(pop)
+#else
+	if (v <= 0.0f) return 0;
+	if (v >= 1.0f) return 255;
 	return (uint8_t)(v * 255.0f + 0.5f);
+#endif
 }
 
 // ===[ Vertex Format ]===
@@ -233,6 +249,14 @@ static inline void setVertex(SpriteVertex* sv, float px, float py, float tu, flo
 	uint8_t b = floatToByteClamped(cb);
 	uint8_t a = floatToByteClamped(ca);
 	sv->color = D3DCOLOR_ARGB(a, r, g, b);
+}
+
+static inline void setVertexFast(SpriteVertex* sv, float px, float py, float tu, float tv, D3DCOLOR color) {
+	sv->x = px - 0.5f;
+	sv->y = py - 0.5f;
+	sv->u = tu;
+	sv->v = tv;
+	sv->color = color;
 }
 
 // ===[ HLSL Shader Source ]===
@@ -658,11 +682,15 @@ static void d3d9EnsureSharedRenderState(D3D9Renderer* dr) {
 // so use explicit multiply which is faster on PPC970.
 static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* outR, float* outG, float* outB, float* outA) {
 #ifdef PLATFORM_XBOX360_XDK
-#define kInv255 0.003921568627450980f
-	// static const float kInv255 = 1.0f / 255.0f;
-	*outR = (float)(bgr & 0xFF) * kInv255;
-	*outG = (float)((bgr >> 8) & 0xFF) * kInv255;
-	*outB = (float)((bgr >> 16) & 0xFF) * kInv255;
+	static const float kInv255 = 0.003921568627450980f;
+	// Load once, extract via shifts and masks to avoid 3 separate byte loads.
+	// The color is in BGR format (0xBBGGRR): R at bits[7:0], G at bits[15:8], B at bits[23:16].
+	uint32_t r = (bgr) & 0xFF;
+	uint32_t g = (bgr >> 8) & 0xFF;
+	uint32_t b = (bgr >> 16) & 0xFF;
+	*outR = (float)r * kInv255;
+	*outG = (float)g * kInv255;
+	*outB = (float)b * kInv255;
 #else
 	*outR = (float)(bgr & 0xFF) / 255.0f;
 	*outG = (float)((bgr >> 8) & 0xFF) / 255.0f;
@@ -712,6 +740,9 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 //   D3DFMT_A8R8G8B8 (32 BPP) - lossless fallback
 static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_t h) {
 	if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
+	// Small textures (< 8x8) are not worth the analysis overhead;
+	// just use DXT5 which is always safe.
+	if (w < 8 && h < 8) return D3DFMT_DXT5;
 	bool needDXT5 = false;
 	for (int32_t by = 0; by < h; by += 4) {
 		for (int32_t bx = 0; bx < w; bx += 4) {
@@ -722,22 +753,30 @@ static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_
 			int bh = (by + 4 > h) ? h - by : 4;
 			bool hasTransparent = false;
 			bool hasIntermediateAlpha = false;
+			bool blockOpaque = true;
 			for (int32_t y = 0; y < bh; y++) {
 				for (int32_t x = 0; x < bw; x++) {
 					const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
-					uint16_t c = ((uint16_t)(p[0] >> 3) << 11) | ((uint16_t)(p[1] >> 2) << 5) | (p[2] >> 3);
-					uint8_t a = p[3];
-					if (a == 0) hasTransparent = true;
-					else if (a != 255) hasIntermediateAlpha = true;
+					uint8_t r = p[0], g = p[1], b2 = p[2], a = p[3];
+					uint16_t c = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b2 >> 3);
+					if (a == 0) {
+						hasTransparent = true;
+						blockOpaque = false;
+					} else if (a != 255) {
+						hasIntermediateAlpha = true;
+						blockOpaque = false;
+					}
 					bool found = false;
 					for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
-					if (!found) { if (nColors >= 16) continue; colors[nColors++] = c; }
-					found = false;
-					for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
-					if (!found) { if (nAlphas >= 16) continue; alphas[nAlphas++] = a; }
+					if (!found) { if (nColors >= 16) { return D3DFMT_A8R8G8B8; } colors[nColors++] = c; }
+					if (!blockOpaque) {
+						found = false;
+						for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
+						if (!found) { if (nAlphas >= 16) { return D3DFMT_A8R8G8B8; } alphas[nAlphas++] = a; }
+					}
 				}
 			}
-			if (nColors > 4 || nAlphas > 8) return D3DFMT_A8R8G8B8;
+			if (nColors > 4 || (!blockOpaque && nAlphas > 8)) return D3DFMT_A8R8G8B8;
 			if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
 		}
 	}
@@ -790,14 +829,32 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	}
 
 	// Clear only the active rows we will write to.
-	// This avoids touching the full staging allocation when the requested
-	// texture size is smaller than the cached staging size.
+#ifdef PLATFORM_XBOX360_XDK
+	// Use DCBZ (Data Cache Block Zero) for cache-optimized bulk zeroing.
+	// DCBZ allocates a zero-filled cache line without reading from memory,
+	// avoiding the read-for-ownership penalty of regular memset.
+	{
+		uint8_t* base = (uint8_t*)lr.pBits;
+		const size_t rowBytes = (size_t)w * 4;
+		for (int32_t y = 0; y < h; y++) {
+			uint8_t* row = base + (size_t)y * (size_t)lr.Pitch;
+			size_t off = 0;
+			for (; off + 128 <= rowBytes; off += 128) {
+				__dcbz(0, row + off);
+			}
+			for (; off < rowBytes; off++) {
+				row[off] = 0;
+			}
+		}
+	}
+#else
 	{
 		const size_t rowBytes = (size_t)w * 4;
 		for (int32_t y = 0; y < h; y++) {
 			memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, rowBytes);
 		}
 	}
+#endif
 
 #ifdef PLATFORM_XBOX360_XDK
 	// XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
@@ -820,19 +877,24 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		int32_t x = 0;
 
 		// Prefetch the source row into L2 cache before the VMX loop.
-		// The GPU will read this data via D3DXLoadSurfaceFromSurface,
-		// so having it hot in cache reduces DMA latency.
+		// Use a software pipeline: prefetch 3 cache lines ahead of the
+		// current VMX processing position to hide memory latency.
 		__dcbt(0, (const void*)src);
-		if (w > 32) __dcbt(0, (const void*)(src + 128));
-		if (w > 64) __dcbt(0, (const void*)(src + 256));
+		__dcbt(0, (const void*)(src + 128));
+		__dcbt(0, (const void*)(src + 256));
 
 		// Process 4 pixels (16 bytes) per VMX iteration
-		for (; x + 3 < w; x += 4) {
-			__vector4 v = __lvx(src, x * 4);	// Load 4 RGBA pixels
-			__vector4 p = __vperm(v, v, vPerm); // Permute RGBA -> ARGB
-			// Note: alpha==0 premultiply optimization is skipped in the SIMD path.
-			// The scalar fallback still handles exact A==0 => RGB=0 semantics.
-			__stvx(p, dst, x * 4); // Store 4 ARGB pixels
+		for (; x + 7 < w; x += 8) {
+			// Prefetch 3 cache lines ahead
+			if ((x & 31) == 0 && x + 96 < w) {
+				__dcbt(0, (const void*)(src + x * 4 + 384));
+			}
+			__vector4 v0 = __lvx(src, x * 4);	   // Load 4 RGBA pixels
+			__vector4 v1 = __lvx(src, (x + 4) * 4); // Load next 4 RGBA pixels
+			__vector4 p0 = __vperm(v0, v0, vPerm);  // Permute RGBA -> ARGB
+			__vector4 p1 = __vperm(v1, v1, vPerm);  // Permute RGBA -> ARGB
+			__stvx(p0, dst, x * 4);				  // Store 4 ARGB pixels
+			__stvx(p1, dst, (x + 4) * 4);			  // Store next 4 ARGB pixels
 		}
 
 		// Remaining pixels (scalar fallback)
@@ -855,7 +917,20 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	{
 		const size_t totalBytes = (size_t)h * (size_t)lr.Pitch;
 		uint8_t* base = (uint8_t*)lr.pBits;
-		for (size_t off = 0; off < totalBytes; off += 128) {
+		// Flush using 512-byte wide strides to reduce loop overhead.
+		// The GC promo does not care about stale cache lines, but the GPU
+		// DMA may read from system memory. Each __dcbf flushes one 128-byte
+		// cache line; stride by 512 ensures all lines are hit.
+		// Track the flushed position to avoid gaps between the fast stride
+		// loop and the remaining-line tail loop.
+		size_t flushed = 0;
+		for (; flushed + 512 <= totalBytes; flushed += 512) {
+			__dcbf(0, (const void*)(base + flushed));
+			__dcbf(0, (const void*)(base + flushed + 128));
+			__dcbf(0, (const void*)(base + flushed + 256));
+			__dcbf(0, (const void*)(base + flushed + 384));
+		}
+		for (size_t off = flushed; off < totalBytes; off += 128) {
 			__dcbf(0, (const void*)(base + off));
 		}
 	}
@@ -994,33 +1069,28 @@ static void flushBatch(D3D9Renderer* dr) {
 	IDirect3DDevice9* dev = Dev(dr);
 	Renderer* renderer = (Renderer*)dr;
 
-	// Default to the base shaders to eliminate nested if/else branching
-	void* targetVS = dr->pVertexShader;
-	void* targetPS = dr->pPixelShader;
-	bool targetViewport = false;
-
+	// Cache the current shader pointer to avoid repeated lookups
 	const int32_t currentShader = renderer->currentShader;
+	D3D9GMLShader* activeShader = nullptr;
+	bool haveActiveShader = false;
 	if (currentShader >= 0 && (uint32_t)currentShader < dr->gmlShaderCount) {
-		D3D9GMLShader* shader = &dr->gmlShaders[currentShader];
-		if (shader->compiled) {
-			targetVS = shader->pVertexShader;
-			targetPS = shader->pPixelShader;
-			targetViewport = true;
-		}
+		activeShader = &dr->gmlShaders[currentShader];
+		haveActiveShader = activeShader->compiled;
 	}
 
-	setShaders(dr, targetVS, targetPS);
-	setViewportEnable(dr, targetViewport);
+	setShaders(dr,
+		haveActiveShader ? activeShader->pVertexShader : dr->pVertexShader,
+		haveActiveShader ? activeShader->pPixelShader : dr->pPixelShader);
+
+	setViewportEnable(dr, haveActiveShader);
 
 	void* desiredTex;
 	int32_t bindIdx;
 
 	if (dr->batchSurfaceTex) {
-		// Surface texture override (set by d3d9DrawSurface)
 		desiredTex = dr->batchSurfaceTex;
 		bindIdx = -2;
 		dr->batchSurfaceTex = nullptr;
-		// Invalidate currentTextureIndex so the next ensureTexture forces a flush
 		dr->currentTextureIndex = -1;
 	} else {
 		desiredTex = dr->whiteTexture;
@@ -1033,17 +1103,11 @@ static void flushBatch(D3D9Renderer* dr) {
 		}
 	}
 
-	// Determine the correct sampler slot for the batch's main texture.
-	// When a GML shader is active, bind to the gm_BaseTexture sampler slot
-	// so it doesn't clobber other textures set via texture_set_stage.
 	uint32_t batchSlot = 0;
-	if (renderer->currentShader >= 0 && (uint32_t)renderer->currentShader < dr->gmlShaderCount) {
-		D3D9GMLShader* shader = &dr->gmlShaders[renderer->currentShader];
-		if (shader->compiled) {
-			D3D9ShaderUniform* baseTex = findShaderUniform(shader, "gm_BaseTexture");
-			if (baseTex && baseTex->isSampler) {
-				batchSlot = baseTex->samplerSlot;
-			}
+	if (haveActiveShader) {
+		D3D9ShaderUniform* baseTex = findShaderUniform(activeShader, "gm_BaseTexture");
+		if (baseTex && baseTex->isSampler) {
+			batchSlot = baseTex->samplerSlot;
 		}
 	}
 
@@ -1827,21 +1891,31 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
 		return;
 	}
 
-	// Adaptive scan: scan up to 64 non-decoded slots, but process any
-	// decoded textures found along the way. If many textures finish
-	// decoding in a single frame, we keep uploading them without throttling.
 	uint32_t emptyChecks = 0;
 	const uint32_t maxEmptyChecks = 64;
-	// Hard cap on total slots scanned per frame to avoid stalls on huge counts.
 	const uint32_t hardScanLimit = (dr->textureCount < 1024) ? dr->textureCount : 1024;
 	uint32_t totalScanned = 0;
 
-	__lwsync(); // acquire barrier: ensure worker thread writes are visible
+	__lwsync();
 
 	while (emptyChecks < maxEmptyChecks && totalScanned < hardScanLimit) {
 		uint32_t i = dr->textureDecodedUploadCursor;
-		dr->textureDecodedUploadCursor = (dr->textureDecodedUploadCursor + 1) % dr->textureCount;
+		uint32_t next = i + 1;
+		if (next >= dr->textureCount) {
+			next = 0;
+		}
+		dr->textureDecodedUploadCursor = next;
 		totalScanned++;
+
+#ifdef PLATFORM_XBOX360_XDK
+		// Prefetch the next slot's load state to avoid D-cache miss
+		// when we loop around. The textureLoadState array is uint8_t
+		// per slot, so prefetch 128 bytes ahead = ~128 slots.
+		if ((totalScanned & 63) == 0) {
+			uint32_t pfIdx = (next + 64) % dr->textureCount;
+			__dcbt(0, (const void*)&dr->textureLoadState[pfIdx]);
+		}
+#endif
 
 		if (dr->textureLoadState[i] == TEX_LOAD_DECODED) {
 			uploadDecodedTexture(dr, i);
@@ -3624,15 +3698,16 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 
 	// Transform to screen space
 	SpriteVertex* v = allocQuad(dr);
+	D3DCOLOR vertColor = D3DCOLOR_ARGB(floatToByteClamped(ca),
+									   floatToByteClamped(cr),
+									   floatToByteClamped(cg),
+									   floatToByteClamped(cb));
 	float sx, sy;
 	for (int i = 0; i < 4; i++) {
 		transformPoint(dr, x + cx[i], y + cy[i], &sx, &sy);
 		v[i].x = sx - 0.5f;
 		v[i].y = sy - 0.5f;
-		v[i].color = D3DCOLOR_ARGB(floatToByteClamped(ca),
-								   floatToByteClamped(cr),
-								   floatToByteClamped(cg),
-								   floatToByteClamped(cb));
+		v[i].color = vertColor;
 	}
 	v[0].u = u0;
 	v[0].v = v0;
@@ -3707,6 +3782,10 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	SpriteVertex* v = allocQuad(dr);
 	float qx[4] = { x, x + drawW, x + drawW, x };
@@ -3735,10 +3814,10 @@ static void d3d9DrawSpritePart(Renderer* renderer, int32_t tpagIndex,
 		transformPoint(dr, cx[i], cy[i], &sx[i], &sy[i]);
 	}
 
-	setVertex(&v[0], sx[0], sy[0], u0, v0, cr, cg, cb, ca);
-	setVertex(&v[1], sx[1], sy[1], u1, v0, cr, cg, cb, ca);
-	setVertex(&v[2], sx[2], sy[2], u1, v1, cr, cg, cb, ca);
-	setVertex(&v[3], sx[3], sy[3], u0, v1, cr, cg, cb, ca);
+	setVertexFast(&v[0], sx[0], sy[0], u0, v0, argb);
+	setVertexFast(&v[1], sx[1], sy[1], u1, v0, argb);
+	setVertexFast(&v[2], sx[2], sy[2], u1, v1, argb);
+	setVertexFast(&v[3], sx[3], sy[3], u0, v1, argb);
 }
 
 static void d3d9DrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
@@ -3780,17 +3859,21 @@ static void d3d9DrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, f
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(renderer->drawColor, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	SpriteVertex* v = allocQuad(dr);
 	float sx, sy;
 	transformPoint(dr, x1, y1, &sx, &sy);
-	setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
+	setVertexFast(&v[0], sx, sy, u0, v0, argb);
 	transformPoint(dr, x2, y2, &sx, &sy);
-	setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
+	setVertexFast(&v[1], sx, sy, u1, v0, argb);
 	transformPoint(dr, x3, y3, &sx, &sy);
-	setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
+	setVertexFast(&v[2], sx, sy, u1, v1, argb);
 	transformPoint(dr, x4, y4, &sx, &sy);
-	setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
+	setVertexFast(&v[3], sx, sy, u0, v1, argb);
 }
 
 static void d3d9DrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2,
@@ -3811,17 +3894,20 @@ static void d3d9DrawRectangle(Renderer* renderer, float x1, float y1, float x2, 
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 	SpriteVertex* v = allocQuad(dr);
 
 	float sx0, sy0, sx1, sy1;
 	transformPoint(dr, x1, y1, &sx0, &sy0);
-	// GML adds +1 to width/height for filled rects (matching GL renderer behavior)
 	transformPoint(dr, x2 + 1.0f, y2 + 1.0f, &sx1, &sy1);
 
-	setVertex(&v[0], sx0, sy0, 0, 0, cr, cg, cb, ca);
-	setVertex(&v[1], sx1, sy0, 1, 0, cr, cg, cb, ca);
-	setVertex(&v[2], sx1, sy1, 1, 1, cr, cg, cb, ca);
-	setVertex(&v[3], sx0, sy1, 0, 1, cr, cg, cb, ca);
+	setVertexFast(&v[0], sx0, sy0, 0, 0, argb);
+	setVertexFast(&v[1], sx1, sy0, 1, 0, argb);
+	setVertexFast(&v[2], sx1, sy1, 1, 1, argb);
+	setVertexFast(&v[3], sx0, sy1, 0, 1, argb);
 }
 
 static void d3d9DrawLine(Renderer* renderer, float x1, float y1, float x2, float y2,
@@ -3841,18 +3927,22 @@ static void d3d9DrawLine(Renderer* renderer, float x1, float y1, float x2, float
 	ensureTexture(dr, -1);
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	SpriteVertex* v = allocQuad(dr);
 	float sx, sy;
 
 	transformPoint(dr, x1 + nx, y1 + ny, &sx, &sy);
-	setVertex(&v[0], sx, sy, 0, 0, cr, cg, cb, ca);
+	setVertexFast(&v[0], sx, sy, 0, 0, argb);
 	transformPoint(dr, x2 + nx, y2 + ny, &sx, &sy);
-	setVertex(&v[1], sx, sy, 1, 0, cr, cg, cb, ca);
+	setVertexFast(&v[1], sx, sy, 1, 0, argb);
 	transformPoint(dr, x2 - nx, y2 - ny, &sx, &sy);
-	setVertex(&v[2], sx, sy, 1, 1, cr, cg, cb, ca);
+	setVertexFast(&v[2], sx, sy, 1, 1, argb);
 	transformPoint(dr, x1 - nx, y1 - ny, &sx, &sy);
-	setVertex(&v[3], sx, sy, 0, 1, cr, cg, cb, ca);
+	setVertexFast(&v[3], sx, sy, 0, 1, argb);
 }
 
 static void d3d9DrawLineColor(Renderer* renderer, float x1, float y1, float x2, float y2,
@@ -4226,6 +4316,22 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 						cy[3] = sy1;
 					}
 
+					D3DCOLOR cTL = D3DCOLOR_ARGB(floatToByteClamped(vTLa),
+												floatToByteClamped(vTLr),
+												floatToByteClamped(vTLg),
+												floatToByteClamped(vTLb));
+					D3DCOLOR cTR = D3DCOLOR_ARGB(floatToByteClamped(vTRa),
+												floatToByteClamped(vTRr),
+												floatToByteClamped(vTRg),
+												floatToByteClamped(vTRb));
+					D3DCOLOR cBR = D3DCOLOR_ARGB(floatToByteClamped(vBRa),
+												floatToByteClamped(vBRr),
+												floatToByteClamped(vBRg),
+												floatToByteClamped(vBRb));
+					D3DCOLOR cBL = D3DCOLOR_ARGB(floatToByteClamped(vBLa),
+												floatToByteClamped(vBLr),
+												floatToByteClamped(vBLg),
+												floatToByteClamped(vBLb));
 					SpriteVertex* v = allocQuad(dr);
 					float screenX, screenY;
 					for (int i = 0; i < 4; i++) {
@@ -4233,23 +4339,10 @@ static void d3d9DrawTextInternal(Renderer* renderer, const char* text, float x, 
 						v[i].x = screenX - 0.5f;
 						v[i].y = screenY - 0.5f;
 					}
-					// Per-vertex colors: TL=0, TR=1, BR=2, BL=3
-					v[0].color = D3DCOLOR_ARGB(floatToByteClamped(vTLa),
-											   floatToByteClamped(vTLr),
-											   floatToByteClamped(vTLg),
-											   floatToByteClamped(vTLb));
-					v[1].color = D3DCOLOR_ARGB(floatToByteClamped(vTRa),
-											   floatToByteClamped(vTRr),
-											   floatToByteClamped(vTRg),
-											   floatToByteClamped(vTRb));
-					v[2].color = D3DCOLOR_ARGB(floatToByteClamped(vBRa),
-											   floatToByteClamped(vBRr),
-											   floatToByteClamped(vBRg),
-											   floatToByteClamped(vBRb));
-					v[3].color = D3DCOLOR_ARGB(floatToByteClamped(vBLa),
-											   floatToByteClamped(vBLr),
-											   floatToByteClamped(vBLg),
-											   floatToByteClamped(vBLb));
+					v[0].color = cTL;
+					v[1].color = cTR;
+					v[2].color = cBR;
+					v[3].color = cBL;
 					v[0].u = gU0;
 					v[0].v = gV0;
 					v[1].u = gU1;
@@ -5275,6 +5368,10 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	// Route through the batch system so the surface quad is drawn via the same
 	// pipeline as sprites (shaders, viewport, etc.) and consecutive surface
@@ -5284,13 +5381,13 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		SpriteVertex* v = allocQuad(dr);
 		float sx, sy;
 		transformPoint(dr, cx[0], cy[0], &sx, &sy);
-		setVertex(&v[0], sx, sy, u0, v0, cr, cg, cb, ca);
+		setVertexFast(&v[0], sx, sy, u0, v0, argb);
 		transformPoint(dr, cx[1], cy[1], &sx, &sy);
-		setVertex(&v[1], sx, sy, u1, v0, cr, cg, cb, ca);
+		setVertexFast(&v[1], sx, sy, u1, v0, argb);
 		transformPoint(dr, cx[2], cy[2], &sx, &sy);
-		setVertex(&v[2], sx, sy, u1, v1, cr, cg, cb, ca);
+		setVertexFast(&v[2], sx, sy, u1, v1, argb);
 		transformPoint(dr, cx[3], cy[3], &sx, &sy);
-		setVertex(&v[3], sx, sy, u0, v1, cr, cg, cb, ca);
+		setVertexFast(&v[3], sx, sy, u0, v1, argb);
 	}
 	// Invalidate so the next ensureTexture always flushes (avoids
 	// mixing the surface quad with subsequent sprites in the same batch).
@@ -7618,6 +7715,10 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	// Compute starting offsets so that x/y correspond to the scroll position.
 	float startX = tileX ? fmodf(x, sprW) - sprW : x;
@@ -7675,10 +7776,10 @@ void d3d9DrawSpriteTiled(Renderer* renderer, int32_t tpagIndex, float originX, f
 			float vy1 = vy0 + quadH;
 
 			SpriteVertex* v = allocQuad(dr);
-			setVertex(&v[0], vx0, vy0, u0, v0, cr, cg, cb, ca);
-			setVertex(&v[1], vx1, vy0, u1, v0, cr, cg, cb, ca);
-			setVertex(&v[2], vx1, vy1, u1, v1, cr, cg, cb, ca);
-			setVertex(&v[3], vx0, vy1, u0, v1, cr, cg, cb, ca);
+			setVertexFast(&v[0], vx0, vy0, u0, v0, argb);
+			setVertexFast(&v[1], vx1, vy0, u1, v0, argb);
+			setVertexFast(&v[2], vx1, vy1, u1, v1, argb);
+			setVertexFast(&v[3], vx0, vy1, u0, v1, argb);
 		}
 	}
 }
@@ -7741,6 +7842,10 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
+	D3DCOLOR argb = D3DCOLOR_ARGB(floatToByteClamped(ca),
+								  floatToByteClamped(cr),
+								  floatToByteClamped(cg),
+								  floatToByteClamped(cb));
 
 	float startX = fmodf(x, sprW) - sprW;
 	float startY = fmodf(y, sprH) - sprH;
@@ -7794,10 +7899,10 @@ void d3d9DrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float 
 			float vx1 = dx + sprW;
 
 			SpriteVertex* v = allocQuad(dr);
-			setVertex(&v[0], vx0, vy0, u0, v0, cr, cg, cb, ca);
-			setVertex(&v[1], vx1, vy0, u1, v0, cr, cg, cb, ca);
-			setVertex(&v[2], vx1, vy1, u1, v1, cr, cg, cb, ca);
-			setVertex(&v[3], vx0, vy1, u0, v1, cr, cg, cb, ca);
+			setVertexFast(&v[0], vx0, vy0, u0, v0, argb);
+			setVertexFast(&v[1], vx1, vy0, u1, v0, argb);
+			setVertexFast(&v[2], vx1, vy1, u1, v1, argb);
+			setVertexFast(&v[3], vx0, vy1, u0, v1, argb);
 		}
 	}
 }
