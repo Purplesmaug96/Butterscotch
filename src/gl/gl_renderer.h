@@ -28,6 +28,7 @@ typedef struct {
     bool compiled;
     uint32_t uniformCount;
     GLShaderUniform* uniforms;
+    int32_t baseTextureSamplerSlot; // cached sampler slot for gm_BaseTexture, -1 if not found
 } GMLShader;
 
 typedef struct {
@@ -90,7 +91,8 @@ typedef struct {
     int32_t currentDFactorAlpha;
 
     bool isGL3; // TRUE if running on OpenGL (ES) 3.x+
-    bool isGLES;  // TRUE if running on OpenGL ES (GLES)
+    bool isGLES; // TRUE if running on OpenGL ES (GLES)
+    bool hasVAO;  // cached result of hasVAO()
 
     // Cached default shader uniforms
     GLShaderUniform* uWorldViewProjection;

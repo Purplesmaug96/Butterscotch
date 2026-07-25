@@ -11,13 +11,7 @@
 #define COMPRESSED_QOI_HEADER_SIZE_OLD 8
 #define COMPRESSED_QOI_HEADER_SIZE_NEW 12
 
-#if defined(__GNUC__) || defined(__clang__)
-#define LIKELY(x)   __builtin_expect(!!(x), 1)
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
-#else
-#define LIKELY(x)   (x)
-#define UNLIKELY(x) (x)
-#endif
+#include "utils.h"
 
 // Sign-extend the low "bits" bits of "val" to an 8-bit two's-complement value.
 static inline uint8_t signExtend(uint32_t val, int bits) {
@@ -41,7 +35,7 @@ static uint8_t* decodeQoi(const uint8_t* restrict data, size_t dataSize, int* ou
     size_t pixelDataSize = length;
     size_t rawSize = (size_t)width * (size_t)height * 4;
     uint8_t* restrict raw = (uint8_t*) malloc(rawSize);
-    if (!raw) return nullptr;
+    if (UNLIKELY(!raw)) return nullptr;
 
     uint8_t index[64 * 4];
     memset(index, 0, sizeof(index));
@@ -126,20 +120,20 @@ static uint8_t* decodeQoi(const uint8_t* restrict data, size_t dataSize, int* ou
 //   bytes 8.. (or 12.. if gm2022_5) = raw BZip2 stream, which decompresses into a full "fioq" QOI file.
 static uint8_t* decodeBz2Qoi(const uint8_t* blob, size_t blobSize, bool gm2022_5, int* outW, int* outH) {
     size_t headerSize = gm2022_5 ? COMPRESSED_QOI_HEADER_SIZE_NEW : COMPRESSED_QOI_HEADER_SIZE_OLD;
-    if (headerSize > blobSize) return nullptr;
+    if (UNLIKELY(headerSize > blobSize)) return nullptr;
 
     int width = blob[4] | (blob[5] << 8);
     int height = blob[6] | (blob[7] << 8);
-    if (0 >= width || 0 >= height) return nullptr;
+    if (UNLIKELY(0 >= width || 0 >= height)) return nullptr;
 
     // Upper bound on decompressed QOI: header size + width*height*5 pixel data.
     size_t uncompressedCapacity = QOI_HEADER_SIZE + (size_t) width * (size_t) height * 5;
     uint8_t* uncompressed = (uint8_t*) malloc(uncompressedCapacity);
-    if (!uncompressed) return nullptr;
+	if (UNLIKELY(!uncompressed)) return nullptr;
 
     unsigned int destLen = (unsigned int) uncompressedCapacity;
     int rc = BZ2_bzBuffToBuffDecompress((char*) uncompressed, &destLen, (char*)(blob + headerSize), (unsigned int)(blobSize - headerSize), 0, 0);
-    if (rc != BZ_OK) {
+    if (UNLIKELY(rc != BZ_OK)) {
         fprintf(stderr, "ImageDecoder: BZ2 decompress failed (rc=%d)\n", rc);
         free(uncompressed);
         return nullptr;
@@ -151,7 +145,7 @@ static uint8_t* decodeBz2Qoi(const uint8_t* blob, size_t blobSize, bool gm2022_5
 }
 
 uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm2022_5, int* outW, int* outH) {
-    if (4 > blobSize || !blob) return nullptr;
+    if (UNLIKELY(4 > blobSize || !blob)) return nullptr;
 
     // GameMaker custom QOI ("fioq")
     if (blob[0] == 'f' && blob[1] == 'i' && blob[2] == 'o' && blob[3] == 'q') {
@@ -166,7 +160,7 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
     // PNG (or anything else stbi recognizes).
     int w, h, channels;
     uint8_t* pixels = stbi_load_from_memory(blob, (int) blobSize, &w, &h, &channels, 4);
-    if (!pixels) return nullptr;
+    if (UNLIKELY(!pixels)) return nullptr;
     *outW = w;
     *outH = h;
     return pixels;

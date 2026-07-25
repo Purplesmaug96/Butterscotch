@@ -135,10 +135,8 @@ static void flushBatch(GLRenderer* gl) {
 
     if (gl->base.currentShader != -1) {
         GMLShader* shader = &gl->gmlShaders[gl->base.currentShader];
-
-        GLShaderUniform* uniform = findShaderUniformByName(shader, "gm_BaseTexture");
-        if (uniform != nullptr)
-            glActiveTexture(GL_TEXTURE0 + uniform->samplerSlot);
+        if (shader->baseTextureSamplerSlot >= 0)
+            glActiveTexture(GL_TEXTURE0 + shader->baseTextureSamplerSlot);
         glBindTexture(GL_TEXTURE_2D, gl->currentTextureId);
     } else {
         glActiveTexture(GL_TEXTURE1);
@@ -148,38 +146,26 @@ static void flushBatch(GLRenderer* gl) {
     int32_t singleVertexCount = (gl->batchType == BATCHTYPE_QUAD) ? VERTICES_PER_QUAD : VERTICES_PER_TRIANGLE;
     int32_t vertexCount = gl->batchCount * singleVertexCount;
     int32_t indexCount = gl->batchCount * INDICES_PER_QUAD;
-
     int32_t totalVboSize = MAX_QUADS * VERTICES_PER_QUAD * sizeof(Vertex);
-    if (hasVAO()) {
-        glBindVertexArray(gl->vao);
-        glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
-        glBufferData(GL_ARRAY_BUFFER, totalVboSize, nullptr, GL_DYNAMIC_DRAW);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCount * sizeof(Vertex), gl->vertexData);
-    } else {
-        glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
-        glBufferData(GL_ARRAY_BUFFER, totalVboSize, nullptr, GL_DYNAMIC_DRAW);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCount * sizeof(Vertex), gl->vertexData);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
 
+    glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+    glBufferData(GL_ARRAY_BUFFER, totalVboSize, nullptr, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCount * sizeof(Vertex), gl->vertexData);
+
+    if (gl->hasVAO) {
+        glBindVertexArray(gl->vao);
+    } else {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
         int32_t stride = sizeof(Vertex);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, x));
-        glEnableVertexAttribArray(0);
         glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(Vertex, r));
-        glEnableVertexAttribArray(1);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, u));
-        glEnableVertexAttribArray(2);
     }
 
     if (gl->batchType == BATCHTYPE_QUAD) {
         glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, nullptr);
     } else if (gl->batchType == BATCHTYPE_TRIANGLE) {
         glDrawArrays(GL_TRIANGLES, 0, gl->batchCount * VERTICES_PER_TRIANGLE);
-    }
-
-    if (!hasVAO()) {
-        glDisableVertexAttribArray(0);
-        glDisableVertexAttribArray(1);
-        glDisableVertexAttribArray(2);
     }
 
     gl->batchCount = 0;
@@ -254,6 +240,15 @@ static bool compileProgram(GMLShader* gmlShader, const char* name, const char* v
 
     gmlShader->shaderId = shaderId;
     gmlShader->compiled = true;
+
+    gmlShader->baseTextureSamplerSlot = -1;
+    repeat(gmlShader->uniformCount, i) {
+        if (strcmp(gmlShader->uniforms[i].name, "gm_BaseTexture") == 0) {
+            gmlShader->baseTextureSamplerSlot = gmlShader->uniforms[i].samplerSlot;
+            break;
+        }
+    }
+
     return true;
 }
 
@@ -401,9 +396,6 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
 
         gl->gmlShaderCount++;
     }
-    GLShaderUniform* uAlphaTestRef = findShaderUniformByName(gl->defaultShaderProgram, "uAlphaTestRef");
-    GLShaderUniform* uFogColor = findShaderUniformByName(gl->defaultShaderProgram, "uFogColor");
-
     gl->alphaTestEnable = false;
     gl->alphaTestRef = 0.0f;
     gl->colorWriteR = true;
@@ -413,11 +405,12 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     gl->fogEnable = false;
     gl->fogColor = 0;
     glUseProgram(gl->defaultShaderProgram->shaderId);
-    glUniform1f(uAlphaTestRef->location, -1.0f);
-    glUniform4f(uFogColor->location, 0.0f, 0.0f, 0.0f, 0.0f);
+    glUniform1f(gl->uAlphaTestRef->location, -1.0f);
+    glUniform4f(gl->uFogColor->location, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Create VAO/VBO/EBO
-    if (hasVAO()) {
+    gl->hasVAO = hasVAO();
+    if (gl->hasVAO) {
         glGenVertexArrays(1, &gl->vao);
         glBindVertexArray(gl->vao);
     }
@@ -440,15 +433,16 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, eboSize, indices, GL_STATIC_DRAW);
     free(indices);
 
-    if (hasVAO()) {
-        // Vertex attributes: pos(2f), texcoord(2f), color(4f)
-        int32_t stride = sizeof(Vertex);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, x));
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(Vertex, r));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, u));
-        glEnableVertexAttribArray(2);
+    // Vertex attributes: pos(2f), texcoord(2f), color(4f) — set up once for both VAO and non-VAO paths
+	int32_t stride = sizeof(Vertex);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, x));
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(Vertex, r));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, u));
+	glEnableVertexAttribArray(2);
+
+    if (gl->hasVAO) {
         glBindVertexArray(0);
     }
 
@@ -559,7 +553,7 @@ static void glShaderSettingsRefresh(Renderer* renderer) {
 // camera_apply: swap the active world->clip projection on the current target without touching its viewport.
 static void glApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix,const Matrix4f* projectionMatrix) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    
+
     // Flush first so pending quads draw under the projection they were issued with.
     flushBatch(gl);
 
@@ -572,13 +566,13 @@ static void glApplyProjection(Renderer* renderer, const Matrix4f* viewMatrix,con
 
     Matrix4f worldViewProjection;
     Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
-  
-    renderer->gmlMatrices[MATRIX_VIEW] = view;   
+
+    renderer->gmlMatrices[MATRIX_VIEW] = view;
     renderer->gmlMatrices[MATRIX_PROJECTION] = projection;
-    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;   
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
     renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
     //oh my I hope it's good enough.
-    glShaderSettingsRefresh(renderer);    
+    glShaderSettingsRefresh(renderer);
 }
 
 static void glGpuResetShader(Renderer* renderer) {
@@ -622,7 +616,7 @@ static void glDestroy(Renderer* renderer) {
     freeShader(gl->defaultShaderProgram);
     free(gl->defaultShaderProgram);
     glDeleteTextures((GLsizei) gl->textureCount, gl->glTextures);
-    if (hasVAO()) glDeleteVertexArrays(1, &gl->vao);
+    if (gl->hasVAO) glDeleteVertexArrays(1, &gl->vao);
     glDeleteBuffers(1, &gl->vbo);
     glDeleteBuffers(1, &gl->ebo);
 
@@ -686,7 +680,7 @@ static void glBeginView(Renderer* renderer, MAYBE_UNUSED int32_t viewX, MAYBE_UN
     glShaderSettingsRefresh(renderer);
     glActiveTexture(GL_TEXTURE1);
 
-    if (hasVAO()) glBindVertexArray(gl->vao);
+    if (gl->hasVAO) glBindVertexArray(gl->vao);
 
 }
 
@@ -746,7 +740,7 @@ static void glBeginGUI(Renderer* renderer, MAYBE_UNUSED int32_t guiW, MAYBE_UNUS
 
     glActiveTexture(GL_TEXTURE1);
 
-    if (hasVAO()) glBindVertexArray(gl->vao);
+    if (gl->hasVAO) glBindVertexArray(gl->vao);
 }
 
 static void glSetGuiProjection(Renderer* renderer, int32_t guiW, int32_t guiH, MAYBE_UNUSED int32_t portW, MAYBE_UNUSED int32_t portH, MAYBE_UNUSED bool renderingToUserSurface) {
@@ -790,7 +784,7 @@ static void glEndGUI(Renderer* renderer) {
 
 static void glEndFrameInit(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    if (hasVAO()) glBindVertexArray(0);
+    if (gl->hasVAO) glBindVertexArray(0);
 
     if (renderer->runner->usingAppSurface && !renderer->runner->appSurfaceAutoDraw) {
         glBindFramebuffer(GL_FRAMEBUFFER, gl->hostFramebuffer);
@@ -1581,11 +1575,11 @@ static void glDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
         // This gets the vertex data for the new triangle batch
         Vertex* verts = gl->vertexData + gl->batchCount * VERTICES_PER_TRIANGLE;
         uint8_t ca = floatToUnormByte(alpha);
-        
+
         verts[0].x = x1; verts[0].y = y1; verts[0].u = 0.0f; verts[0].v = 0.0f; verts[0].r = (uint8_t) BGR_R(color1); verts[0].g = (uint8_t) BGR_G(color1); verts[0].b = (uint8_t) BGR_B(color1); verts[0].a = ca;
         verts[1].x = x2; verts[1].y = y2; verts[1].u = 0.0f; verts[1].v = 0.0f; verts[1].r = (uint8_t) BGR_R(color2); verts[1].g = (uint8_t) BGR_G(color2); verts[1].b = (uint8_t) BGR_B(color2); verts[1].a = ca;
         verts[2].x = x3; verts[2].y = y3; verts[2].u = 0.0f; verts[2].v = 0.0f; verts[2].r = (uint8_t) BGR_R(color3); verts[2].g = (uint8_t) BGR_G(color3); verts[2].b = (uint8_t) BGR_B(color3); verts[2].a = ca;
-        
+
         gl->batchCount++;
     }
 }
@@ -2357,7 +2351,7 @@ static void glGpuSetBlendMode(Renderer* renderer, int32_t mode) {
     gl->currentBlendMode = mode;
     gl->currentSFactor = GLCommon_blendModeToSFactor(mode);
     gl->currentDFactor = GLCommon_blendModeToDFactor(mode);
-    gl->currentSFactorAlpha = gl->currentSFactor; 
+    gl->currentSFactorAlpha = gl->currentSFactor;
     gl->currentDFactorAlpha = gl->currentDFactor;
 
     glBlendEquation(GLCommon_blendModeToEquation(mode));
@@ -2374,9 +2368,9 @@ static void glGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t df
     gl->currentDFactorAlpha = dfactor_alpha;
 
     glBlendFuncSeparate(
-        GLCommon_blendFactorToGL(sfactor), 
-        GLCommon_blendFactorToGL(dfactor), 
-        GLCommon_blendFactorToGL(sfactor_alpha), 
+        GLCommon_blendFactorToGL(sfactor),
+        GLCommon_blendFactorToGL(dfactor),
+        GLCommon_blendFactorToGL(sfactor_alpha),
         GLCommon_blendFactorToGL(dfactor_alpha)
     );
 }
@@ -2655,8 +2649,8 @@ static void glSetMatrix(Renderer* renderer, int32_t matrixType, Matrix4f matrix)
 
     Matrix4f worldViewProjection;
     Matrix4f_multiply(&worldViewProjection, &projection, &worldView);
-  
-    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;   
+
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW] = worldView;
     renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = worldViewProjection;
 
 
