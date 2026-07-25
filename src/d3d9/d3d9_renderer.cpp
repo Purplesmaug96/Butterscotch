@@ -736,60 +736,49 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 //   D3DFMT_DXT1  (4 BPP) - binary alpha (0 or 255 only), ≤4 colors/block
 //   D3DFMT_DXT5  (8 BPP) - full alpha (≤8 values/block), ≤4 colors/block
 //   D3DFMT_A8R8G8B8 (32 BPP) - lossless fallback
-static D3DFORMAT textureBestCompression(const uint8_t* __restrict pixels, int32_t w, int32_t h) {
+static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_t h) {
 	if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
+	// Small textures (< 8x8) are not worth the analysis overhead;
+	// just use DXT5 which is always safe.
 	if (w < 8 && h < 8) return D3DFMT_DXT5;
-
-	// Quick scan: check first 256 pixels for intermediate alpha (0 < a < 255).
-	bool hasIntermediateAlpha = false;
-	{
-		int32_t n = w * h;
-		if (n > 256) n = 256;
-		for (int32_t i = 0; i < n; i++) {
-			uint8_t a = pixels[i * 4 + 3];
-			if (a != 0 && a != 255) {
-				hasIntermediateAlpha = true;
-				break;
-			}
-		}
-	}
-
-	// Block analysis: scan all 4x4 blocks for color count.
-	// Track up to 5 colors (4 is the DXT limit; 5th triggers A8R8G8B8).
+	bool needDXT5 = false;
 	for (int32_t by = 0; by < h; by += 4) {
 		for (int32_t bx = 0; bx < w; bx += 4) {
-			uint16_t colors[5];
-			int32_t nColors = 0;
+			uint16_t colors[16];
+			uint8_t alphas[16];
+			int nColors = 0, nAlphas = 0;
+			int bw = (bx + 4 > w) ? w - bx : 4;
+			int bh = (by + 4 > h) ? h - by : 4;
 			bool hasTransparent = false;
-			int32_t bw = (bx + 4 > w) ? w - bx : 4;
-			int32_t bh = (by + 4 > h) ? h - by : 4;
+			bool hasIntermediateAlpha = false;
+			bool blockOpaque = true;
 			for (int32_t y = 0; y < bh; y++) {
 				for (int32_t x = 0; x < bw; x++) {
 					const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
-					uint8_t a = p[3];
-					uint16_t c = ((uint16_t)(p[0] >> 3) << 11) | ((uint16_t)(p[1] >> 2) << 5) | (p[2] >> 3);
-					if (a == 0) hasTransparent = true;
-					for (int i = 0; i < nColors; i++) {
-						if (colors[i] == c) goto next_pixel;
+					uint8_t r = p[0], g = p[1], b2 = p[2], a = p[3];
+					uint16_t c = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b2 >> 3);
+					if (a == 0) {
+						hasTransparent = true;
+						blockOpaque = false;
+					} else if (a != 255) {
+						hasIntermediateAlpha = true;
+						blockOpaque = false;
 					}
-					if (nColors >= 4) return D3DFMT_A8R8G8B8;
-					colors[nColors++] = c;
-next_pixel:;
+					bool found = false;
+					for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
+					if (!found) { if (nColors >= 16) { return D3DFMT_A8R8G8B8; } colors[nColors++] = c; }
+					if (!blockOpaque) {
+						found = false;
+						for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
+						if (!found) { if (nAlphas >= 16) { return D3DFMT_A8R8G8B8; } alphas[nAlphas++] = a; }
+					}
 				}
 			}
-			// If intermediate alpha exists anywhere, any non-DXT1 block forces DXT5.
-			// Otherwise, a block with transparent + >3 colors also needs DXT5.
-			if (hasIntermediateAlpha) {
-				// Blocks with intermediate alpha + >3 colors are fine for DXT5
-				// (DXT5 stores 8 alpha values per block, colors use DXT1-like 4-color table)
-				// No action needed here; DXT5 handles all blocks.
-			} else {
-				if (hasTransparent && nColors > 3) return D3DFMT_DXT5;
-			}
+			if (nColors > 4 || (!blockOpaque && nAlphas > 8)) return D3DFMT_A8R8G8B8;
+			if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
 		}
 	}
-
-	return hasIntermediateAlpha ? D3DFMT_DXT5 : D3DFMT_DXT1;
+	return needDXT5 ? D3DFMT_DXT5 : D3DFMT_DXT1;
 }
 
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
