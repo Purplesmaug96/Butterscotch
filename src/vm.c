@@ -44,18 +44,19 @@ static char* formatStackContents(VMContext* ctx) {
 
 // Returns the native byte size of a GML data type on the runner's stack.
 // The Dup instruction (and several BC17+ BREAK sub-opcodes) encode byte counts, not slot counts.
+static const uint8_t gmlTypeNativeSizes[16] = {
+    [GML_TYPE_DOUBLE]   = 8,
+    [GML_TYPE_FLOAT]    = 4,
+    [GML_TYPE_INT32]    = 4,
+    [GML_TYPE_INT64]    = 8,
+    [GML_TYPE_BOOL]     = 4,
+    [GML_TYPE_VARIABLE] = 16,
+    [GML_TYPE_STRING]   = 4,
+    [GML_TYPE_INT16]    = 4,
+};
+
 static inline int gmlTypeNativeSize(uint8_t gmlType) {
-    switch (gmlType) {
-        case GML_TYPE_DOUBLE:   return 8;
-        case GML_TYPE_FLOAT:    return 4;
-        case GML_TYPE_INT32:    return 4;
-        case GML_TYPE_INT64:    return 8;
-        case GML_TYPE_BOOL:     return 4;
-        case GML_TYPE_VARIABLE: return 16;
-        case GML_TYPE_STRING:   return 4;
-        case GML_TYPE_INT16:    return 4;
-        default:                return 16;
-    }
+    return gmlTypeNativeSizes[gmlType & 0xF];
 }
 
 static inline void stackPush(VMContext* ctx, const RValue val) {
@@ -142,18 +143,19 @@ static inline int32_t instrJumpOffset(uint32_t instr) {
     return ((int32_t) (instr << 9)) >> 7;
 }
 
+static const uint8_t extraDataSizes[16] = {
+    [GML_TYPE_DOUBLE]   = 8,
+    [GML_TYPE_FLOAT]    = 4,
+    [GML_TYPE_INT32]    = 4,
+    [GML_TYPE_INT64]    = 8,
+    [GML_TYPE_BOOL]     = 4,
+    [GML_TYPE_VARIABLE] = 4,
+    [GML_TYPE_STRING]   = 4,
+    [GML_TYPE_INT16]    = 0,
+};
+
 static inline uint32_t extraDataSize(uint8_t type1) {
-    switch (type1) {
-        case GML_TYPE_DOUBLE: return 8;
-        case GML_TYPE_INT64:  return 8;
-        case GML_TYPE_FLOAT:  return 4;
-        case GML_TYPE_INT32:  return 4;
-        case GML_TYPE_BOOL:   return 4;
-        case GML_TYPE_VARIABLE: return 4;
-        case GML_TYPE_STRING: return 4;
-        case GML_TYPE_INT16:  return 0;
-        default:              return 0;
-    }
+    return extraDataSizes[type1 & 0xF];
 }
 
 // ===[ Reference Chain Resolution ]===
@@ -2773,7 +2775,7 @@ static inline void unwindVMStack(VMContext* ctx, int32_t newStackTop) {
     ctx->stack.top = newStackTop;
 }
 
-static RValue executeLoop(VMContext* ctx) {
+static HOT RValue executeLoop(VMContext* ctx) {
     // codeEnd and bytecodeBase are invariant for the lifetime of this executeLoop call, so let's hoist them to avoid the compiler emitting code to
     // reload the values at the end of every iteration.
     const uint32_t codeEnd = ctx->codeEnd;
@@ -2846,15 +2848,16 @@ static RValue executeLoop(VMContext* ctx) {
         const uint32_t instr = BinaryUtils_readUint32Aligned(bytecodeBase + ip);
         ip += 4;
 
-        // extraData pointer (may not be used depending on opcode)
         const uint8_t* extraData = bytecodeBase + ip;
-
-        // If instruction has extra data (bit 30 set), advance IP past it
-        if (instrHasExtraData(instr)) {
-            ip += extraDataSize(instrType1(instr));
+        const bool hasExtraData = instrHasExtraData(instr);
+        const uint8_t type1 = instrType1(instr);
+        if (hasExtraData) {
+            ip += extraDataSize(type1);
         }
 
         const uint8_t opcode = instrOpcode(instr);
+        const uint8_t type2 = instrType2(instr);
+        const int16_t instanceTypeField = instrInstanceType(instr);
 
 #ifdef ENABLE_VM_OPCODE_PROFILER
         if (ctx->opcodeProfilerEnabled) {
@@ -2912,7 +2915,6 @@ static RValue executeLoop(VMContext* ctx) {
         switch (opcode) {
             // Push instructions
             case OP_PUSH: {
-                const uint8_t type1 = instrType1(instr);
                 // Inline fast paths for variable reads (not ints, doubles, etc, only VARIABLES) that are "normal" type (not arrays, not stacktop, and not the new fangled BC17 array reads)
                 if (type1 == GML_TYPE_VARIABLE) {
                     const uint32_t varRef = resolveVarOperand(extraData);
@@ -2920,7 +2922,7 @@ static RValue executeLoop(VMContext* ctx) {
                     if (varType == VARTYPE_NORMAL) {
                         const Variable* varDef = resolveVarDef(ctx, varRef);
                         if (varDef->varID >= 0) {
-                            const int32_t instanceType = (int32_t) instrInstanceType(instr);
+                            const int32_t instanceType = (int32_t) instanceTypeField;
                             RValue val;
                             if (tryFastVarRead(ctx, instanceType, varDef, &val)) {
                                 stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
@@ -2993,13 +2995,11 @@ static RValue executeLoop(VMContext* ctx) {
 
             // Pop instructions
             case OP_POP: {
-                const uint8_t type1 = instrType1(instr);
                 const uint32_t varRef = resolveVarOperand(extraData);
                 const uint8_t varType = (uint8_t) ((varRef >> 24) & 0xF8);
-                int32_t instanceType = instrInstanceType(instr);
+                int32_t instanceType = (int32_t) instanceTypeField;
                 // BC17: VARTYPE_INSTANCE encodes (instanceId - INSTANCE_ID_BASE) in the instruction's lower 16 bits.
                 if (varType == VARTYPE_INSTANCE) instanceType += INSTANCE_ID_BASE;
-                const int32_t type2 = instrType2(instr); // source type (what's on stack)
                 if (type1 == GML_TYPE_VARIABLE && varType == VARTYPE_NORMAL) {
                     // Inline fast path for the simple variable-assignment case: type1==VARIABLE, which is ~99.998% of all Pops in real workloads
                     RValue val = stackPop(ctx);
@@ -3032,26 +3032,25 @@ static RValue executeLoop(VMContext* ctx) {
                         slotA->real = aVal + bVal;
                         slotA->type = RVALUE_REAL;
                     }
-                    slotA->gmlStackType = instrType2(instr);
+                    slotA->gmlStackType = type2;
                     ctx->stack.top--;
                 } else {
-                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
                     if (a.type == RVALUE_STRING || b.type == RVALUE_STRING) {
-                        handleAddString(ctx, a, b, resultType);
+                        handleAddString(ctx, a, b, type2);
                         break;
                     }
 #ifndef NO_RVALUE_INT64
                     if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
-                        stackPushTyped(ctx, RValue_makeInt64(a.int64 + b.int64), resultType);
+                        stackPushTyped(ctx, RValue_makeInt64(a.int64 + b.int64), type2);
                         break;
                     }
 #endif
                     const GMLReal result = RValue_toReal(a) + RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
-                    stackPushTyped(ctx, RValue_makeReal(result), resultType);
+                    stackPushTyped(ctx, RValue_makeReal(result), type2);
                 }
                 break;
             }
@@ -3069,22 +3068,21 @@ static RValue executeLoop(VMContext* ctx) {
                         slotA->real = aVal - bVal;
                         slotA->type = RVALUE_REAL;
                     }
-                    slotA->gmlStackType = instrType2(instr);
+                    slotA->gmlStackType = type2;
                     ctx->stack.top--;
                 } else {
-                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
 #ifndef NO_RVALUE_INT64
                     if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
-                        stackPushTyped(ctx, RValue_makeInt64(a.int64 - b.int64), resultType);
+                        stackPushTyped(ctx, RValue_makeInt64(a.int64 - b.int64), type2);
                         break;
                     }
 #endif
                     const GMLReal result = RValue_toReal(a) - RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
-                    stackPushTyped(ctx, RValue_makeReal(result), resultType);
+                    stackPushTyped(ctx, RValue_makeReal(result), type2);
                 }
                 break;
             }
@@ -3102,26 +3100,25 @@ static RValue executeLoop(VMContext* ctx) {
                         slotA->real = aVal * bVal;
                         slotA->type = RVALUE_REAL;
                     }
-                    slotA->gmlStackType = instrType2(instr);
+                    slotA->gmlStackType = type2;
                     ctx->stack.top--;
                 } else {
-                    const uint8_t resultType = instrType2(instr);
                     RValue b = stackPop(ctx);
                     RValue a = stackPop(ctx);
                     if (a.type == RVALUE_STRING) {
-                        handleMulString(ctx, a, b, resultType);
+                        handleMulString(ctx, a, b, type2);
                         break;
                     }
 #ifndef NO_RVALUE_INT64
                     if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
-                        stackPushTyped(ctx, RValue_makeInt64(a.int64 * b.int64), resultType);
+                        stackPushTyped(ctx, RValue_makeInt64(a.int64 * b.int64), type2);
                         break;
                     }
 #endif
                     const GMLReal result = RValue_toReal(a) * RValue_toReal(b);
                     RValue_free(&a);
                     RValue_free(&b);
-                    stackPushTyped(ctx, RValue_makeReal(result), resultType);
+                    stackPushTyped(ctx, RValue_makeReal(result), type2);
                 }
                 break;
             }
@@ -3142,8 +3139,8 @@ static RValue executeLoop(VMContext* ctx) {
 
             // Type conversion
             case OP_CONV: {
-                const uint8_t srcType = instrType1(instr);
-                const uint8_t dstType = instrType2(instr);
+                const uint8_t srcType = type1;
+                const uint8_t dstType = type2;
                 const uint8_t convKey = (uint8_t) ((dstType << 4) | srcType);
                 RValue* top = &ctx->stack.slots[ctx->stack.top - 1];
                 bool fastHit = false;

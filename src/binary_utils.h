@@ -189,11 +189,19 @@ static inline void BinaryUtils_writeInt64(uint8_t* data, int64_t val) {
 #  define ASSUME_ALIGNED(p, a) (p)
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+typedef uint32_t AliasUint32 __attribute__((__may_alias__));
+
+static inline uint32_t BinaryUtils_readUint32Aligned(const uint8_t* data) {
+    return BinaryUtils_toLittle32(*(const AliasUint32*)ASSUME_ALIGNED(data, 4));
+}
+#else
 static inline uint32_t BinaryUtils_readUint32Aligned(const uint8_t* data) {
     uint32_t val;
     memcpy(&val, ASSUME_ALIGNED(data, 4), 4);
     return BinaryUtils_toLittle32(val);
 }
+#endif
 
 static inline int32_t BinaryUtils_readInt32Aligned(const uint8_t* data) {
     return (int32_t) BinaryUtils_readUint32Aligned(data);

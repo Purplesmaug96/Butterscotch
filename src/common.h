@@ -43,10 +43,16 @@
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__TINYC__)
     #define NOINLINE __attribute__((noinline))
+    #define HOT __attribute__((hot))
+    #define COLD __attribute__((cold))
 #elif defined(_MSC_VER) && _MSC_VER >= 1400 // VS2005 or later
     #define NOINLINE __declspec(noinline)
+    #define HOT
+    #define COLD
 #else
     #define NOINLINE
+    #define HOT
+    #define COLD
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
