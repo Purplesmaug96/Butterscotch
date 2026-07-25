@@ -56,7 +56,7 @@ static inline void requireMessageFormatted(MAYBE_UNUSED const char *file, MAYBE_
 
 #define require(condition) \
     do { \
-        if (!(condition)) { \
+        if (UNLIKELY(!(condition))) { \
         fprintf(stderr, "Requirement failed at %s:%d\n", __FILE__, __LINE__); \
         abort(); \
     } \
@@ -64,15 +64,15 @@ static inline void requireMessageFormatted(MAYBE_UNUSED const char *file, MAYBE_
 
 #define requireMessage(condition, message) \
 do { \
-if (!(condition)) { \
+if (UNLIKELY(!(condition))) { \
 fprintf(stderr, "Requirement failed at %s:%d: %s\n", __FILE__, __LINE__, message); \
 abort(); \
 } \
 } while (0)
 
 static inline void requireMessageFormatted(const char *file, int line, bool condition, const char *fmt, ...) {
-    if (condition)
-        return;
+    if (LIKELY(condition)) return;
+
     va_list args;
     fprintf(stderr, "Requirement failed at %s:%d: ", file, line);
     va_start(args, fmt);
@@ -83,7 +83,7 @@ static inline void requireMessageFormatted(const char *file, int line, bool cond
 }
 
 static inline void* requireNotNullFunction(void* ptr, const char* file, int line, const char* name) {
-    if (!ptr) {
+    if (UNLIKELY(!ptr)) {
         fprintf(stderr, "%s:%d: requireNotNull failed: '%s'\n", file, line, name);
         abort();
     }
@@ -98,7 +98,7 @@ static inline void* requireNotNullFunction(void* ptr, const char* file, int line
 // Safe allocation macros - check for nullptr and abort with file/line info
 ATTRIBUTE_MALLOC static inline void *safeMallocFunction(size_t size, const char *file, int line) {
     void *ret = malloc(size);
-    if (!ret) {
+    if (UNLIKELY(!ret)) {
         fprintf(stderr, "FATAL: malloc(%zu) failed at %s:%d\n", size, file, line);
         abort();
     }
@@ -108,7 +108,7 @@ ATTRIBUTE_MALLOC static inline void *safeMallocFunction(size_t size, const char 
 
 ATTRIBUTE_MALLOC static inline void *safeCallocFunction(size_t count, size_t size, const char *file, int line) {
     void *ret = calloc(count, size);
-    if (!ret) {
+    if (UNLIKELY(!ret)) {
         fprintf(stderr, "FATAL: calloc(%zu, %zu) failed at %s:%d\n", count, size, file, line);
         abort();
     }
@@ -118,7 +118,7 @@ ATTRIBUTE_MALLOC static inline void *safeCallocFunction(size_t count, size_t siz
 
 static inline void *safeReallocFunction(void *ptr, size_t size, const char *file, int line) {
     void *ret = realloc(ptr, size);
-    if (!ret) {
+    if (UNLIKELY(!ret)) {
         fprintf(stderr, "FATAL: realloc(%zu) failed at %s:%d\n", size, file, line);
         abort();
     }
@@ -130,7 +130,7 @@ static inline void *safeReallocFunction(void *ptr, size_t size, const char *file
 
 static inline void *safeMemalignFunction(size_t alignment, size_t size, const char *file, int line) {
     void *ret = memalign(alignment, size);
-    if (!ret) {
+    if (UNLIKELY(!ret)) {
         fprintf(stderr, "FATAL: memalign(%zu, %zu) failed at %s:%d\n", alignment, size, file, line);
         abort();
     }
@@ -142,7 +142,7 @@ static inline void *safeMemalignFunction(size_t alignment, size_t size, const ch
 
 // Reads exactly n bytes or aborts with the "pathForError" that caused the error.
 static inline void safeFreadFunction(void *dst, size_t n, FILE *read_file, const char *pathForError, const char *file, int line) {
-    if (fread(dst, 1, n, read_file) != n) {
+    if (UNLIKELY(fread(dst, 1, n, read_file) != n)) {
         fprintf(stderr, "FATAL: failed to read %zu bytes from %s at %s:%d\n", n, pathForError, file, line);
         abort();
     }
@@ -151,7 +151,7 @@ static inline void safeFreadFunction(void *dst, size_t n, FILE *read_file, const
 
 static inline char *safeStrdupFunction(const char *str, const char *file, int line) {
     char *ret = strdup(str);
-    if (!ret) {
+    if (UNLIKELY(!ret)) {
         fprintf(stderr, "FATAL: strdup() failed at %s:%d\n", file, line);
         abort();
     }

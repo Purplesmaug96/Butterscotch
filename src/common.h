@@ -43,16 +43,25 @@
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__TINYC__)
     #define NOINLINE __attribute__((noinline))
+    #define ALWAYS_INLINE inline __attribute__((always_inline))
     #define HOT __attribute__((hot))
     #define COLD __attribute__((cold))
+    #define LIKELY(x)   __builtin_expect(!!(x), 1)
+    #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 #elif defined(_MSC_VER) && _MSC_VER >= 1400 // VS2005 or later
     #define NOINLINE __declspec(noinline)
+    #define ALWAYS_INLINE __forceinline
     #define HOT
     #define COLD
+    #define LIKELY(x)   (x)
+    #define UNLIKELY(x) (x)
 #else
     #define NOINLINE
+    #define ALWAYS_INLINE inline
     #define HOT
     #define COLD
+    #define LIKELY(x)   (x)
+    #define UNLIKELY(x) (x)
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)

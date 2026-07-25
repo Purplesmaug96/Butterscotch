@@ -1108,7 +1108,7 @@ static inline RValue convertValue(RValue val, uint8_t targetType) {
 
 // ===[ Opcode Handlers ]===
 
-static void handlePush(VMContext* ctx, const uint32_t instr, const uint8_t* extraData, const uint8_t type1) {
+static void handlePush(VMContext* ctx, const uint32_t instr, const uint8_t* extraData, const uint8_t type1, int16_t instanceTypeField) {
     switch (type1) {
         case GML_TYPE_DOUBLE:
             stackPushTyped(ctx, RValue_makeReal(BinaryUtils_readFloat64Aligned(extraData)), GML_TYPE_DOUBLE);
@@ -1127,7 +1127,7 @@ static void handlePush(VMContext* ctx, const uint32_t instr, const uint8_t* extr
             stackPushTyped(ctx, RValue_makeBool(BinaryUtils_readInt32Aligned(extraData) != 0), GML_TYPE_BOOL);
             break;
         case GML_TYPE_VARIABLE: {
-            int32_t instanceType = (int32_t) instrInstanceType(instr);
+            int32_t instanceType = (int32_t) instanceTypeField;
             const uint32_t varRef = resolveVarOperand(extraData);
             const uint8_t varType = (varRef >> 24) & 0xF8;
             // BC17: VARTYPE_INSTANCE encodes (instanceId - INSTANCE_ID_BASE) in the instruction's lower 16 bits.
@@ -1247,13 +1247,13 @@ static inline void pushTopLevelArrayRef(VMContext* ctx, RValue* slot, bool forWr
 }
 #endif
 
-static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraData, int16_t instanceTypeField) {
     const uint32_t varRef = resolveVarOperand(extraData);
 #if IS_WAD17_OR_HIGHER_ENABLED
     uint8_t varType = (varRef >> 24) & 0xF8;
     if (varType == VARTYPE_ARRAYPUSHAF || varType == VARTYPE_ARRAYPOPAF) {
         Variable* varDef = resolveVarDef(ctx, varRef);
-        int32_t scope = (int32_t) instrInstanceType(instr);
+        int32_t scope = (int32_t) instanceTypeField;
         Instance* inst = nullptr;
         if (scope == INSTANCE_SELF || scope == -1) {
             inst = (Instance*) ctx->currentInstance;
@@ -1273,7 +1273,7 @@ static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraD
         return;
     }
 #endif
-    const RValue val = resolveVariableRead(ctx, (int32_t) instrInstanceType(instr), varRef);
+    const RValue val = resolveVariableRead(ctx, (int32_t) instanceTypeField, varRef);
     stackPushTyped(ctx, val, GML_TYPE_VARIABLE);
 }
 
@@ -2951,7 +2951,7 @@ static HOT RValue executeLoop(VMContext* ctx) {
                         }
                     }
                 }
-                handlePush(ctx, instr, extraData, type1);
+                handlePush(ctx, instr, extraData, type1, instanceTypeField);
                 break;
             }
             case OP_PUSHLOC: {
@@ -2986,7 +2986,7 @@ static HOT RValue executeLoop(VMContext* ctx) {
                 break;
             }
             case OP_PUSHBLTN:
-                handlePushBltn(ctx, instr, extraData);
+                handlePushBltn(ctx, instr, extraData, instanceTypeField);
                 break;
             case OP_PUSHI: {
                 handlePushI(ctx, instr);

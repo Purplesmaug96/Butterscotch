@@ -96,17 +96,21 @@ struct RValue {
 } BS_ALIGN(8);
 
 static inline RValue RValue_makeReal(GMLReal val) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_REAL;
+    rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_DOUBLE;
+    rv.assetRefType = 0;
     rv.real = val;
     return rv;
 }
 
 static inline RValue RValue_makeInt32(int32_t val) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_INT32;
+    rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_INT32;
+    rv.assetRefType = 0;
     rv.int32 = val;
     return rv;
 }
@@ -134,55 +138,64 @@ static inline RValue RValue_makeInt64(int64_t val) {
 }
 
 static inline RValue RValue_makeBool(bool val) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_BOOL;
+    rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_BOOL;
+    rv.assetRefType = 0;
     rv.int32 = val ? 1 : 0;
     return rv;
 }
 
 static inline RValue RValue_makeString(const char* val) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_STRING;
     rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_STRING;
+    rv.assetRefType = 0;
     rv.string = val;
     return rv;
 }
 
 static inline RValue RValue_makeOwnedString(const char* val) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_STRING;
     rv.ownsReference = true;
     rv.gmlStackType = GML_TYPE_STRING;
+    rv.assetRefType = 0;
     rv.string = val;
     return rv;
 }
 
 static inline RValue RValue_makeUndefined(void) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_UNDEFINED;
+    rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_VARIABLE;
+    rv.assetRefType = 0;
+    rv.int32 = 0;
     return rv;
 }
 
 // Takes ownership: refCount is NOT bumped (caller hands off its ref). The returned RValue decRefs on free.
 // Use this when you have a freshly-allocated array (GMLArray_create) or after a GMLArray_incRef.
 static inline RValue RValue_makeArray(GMLArray* arr) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_ARRAY;
     rv.ownsReference = true;
     rv.gmlStackType = GML_TYPE_VARIABLE;
+    rv.assetRefType = 0;
     rv.array = arr;
     return rv;
 }
 
 // Weak view: does not own (no decRef on free). Callers that stash the value long-term must incRef + set ownsString.
 static inline RValue RValue_makeArrayWeak(GMLArray* arr) {
-    RValue rv = {0};
+    RValue rv;
     rv.type = RVALUE_ARRAY;
     rv.ownsReference = false;
     rv.gmlStackType = GML_TYPE_VARIABLE;
+    rv.assetRefType = 0;
     rv.array = arr;
     return rv;
 }
@@ -269,7 +282,11 @@ static inline RValue RValue_makeIndependent(RValue val) {
         val.ownsReference = true;
         return val;
     }
+#ifndef DISABLE_REQUIRE
     requireMessageFormatted(__FILE__, __LINE__, !val.ownsReference, "Trying to make independent a RValue (type=%d) that owns a reference, but we don't handle it yet! Did you add a new refcounted value to Butterscotch without implementing RValue_makeIndependent for it?", val.type);
+#else
+    (void)val;
+#endif
     return val;
 }
 
@@ -404,27 +421,26 @@ static inline char* RValue_toStringTyped(RValue val) {
 }
 
 static inline void RValue_free(RValue* val) {
-    if (!val->ownsReference) return;
-
-    if (val->type == RVALUE_STRING && val->string != nullptr) {
-        free((void*) val->string);
-		val->string = nullptr;
-	} else if (val->type == RVALUE_ARRAY && val->array != nullptr) {
-        GMLArray_decRef(val->array);
-		val->array = nullptr;
+    if (LIKELY(val->ownsReference)) {
+        if (val->type == RVALUE_STRING && val->string != nullptr) {
+            free((void*) val->string);
+            val->string = nullptr;
+        } else if (val->type == RVALUE_ARRAY && val->array != nullptr) {
+            GMLArray_decRef(val->array);
+            val->array = nullptr;
 #if IS_WAD17_OR_HIGHER_ENABLED
-    } else if (val->type == RVALUE_METHOD && val->method != nullptr) {
-        GMLMethod_decRef(val->method);
-		val->method = nullptr;
+        } else if (val->type == RVALUE_METHOD && val->method != nullptr) {
+            GMLMethod_decRef(val->method);
+            val->method = nullptr;
 #endif
-    } else if (val->type == RVALUE_STRUCT && val->structInst != nullptr) {
-        Instance_structDecRef(val->structInst);
-		val->structInst = nullptr;
-    } else {
-        return;
+        } else if (val->type == RVALUE_STRUCT && val->structInst != nullptr) {
+            Instance_structDecRef(val->structInst);
+            val->structInst = nullptr;
+        } else {
+            return;
+        }
+        val->ownsReference = false;
     }
-
-    val->ownsReference = false;
 }
 
 static inline GMLReal RValue_toReal(RValue val) {
