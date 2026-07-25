@@ -169,6 +169,8 @@ static inline double GetFreeMemMB() {
 	return freeMegabytes;
 }
 
+#undef printf
+#undef fprintf
 #define printf diagLog
 #define fprintf fdiagLog
 

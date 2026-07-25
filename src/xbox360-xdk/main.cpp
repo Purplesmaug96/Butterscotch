@@ -174,7 +174,7 @@ static bool diagOpenPath(const char* path, bool overwrite) {
 
 static void _diagLog(FILE* file, const char* fmt, va_list args) {
 	static char line[8192];
-	_vsnprintf(line, sizeof(line) - 2, fmt, args);
+	vsnprintf(line, sizeof(line) - 2, fmt, args);
 	line[sizeof(line) - 2] = '\0';
 
 	const size_t len = strlen(line);
