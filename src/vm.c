@@ -1930,7 +1930,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     // Pop arguments from stack (args pushed right-to-left, so first arg is on top)
     RValue* args = nullptr;
 	RValue stackArgs[VM_MAX_STACK_ARGS];
-	bool useStackArgs = argCount < VM_MAX_STACK_ARGS;
+	const bool useStackArgs = argCount < VM_MAX_STACK_ARGS;
     if (argCount > 0) {
         args = useStackArgs ? stackArgs : (RValue *)safeCalloc(argCount, sizeof(RValue));
         repeat((int32_t)argCount, i) {
@@ -2062,7 +2062,7 @@ static void handleCallV(VMContext* ctx, uint32_t instr) {
 
     RValue* args = nullptr;
 	RValue stackArgs[VM_MAX_STACK_ARGS];
-	bool useStackArgs = argCount < VM_MAX_STACK_ARGS;
+	const bool useStackArgs = argCount < VM_MAX_STACK_ARGS;
     if (argCount > 0) {
         args = useStackArgs ? stackArgs : (RValue *)safeCalloc(argCount, sizeof(RValue));
         repeat((int32_t)argCount, i) {
