@@ -60,11 +60,11 @@
         #define YIELD() ((void)0)
     #endif
 #elif defined(_MSC_VER)
-	#if defined(_M_X64) || defined(_M_IX86)
-		#include <intrin.h>
+    #if (defined(_M_X64) || defined(_M_IX86)) && _MSC_VER >= 1400
+        #include <intrin.h>
         #define YIELD() _mm_pause()
     #elif defined(_M_ARM64) || defined(_M_ARM)
-		#include <intrin.h>
+        #include <intrin.h>
         #define YIELD() __yield()
 	#else
         #define YIELD() ((void)0)
@@ -79,6 +79,12 @@
 	#define ATTRIBUTE_MALLOC __declspec(restrict) __declspec(noalias)
 #else
 	#define ATTRIBUTE_MALLOC
+#endif
+
+#ifdef _MSC_VER
+#define longlong __int64
+#else
+#define longlong long long
 #endif
 
 #endif /* _BS_COMMON_H_ */

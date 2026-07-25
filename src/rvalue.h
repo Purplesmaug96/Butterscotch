@@ -297,7 +297,7 @@ static inline char* RValue_toString(RValue val) {
 #endif
             // Is this a integer?
             if (r >= -INT_SAFE_BOUND && r <= INT_SAFE_BOUND && r == (GMLReal) (int64_t) r) {
-                snprintf(buf, sizeof(buf), "%lld", (long long) (int64_t) r);
+                snprintf(buf, sizeof(buf), "%lld", (longlong) (int64_t) r);
             } else {
                 // For anything else, we format to two decimal places
                 snprintf(buf, sizeof(buf), "%.2f", (double) r);
@@ -309,7 +309,7 @@ static inline char* RValue_toString(RValue val) {
             return safeStrdup(buf);
 #ifndef NO_RVALUE_INT64
         case RVALUE_INT64:
-            snprintf(buf, sizeof(buf), "%lld", (long long) val.int64);
+            snprintf(buf, sizeof(buf), "%lld", (longlong) val.int64);
             return safeStrdup(buf);
 #endif
         case RVALUE_STRING:
@@ -372,7 +372,7 @@ static inline char* RValue_toStringTyped(RValue val) {
             return safeStrdup(buf);
 #ifndef NO_RVALUE_INT64
         case RVALUE_INT64:
-            snprintf(buf, sizeof(buf), "int64(%lld)", (long long) val.int64);
+            snprintf(buf, sizeof(buf), "int64(%lld)", (longlong) val.int64);
             return safeStrdup(buf);
 #endif
         case RVALUE_STRING: {
