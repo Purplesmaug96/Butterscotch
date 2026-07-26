@@ -1000,12 +1000,86 @@ char* collapseNewlines(const char *input) {
     return result;
 }
 
+#ifdef WINRT
+
+#undef nullptr
+
+#include <string>
+#include <vector>
+
+#include <ppltasks.h>
+#include <windows.h>
+
+using namespace Windows::Storage;
+using namespace Windows::Storage::Pickers;
+using namespace concurrency;
+
+// Opens the WinRT file picker and returns a UTF-8 path string
+std::string PickFileAndGetPath() {
+    FileOpenPicker^ picker = ref new FileOpenPicker();
+    picker->ViewMode = PickerViewMode::Thumbnail;
+    picker->SuggestedStartLocation = PickerLocationId::ComputerFolder;
+
+    // Add file types you want to allow (e.g., .win, .json, or "*" for all files)
+    picker->FileTypeFilter->Append(".win");
+    picker->FileTypeFilter->Append("*");
+
+    std::string picked_path = "";
+
+    // Show picker asynchronously on the UI thread
+    create_task(picker->PickSingleFileAsync()).then([&picked_path](StorageFile^ file) {
+        if (file != nullptr) {
+            // Convert Platform::String^ path to UTF-8 std::string
+            std::wstring wpath(file->Path->Data());
+            int size_needed = WideCharToMultiByte(
+                CP_UTF8, 0, wpath.c_str(), (int)wpath.length(),
+                NULL, 0, NULL, NULL
+            );
+
+            if (size_needed > 0) {
+                picked_path.resize(size_needed);
+                WideCharToMultiByte(
+                    CP_UTF8, 0, wpath.c_str(), (int)wpath.length(),
+                    &picked_path[0], size_needed, NULL, NULL
+                );
+            }
+        }
+        }).wait(); // Waits for the user to select or cancel
+
+    return picked_path;
+}
+
+#ifdef main
+#undef main
+#endif
+
+extern "C" int SDL_main(int argc, char* argv[]);
+
+[Platform::MTAThread]
+int main(Platform::Array<Platform::String^>^ args) {
+    Sleep(10000);
+    char* argv[] = { "butterscotch.exe", "E:\\SteamLibrary\\steamapps\\common\\Undertale\\data.win" };
+    int argc = sizeof(argv) / sizeof(argv[0]);
+
+    // argv[1] = (char*)PickFileAndGetPath().c_str();
+
+
+    return SDL_main(argc, argv);
+}
+
+#define main SDL_main
+
+#endif
 // ===[ MAIN ]===
 int main(int argc, char* argv[]) {
     setbuf(stderr, NULL);
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(WINRT)
     timeBeginPeriod(1);
 #endif
+
+    FILE* f = fopen("C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\hello", "w");
+    fprintf(f, "Hello there!\n");
+    fclose(f);
 
     CommandLineArgs args;
     parseCommandLineArgs(&args, argc, argv);
@@ -1870,7 +1944,7 @@ int main(int argc, char* argv[]) {
             }
             arrfree(currentGameArgs);
             fprintf(stderr, "Bye! :3\n");
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(WINRT)
             timeEndPeriod(1);
 #endif
             return 0;

@@ -7,7 +7,7 @@
 #include "stb_ds.h"
 #include "math_compat.h"
 
-#include <SDL2/SDL_render.h>
+#include <SDL3/SDL_render.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

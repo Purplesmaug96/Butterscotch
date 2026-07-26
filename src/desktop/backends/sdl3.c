@@ -16,22 +16,23 @@ static SDL_Surface* scr;
 static SDL_Window *window;
 static SDL_Gamepad* openControllers[MAX_GAMEPADS];
 
+// I fucking hate c++
 static const int SDL_TO_GML_BUTTON[SDL_GAMEPAD_BUTTON_COUNT] = {
-    [SDL_GAMEPAD_BUTTON_SOUTH]          = 0,
-    [SDL_GAMEPAD_BUTTON_EAST]           = 1,
-    [SDL_GAMEPAD_BUTTON_WEST]           = 2,
-    [SDL_GAMEPAD_BUTTON_NORTH]          = 3,
-    [SDL_GAMEPAD_BUTTON_BACK]           = 8,
-    [SDL_GAMEPAD_BUTTON_GUIDE]          = 16,
-    [SDL_GAMEPAD_BUTTON_START]          = 9,
-    [SDL_GAMEPAD_BUTTON_LEFT_STICK]     = 10,
-    [SDL_GAMEPAD_BUTTON_RIGHT_STICK]    = 11,
-    [SDL_GAMEPAD_BUTTON_LEFT_SHOULDER]  = 4,
-    [SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER] = 5,
-    [SDL_GAMEPAD_BUTTON_DPAD_UP]        = 12,
-    [SDL_GAMEPAD_BUTTON_DPAD_DOWN]      = 13,
-    [SDL_GAMEPAD_BUTTON_DPAD_LEFT]      = 14,
-    [SDL_GAMEPAD_BUTTON_DPAD_RIGHT]     = 15,
+    0,  /* [0]  SDL_GAMEPAD_BUTTON_SOUTH          */
+    1,  /* [1]  SDL_GAMEPAD_BUTTON_EAST           */
+    2,  /* [2]  SDL_GAMEPAD_BUTTON_WEST           */
+    3,  /* [3]  SDL_GAMEPAD_BUTTON_NORTH          */
+    8,  /* [4]  SDL_GAMEPAD_BUTTON_BACK           */
+    16, /* [5]  SDL_GAMEPAD_BUTTON_GUIDE          */
+    9,  /* [6]  SDL_GAMEPAD_BUTTON_START          */
+    10, /* [7]  SDL_GAMEPAD_BUTTON_LEFT_STICK     */
+    11, /* [8]  SDL_GAMEPAD_BUTTON_RIGHT_STICK    */
+    4,  /* [9]  SDL_GAMEPAD_BUTTON_LEFT_SHOULDER  */
+    5,  /* [10] SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER */
+    12, /* [11] SDL_GAMEPAD_BUTTON_DPAD_UP        */
+    13, /* [12] SDL_GAMEPAD_BUTTON_DPAD_DOWN      */
+    14, /* [13] SDL_GAMEPAD_BUTTON_DPAD_LEFT      */
+    15  /* [14] SDL_GAMEPAD_BUTTON_DPAD_RIGHT     */
 };
 
 static SDL_Window *tryOpenWindow(int reqW, int reqH, const char* title, Uint32 flags) {

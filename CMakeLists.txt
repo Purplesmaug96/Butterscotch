@@ -4,7 +4,11 @@ if(PLATFORM STREQUAL "ps3")
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/ppu.cmake)
 endif()
 
-project(butterscotch C)
+if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+    project(butterscotch C CXX)
+else()
+	project(butterscotch C)
+endif()
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -114,6 +118,19 @@ if(PLATFORM STREQUAL "android")
     add_library(butterscotch SHARED ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
+endif()
+
+# Why are you like this.
+if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS WINRT)
+    # /TP doesnt even seem to work???
+    target_compile_options(butterscotch PRIVATE /ZW /wd4576 /wd4267 /wd4703)
+	# Make appx
+	set_target_properties(butterscotch PROPERTIES
+        VS_GLOBAL_AppxPackageSigningEnabled "true"
+        VS_GLOBAL_GenerateAppxPackageOnBuild "true"
+        VS_GLOBAL_AppxPackageDir "${CMAKE_BINARY_DIR}/AppPackages/"
+    )
 endif()
 
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -309,11 +326,18 @@ if(PLATFORM STREQUAL "desktop")
     elseif(DESKTOP_BACKEND STREQUAL "sdl3")
         add_compile_definitions(USE_SDL3)
 
-        find_package(PkgConfig REQUIRED)
-        pkg_check_modules(SDL3 REQUIRED sdl3)
-        target_include_directories(butterscotch PRIVATE ${SDL3_INCLUDE_DIRS})
-        target_link_directories(butterscotch PRIVATE ${SDL3_LIBRARY_DIRS})
-        set(BACKEND_LIBRARIES ${SDL3_LIBRARIES})
+        find_package(SDL3 REQUIRED CONFIG)
+
+        set(BACKEND_LIBRARIES SDL3::SDL3-shared)
+		
+		if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+			add_custom_command(TARGET butterscotch POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"$<TARGET_FILE:SDL3::SDL3-shared>"
+					"${CMAKE_BINARY_DIR}/RelWithDebInfo/AppX/SDL3.dll"
+				VERBATIM
+			)
+		endif()
     endif()
     target_link_libraries(butterscotch PRIVATE ${BACKEND_LIBRARIES} ${AUDIO_LIBRARIES} ${PLATFORM_LIBRARIES})
     target_sources(butterscotch PRIVATE src/desktop/backends/${DESKTOP_BACKEND}.c)
@@ -701,4 +725,26 @@ elseif(PLATFORM STREQUAL "ps3")
     target_link_libraries(butterscotch PRIVATE ${SDL2_LIBRARIES} m gcm_sys rsx sysutil io audio rt lv2 io audio bzip2 stb_ds sha1 ps3gl mojoal stb_vorbis)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
+endif()
+
+# cmake can go die in a fire
+if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+    # 1. Grab absolutely every source file attached to the butterscotch target
+    get_target_property(BUTTERSCOTCH_ALL_SRCS butterscotch SOURCES)
+    
+    # 2. Loop through them and brutally force CMake to tag .c files as C++
+    if(BUTTERSCOTCH_ALL_SRCS)
+        foreach(SRC IN LISTS BUTTERSCOTCH_ALL_SRCS)
+            if(SRC MATCHES "\\.c$")
+                set_source_files_properties(${SRC} PROPERTIES LANGUAGE CXX)
+            endif()
+        endforeach()
+    endif()
+
+    # 3. Repeat for the static libraries if they also throw WRL/C errors
+    # (Uncomment these if bzip2 or sha1 are also failing to compile as C)
+    # get_target_property(BZIP2_SRCS bzip2 SOURCES)
+    # foreach(SRC IN LISTS BZIP2_SRCS)
+    #     set_source_files_properties(${SRC} PROPERTIES LANGUAGE CXX)
+    # endforeach()
 endif()
