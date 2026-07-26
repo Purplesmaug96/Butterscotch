@@ -1057,14 +1057,18 @@ extern "C" int SDL_main(int argc, char* argv[]);
 
 [Platform::MTAThread]
 int main(Platform::Array<Platform::String^>^ args) {
-    Sleep(10000);
-    char* argv[] = { "butterscotch.exe", "E:\\SteamLibrary\\steamapps\\common\\Undertale\\data.win" };
+    char* argv[] = { "butterscotch.exe", "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win" };
     int argc = sizeof(argv) / sizeof(argv[0]);
 
     // argv[1] = (char*)PickFileAndGetPath().c_str();
 
+    int ret = SDL_main(argc, argv);
 
-    return SDL_main(argc, argv);
+    printf("SDL_main exited. Waiting 10s.\n");
+
+    Sleep(10000);
+
+    return ret;
 }
 
 #define main SDL_main
@@ -1076,10 +1080,6 @@ int main(int argc, char* argv[]) {
 #if defined(_WIN32) && !defined(WINRT)
     timeBeginPeriod(1);
 #endif
-
-    FILE* f = fopen("C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\hello", "w");
-    fprintf(f, "Hello there!\n");
-    fclose(f);
 
     CommandLineArgs args;
     parseCommandLineArgs(&args, argc, argv);
