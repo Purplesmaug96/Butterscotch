@@ -96,17 +96,17 @@ static char* resolveExternalPath(MaAudioSystem* ma, Sound* sound) {
 // ===[ Vtable Implementations ]===
 
 static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem) {
-    MaAudioSystem* ma = (MaAudioSystem*) audio;
+    MaAudioSystem* ma = (MaAudioSystem*)audio;
     arrput(ma->base.audioGroups, dataWin);
     ma->fileSystem = fileSystem;
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.format = ma_format_f32;
     deviceConfig.playback.channels = 2;
-    deviceConfig.periods           = 3;
+    deviceConfig.periods = 3;
     deviceConfig.periodSizeInMilliseconds = 10;
     deviceConfig.dataCallback = ma_engine_data_callback_internal;
-    deviceConfig.pUserData    = &ma->engine;
+    deviceConfig.pUserData = &ma->engine;
     ma_result deviceResult = ma_device_init(NULL, &deviceConfig, &ma->device);
     if (deviceResult != MA_SUCCESS) {
         fprintf(stderr, "Audio: Failed to initialize playback device (error %d)\n", deviceResult);
@@ -131,6 +131,10 @@ static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem)
     }
 
     fprintf(stderr, "Audio: miniaudio engine initialized\n");
+
+    if (ma->device.pContext->backend == ma_backend_null) {
+        fprintf(stderr, "Audio: MA Backend is Null, sound won't work\n");
+    }
 }
 
 static void maDestroy(AudioSystem* audio) {
