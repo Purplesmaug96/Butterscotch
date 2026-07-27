@@ -143,7 +143,7 @@ void platformGetMousePos(double *xPos, double *yPos) {
     *yPos = (double)my;
 }
 
-static bool platformGetWindowFocus(void) {
+static bool platformGetWindowFocus(void) {   
     return SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS;
 }
 
@@ -277,7 +277,7 @@ void *platformGetProcAddress(const char *name) {
 
 #endif
 
-static int32_t SDLKeyToGml(int sdlkey) {
+static int32_t SDLKeyToGml(SDL_Keycode sdlkey) {
     // Letters and numbers are the same as GML
     if (sdlkey >= 'a' && sdlkey <= 'z') return toupper(sdlkey);
     if (sdlkey >= '0' && sdlkey <= '9') return sdlkey;
@@ -394,17 +394,23 @@ bool platformHandleEvents(void) {
     while (SDL_PollEvent(&e)) {
         switch(e.type) {
             case SDL_EVENT_KEY_DOWN:
-                // During playback, suppress real keyboard input
+            case SDL_EVENT_KEY_UP: {
                 if (InputRecording_isPlaybackActive(globalInputRecording)) break;
-                if (e.key.repeat != 0)
-                    break;
-                RunnerKeyboard_onKeyDown(g_runner->keyboard, SDLKeyToGml(e.key.key));
+
+                int32_t gmlKey = SDLKeyToGml(e.key.key);
+                bool isKeyDown = e.key.down;   // or: e.type == SDL_EVENT_KEY_DOWN
+
+                SDL_Log("Key %s - SDLKey: %d | Mapped GML VK: %d",
+                    isKeyDown ? "Down" : "Up", e.key.key, gmlKey);
+
+                if (isKeyDown) {
+                    RunnerKeyboard_onKeyDown(g_runner->keyboard, gmlKey);
+                }
+                else {
+                    RunnerKeyboard_onKeyUp(g_runner->keyboard, gmlKey);
+                }
                 break;
-            case SDL_EVENT_KEY_UP:
-                // During playback, suppress real keyboard input
-                if (InputRecording_isPlaybackActive(globalInputRecording)) break;
-                RunnerKeyboard_onKeyUp(g_runner->keyboard, SDLKeyToGml(e.key.key));
-                break;
+            }
             case SDL_EVENT_TEXT_INPUT:
                 // During playback, suppress real keyboard input
                 if (InputRecording_isPlaybackActive(globalInputRecording)) break;

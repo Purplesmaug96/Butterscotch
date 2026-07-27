@@ -18,9 +18,14 @@
 #define VK_PAGEDOWN 34
 
 // if windows.h was included, use *its* definitions for the most part.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(WINRT)
 #include <windows.h>
+#elif defined(WINRT)
+#ifdef VK_TAB
+#undef VK_TAB
 #endif
+#endif
+
 #ifndef VK_TAB
 
 #define VK_TAB       9

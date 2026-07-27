@@ -1030,7 +1030,9 @@ int real_main(int argc, char* argv[]) {
 #ifdef WINRT
     char* alt_argv[] = {
         "butterscotch.exe",
-        "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win"
+        "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win",
+        "--renderer",
+        "sdl"
     };
     int alt_argc = sizeof(alt_argv) / sizeof(alt_argv[0]);
     argv = alt_argv;
