@@ -1,5 +1,5 @@
 #include <ctype.h>
-#include <stdio.h>
+#include "stdio_compat.h"
 
 #include <SDL2/SDL.h>
 
@@ -130,7 +130,6 @@ bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 static float platformGetWindowScale(void) {
-    if (!scale_x || !scale_y) return;
     int32_t draw_w, draw_h;
     int logical_w, logical_h;
     platformGetWindowSize(&draw_w, &draw_h);

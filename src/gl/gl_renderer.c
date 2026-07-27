@@ -7,9 +7,9 @@
 #else
 #include <glad/glad.h>
 #endif
-#include <stdio.h>
+#include "stdio_compat.h"
 #include <stdlib.h>
-#include <string.h>
+#include "string_compat.h"
 #include "math_compat.h"
 
 #include "stb_image.h"
@@ -345,6 +345,12 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
 
     gl->defaultShaderProgram = defaultShader;
 
+    gl->uWorldViewProjection = findShaderUniformByName(defaultShader, "uWorldViewProjection");
+    gl->uFogColor = findShaderUniformByName(defaultShader, "uFogColor");
+    gl->uAlphaTestRef = findShaderUniformByName(defaultShader, "uAlphaTestRef");
+    gl->uAlphaTestEnabled = findShaderUniformByName(defaultShader, "uAlphaTestEnabled");
+    gl->uTexture = findShaderUniformByName(defaultShader, "uTexture");
+
     gl->gmlShaders = (GMLShader *)safeCalloc(dataWin->shdr.count, sizeof(GMLShader));
     fprintf(stderr, "GL: %u Shaders Found\n", dataWin->shdr.count);
 
@@ -536,22 +542,17 @@ static void glShaderSettingsRefresh(Renderer* renderer) {
 
         glUseProgram(gl->defaultShaderProgram->shaderId);
 
-        GLShaderUniform* uWorldViewProjection = findShaderUniformByName(gl->defaultShaderProgram, "uWorldViewProjection");
-        GLShaderUniform* uFogColor = findShaderUniformByName(gl->defaultShaderProgram, "uFogColor");
-        GLShaderUniform* uAlphaTestRef = findShaderUniformByName(gl->defaultShaderProgram, "uAlphaTestRef");
-        GLShaderUniform* uAlphaTestEnabled = findShaderUniformByName(gl->defaultShaderProgram, "uAlphaTestEnabled");
-        GLShaderUniform* uTexture = findShaderUniformByName(gl->defaultShaderProgram, "uTexture");
         Matrix4f flippedClip[MATRICES_MAX];
         memcpy(flippedClip, renderer->gmlMatrices, sizeof(flippedClip));
         //I was making the Legacy OpenGL renderer work with the projections, then I realized I think I only need to flip the Projection(s) and not the other ones
         Matrix4f_flipClipY(&flippedClip[MATRIX_PROJECTION]);
         Matrix4f_flipClipY(&flippedClip[MATRIX_WORLD_VIEW_PROJECTION]);
 
-        glUniformMatrix4fv(uWorldViewProjection->location, 1, GL_FALSE, flippedClip[MATRIX_WORLD_VIEW_PROJECTION].m);
-        glUniform4f(uFogColor->location, fogR, fogG, fogB, gl->fogEnable ? 1.0f : 0.0f);
-        glUniform1f(uAlphaTestRef->location, gl->alphaTestRef);
-        glUniform1i(uAlphaTestEnabled->location, gl->alphaTestEnable);
-        glUniform1i(uTexture->location, 1);
+        glUniformMatrix4fv(gl->uWorldViewProjection->location, 1, GL_FALSE, flippedClip[MATRIX_WORLD_VIEW_PROJECTION].m);
+        glUniform4f(gl->uFogColor->location, fogR, fogG, fogB, gl->fogEnable ? 1.0f : 0.0f);
+        glUniform1f(gl->uAlphaTestRef->location, gl->alphaTestRef);
+        glUniform1i(gl->uAlphaTestEnabled->location, gl->alphaTestEnable);
+        glUniform1i(gl->uTexture->location, 1);
     }
 }
 
@@ -2336,12 +2337,12 @@ static void glDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 
 static BlendFactors glGpuGetBlendFactors(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*)renderer;
-    return (BlendFactors){
-        gl->currentSFactor, 
-        gl->currentDFactor, 
-        gl->currentSFactorAlpha, 
-        gl->currentDFactorAlpha
-    };
+    BlendFactors ret;
+    ret.src = gl->currentSFactor;
+    ret.dst = gl->currentDFactor;
+    ret.srcAlpha = gl->currentSFactorAlpha;
+    ret.dstAlpha = gl->currentDFactorAlpha;
+    return ret;
 }
 
 static int32_t glGpuGetBlendMode(Renderer* renderer) {

@@ -5,8 +5,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <string.h>
+#include "stdio_compat.h"
+#include "string_compat.h"
 
 #include "utils.h"
 
@@ -664,12 +664,10 @@ typedef struct {
     float hSpeed;
     float vSpeed;
     bool visible;
-    union {
-        RoomLayerInstancesData *instancesData;
-        RoomLayerAssetsData *assetsData;
-        RoomLayerBackgroundData *backgroundData;
-        RoomLayerTilesData *tilesData;
-    };
+    RoomLayerAssetsData *assetsData;
+    RoomLayerBackgroundData *backgroundData;
+    RoomLayerInstancesData *instancesData;
+    RoomLayerTilesData *tilesData;
 } RoomLayer;
 
 typedef struct {
