@@ -150,7 +150,8 @@ static bool platformGetWindowFocus(void) {
 bool platformInit(int reqW, int reqH, const char *title, bool headless) {
     // Init SDL
     if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD)) {
-        fprintf(stderr, "Failed to initialize SDL\n");
+        const char* err = SDL_GetError();
+        fprintf(stderr, "Failed to initialize SDL:\n%s\n", err);
         return false;
     }
 

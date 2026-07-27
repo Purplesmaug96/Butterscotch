@@ -124,7 +124,7 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS WINRT)
     # /TP doesnt even seem to work???
-    target_compile_options(butterscotch PRIVATE /ZW /wd4576 /wd4267 /wd4703)
+    target_compile_options(butterscotch PRIVATE /wd4576 /wd4267 /wd4703)
 	# Make appx
 	set_target_properties(butterscotch PROPERTIES
         VS_GLOBAL_AppxPackageSigningEnabled "true"

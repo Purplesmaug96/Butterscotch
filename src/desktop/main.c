@@ -63,6 +63,9 @@
 #elif defined(USE_SDL2)
 #include <SDL2/SDL_main.h>
 #elif defined(USE_SDL3)
+#ifdef WINRT
+#define SDL_MAIN_HANDLED 1
+#endif
 #include <SDL3/SDL_main.h>
 #endif
 
@@ -1002,80 +1005,28 @@ char* collapseNewlines(const char *input) {
 
 #ifdef WINRT
 
-#undef nullptr
+int real_main(int argc, char* argv[]);
 
-#include <string>
-#include <vector>
+int main(int argc, char* argv[]) {
+        char* alt_argv[] = {
+            "butterscotch.exe",
+            "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win"
+        };
+        int alt_argc = sizeof(alt_argv) / sizeof(alt_argv[0]);
 
-#include <ppltasks.h>
-#include <windows.h>
+        int ret = real_main(alt_argc, alt_argv);
 
-using namespace Windows::Storage;
-using namespace Windows::Storage::Pickers;
-using namespace concurrency;
+        printf("SDL_main exited with return code %d.\nWaiting 10s before exiting.\n", ret);
+        Sleep(10000);
 
-// Opens the WinRT file picker and returns a UTF-8 path string
-std::string PickFileAndGetPath() {
-    FileOpenPicker^ picker = ref new FileOpenPicker();
-    picker->ViewMode = PickerViewMode::Thumbnail;
-    picker->SuggestedStartLocation = PickerLocationId::ComputerFolder;
-
-    // Add file types you want to allow (e.g., .win, .json, or "*" for all files)
-    picker->FileTypeFilter->Append(".win");
-    picker->FileTypeFilter->Append("*");
-
-    std::string picked_path = "";
-
-    // Show picker asynchronously on the UI thread
-    create_task(picker->PickSingleFileAsync()).then([&picked_path](StorageFile^ file) {
-        if (file != nullptr) {
-            // Convert Platform::String^ path to UTF-8 std::string
-            std::wstring wpath(file->Path->Data());
-            int size_needed = WideCharToMultiByte(
-                CP_UTF8, 0, wpath.c_str(), (int)wpath.length(),
-                NULL, 0, NULL, NULL
-            );
-
-            if (size_needed > 0) {
-                picked_path.resize(size_needed);
-                WideCharToMultiByte(
-                    CP_UTF8, 0, wpath.c_str(), (int)wpath.length(),
-                    &picked_path[0], size_needed, NULL, NULL
-                );
-            }
-        }
-        }).wait(); // Waits for the user to select or cancel
-
-    return picked_path;
+        return ret;
 }
 
-#ifdef main
-#undef main
-#endif
-
-extern "C" int SDL_main(int argc, char* argv[]);
-
-[Platform::MTAThread]
-int main(Platform::Array<Platform::String^>^ args) {
-    char* argv[] = { "butterscotch.exe", "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win" };
-    int argc = sizeof(argv) / sizeof(argv[0]);
-
-    // argv[1] = (char*)PickFileAndGetPath().c_str();
-
-    int ret = SDL_main(argc, argv);
-
-    printf("SDL_main exited. Waiting 10s.\n");
-
-    Sleep(10000);
-
-    return ret;
-}
-
-#define main SDL_main
-
+#else
+#define real_main main
 #endif
 // ===[ MAIN ]===
-int main(int argc, char* argv[]) {
+int real_main(int argc, char* argv[]) {
     setbuf(stderr, NULL);
 #if defined(_WIN32) && !defined(WINRT)
     timeBeginPeriod(1);
