@@ -400,8 +400,8 @@ bool platformHandleEvents(void) {
                 int32_t gmlKey = SDLKeyToGml(e.key.key);
                 bool isKeyDown = e.key.down;   // or: e.type == SDL_EVENT_KEY_DOWN
 
-                SDL_Log("Key %s - SDLKey: %d | Mapped GML VK: %d",
-                    isKeyDown ? "Down" : "Up", e.key.key, gmlKey);
+                // SDL_Log("Key %s - SDLKey: %d | Mapped GML VK: %d",
+                //     isKeyDown ? "Down" : "Up", e.key.key, gmlKey);
 
                 if (isKeyDown) {
                     RunnerKeyboard_onKeyDown(g_runner->keyboard, gmlKey);
