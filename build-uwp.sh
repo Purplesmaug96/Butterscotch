@@ -1,2 +1,0 @@
-cmake -B build -G "Visual Studio 17 2022" -A x64 ^  -DCMAKE_SYSTEM_NAME=WindowsStore ^  
--DCMAKE_SYSTEM_VERSION=10.0 ^  -DCMAKE_PREFIX_PATH="C:/SDL_UWP" -DDESKTOP_BACKEND=sdl3
