@@ -1005,21 +1005,16 @@ char* collapseNewlines(const char *input) {
 
 #ifdef WINRT
 
+#include <roapi.h>
+
 int real_main(int argc, char* argv[]);
 
+#define SleepBeforeExit() Sleep(10)
+
 int main(int argc, char* argv[]) {
-        char* alt_argv[] = {
-            "butterscotch.exe",
-            "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win"
-        };
-        int alt_argc = sizeof(alt_argv) / sizeof(alt_argv[0]);
+    int ret = SDL_RunApp(nullptr, nullptr, real_main, nullptr);
 
-        int ret = real_main(alt_argc, alt_argv);
-
-        printf("SDL_main exited with return code %d.\nWaiting 10s before exiting.\n", ret);
-        Sleep(10000);
-
-        return ret;
+    return ret;
 }
 
 #else
@@ -1030,6 +1025,16 @@ int real_main(int argc, char* argv[]) {
     setbuf(stderr, NULL);
 #if defined(_WIN32) && !defined(WINRT)
     timeBeginPeriod(1);
+#endif
+
+#ifdef WINRT
+    char* alt_argv[] = {
+        "butterscotch.exe",
+        "C:\\Users\\Purplesmaug96\\AppData\\Local\\Packages\\524FDA0C-A654-3825-BF60-A24DAF3A55BB_d7c8pgvss6ysm\\LocalState\\game\\data.win"
+    };
+    int alt_argc = sizeof(alt_argv) / sizeof(alt_argv[0]);
+    argv = alt_argv;
+    argc = alt_argc;
 #endif
 
     CommandLineArgs args;
