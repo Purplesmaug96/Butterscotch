@@ -63,6 +63,11 @@ if(NOT HAVE_FUNC_SYMBOL)
     add_compile_definitions(__func__="unknown")
 endif()
 
+find_library(MATH_LIB m)
+if(MATH_LIB)
+    set(CMAKE_REQUIRED_LIBRARIES ${MATH_LIB})
+endif()
+
 # Math functions checks (defines NO_<FUNC> if missing)
 set(MATH_FUNCS fmin fmax round log2 lround sqrtf fabsf fmodf sinf cosf floorf roundf)
 foreach(func ${MATH_FUNCS})
@@ -72,6 +77,8 @@ foreach(func ${MATH_FUNCS})
         add_compile_definitions(NO_${UPPER_FUNC}=1)
     endif()
 endforeach()
+
+unset(CMAKE_REQUIRED_LIBRARIES)
 
 # Macro/Math checks (isinf, isnan)
 check_c_source_compiles("
