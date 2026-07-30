@@ -4,8 +4,8 @@
 #include "common.h"
 #include "stdio_compat.h"
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
+#include "string_compat.h"
 
 #include "real_type.h"
 #include "stb_ds.h"

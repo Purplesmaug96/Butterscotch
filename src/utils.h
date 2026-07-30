@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
+#include "string_compat.h"
 #include "math_compat.h"
 
 #include "real_type.h"
@@ -83,6 +83,8 @@ static inline void* requireNotNullFunction(void* ptr, const char* file, int line
 
 // Safe allocation macros - check for nullptr and abort with file/line info
 ATTRIBUTE_MALLOC static inline void *safeMallocFunction(size_t size, const char *file, int line) {
+    if (size == 0)
+        return nullptr;
     void *ret = malloc(size);
     if (!ret) {
         fprintf(stderr, "FATAL: malloc(%zu) failed at %s:%d\n", size, file, line);
@@ -94,6 +96,8 @@ ATTRIBUTE_MALLOC static inline void *safeMallocFunction(size_t size, const char 
 #define safeMalloc(size) safeMallocFunction(size, __FILE__, __LINE__)
 
 ATTRIBUTE_MALLOC static inline void *safeCallocFunction(size_t count, size_t size, const char *file, int line) {
+    if (size == 0 || count == 0)
+        return nullptr;
     void *ret = calloc(count, size);
     if (!ret) {
         fprintf(stderr, "FATAL: calloc(%zu, %zu) failed at %s:%d\n", count, size, file, line);
@@ -105,6 +109,10 @@ ATTRIBUTE_MALLOC static inline void *safeCallocFunction(size_t count, size_t siz
 #define safeCalloc(count, size) safeCallocFunction(count, size, __FILE__, __LINE__)
 
 static inline void *safeReallocFunction(void *ptr, size_t size, const char *file, int line) {
+    if (size == 0) {
+        free(ptr);
+        return nullptr;
+    }
     void *ret = realloc(ptr, size);
     if (!ret) {
         fprintf(stderr, "FATAL: realloc(%zu) failed at %s:%d\n", size, file, line);
@@ -117,6 +125,8 @@ static inline void *safeReallocFunction(void *ptr, size_t size, const char *file
 #ifdef PLATFORM_PS2
 
 static inline void *safeMemalignFunction(size_t alignment, size_t size, const char *file, int line) {
+    if (size == 0)
+        return nullptr;
     void *ret = memalign(alignment, size);
     if (!ret) {
         fprintf(stderr, "FATAL: memalign(%zu, %zu) failed at %s:%d\n", alignment, size, file, line);
