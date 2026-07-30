@@ -37,7 +37,7 @@ if(PLATFORM STREQUAL "xbox360-xdk")
 	if(WERROR)
 		add_compile_options(/WX)
 	endif()
-	add_compile_options(-DNO_ISNAN -DNO_ISINF -DNO_SNPRINTF)
+	add_compile_options(-DNO_ISNAN -DNO_ISINF -DNO_SNPRINTF -DNO_STRINGS_H -DNO_STRCASECMP)
 	# Unreachable code
 	add_link_options(/ignore:4702)
 else()
