@@ -19,6 +19,8 @@ else()
     endif()
 endif()
 
+include(${CMAKE_SOURCE_DIR}/cmake/checks.cmake)
+
 set(PLATFORM "desktop" CACHE STRING "Platform backend")
 set(DESKTOP_BACKEND "" CACHE STRING "Desktop platform backend")
 set(AUDIO_BACKEND "" CACHE STRING "Audio backend")
