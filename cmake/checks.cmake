@@ -10,7 +10,7 @@ if(MSVC)
         }
     " HAVE_MIXED_DECLARATIONS)
     if(NOT HAVE_MIXED_DECLARATIONS)
-        add_compile_options("/Tp")
+        add_compile_options("/TP")
     endif()
 endif()
 
