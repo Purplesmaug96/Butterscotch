@@ -15,10 +15,78 @@
     #include <io.h>
 #else
     #include <unistd.h>
+    #if defined(_POSIX_VERSION) || defined(__unix__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
+        #include <pthread.h>
+    #endif
     #if defined(_POSIX_MAPPED_FILES) && (_POSIX_MAPPED_FILES > 0)
         #include <sys/mman.h>
     #endif
 #endif
+
+// ===[ Lazy-load file locking ]===
+// The persistent lazyLoadFile FILE* is shared between the render thread
+// (DataWin_loadRoomPayload, DataWin_readLazyBytes) and the async texture
+// decode worker threads (DataWin_loadTxtrIfNeeded). The Xbox 360 CRT does not
+// serialize FILE* state between threads, so every seek+read sequence must be
+// serialized by the caller. The lock is lazily created when the file is held
+// open for lazy loading.
+
+#if defined(_WIN32)
+    #define DATAWIN_LAZY_USE_CRITICAL_SECTION 1
+#elif defined(_POSIX_VERSION) || defined(__unix__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
+    #define DATAWIN_LAZY_USE_PTHREAD 1
+#endif
+
+static void lazyLockInit(DataWin* dw) {
+#if defined(DATAWIN_LAZY_USE_CRITICAL_SECTION)
+    dw->lazyLoadLock = (void *)malloc(sizeof(CRITICAL_SECTION));
+    if (dw->lazyLoadLock) {
+        InitializeCriticalSection((CRITICAL_SECTION *)dw->lazyLoadLock);
+    }
+#elif defined(DATAWIN_LAZY_USE_PTHREAD)
+    dw->lazyLoadLock = (void *)malloc(sizeof(pthread_mutex_t));
+    if (dw->lazyLoadLock) {
+        pthread_mutex_init((pthread_mutex_t *)dw->lazyLoadLock, NULL);
+    }
+#else
+    dw->lazyLoadLock = NULL;
+#endif
+}
+
+static void lazyLockDestroy(DataWin* dw) {
+    if (!dw->lazyLoadLock) {
+        return;
+    }
+#if defined(DATAWIN_LAZY_USE_CRITICAL_SECTION)
+    DeleteCriticalSection((CRITICAL_SECTION *)dw->lazyLoadLock);
+#elif defined(DATAWIN_LAZY_USE_PTHREAD)
+    pthread_mutex_destroy((pthread_mutex_t *)dw->lazyLoadLock);
+#endif
+    free(dw->lazyLoadLock);
+    dw->lazyLoadLock = NULL;
+}
+
+static void lazyLockEnter(DataWin* dw) {
+    if (!dw->lazyLoadLock) {
+        return;
+    }
+#if defined(DATAWIN_LAZY_USE_CRITICAL_SECTION)
+    EnterCriticalSection((CRITICAL_SECTION *)dw->lazyLoadLock);
+#elif defined(DATAWIN_LAZY_USE_PTHREAD)
+    pthread_mutex_lock((pthread_mutex_t *)dw->lazyLoadLock);
+#endif
+}
+
+static void lazyLockLeave(DataWin* dw) {
+    if (!dw->lazyLoadLock) {
+        return;
+    }
+#if defined(DATAWIN_LAZY_USE_CRITICAL_SECTION)
+    LeaveCriticalSection((CRITICAL_SECTION *)dw->lazyLoadLock);
+#elif defined(DATAWIN_LAZY_USE_PTHREAD)
+    pthread_mutex_unlock((pthread_mutex_t *)dw->lazyLoadLock);
+#endif
+}
 
 static uint8_t *mapFile(FILE *file, size_t size) {
     if (!file || size == 0) return NULL;
@@ -2648,10 +2716,12 @@ void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId) {
     tex->blobData = (uint8_t *)safeMalloc(tex->blobSize);
 
     memset(tex->blobData, 0, tex->blobSize);
+    lazyLockEnter(dw);
     long old_seek = ftell(dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, tex->blobOffset, SEEK_SET);
     size_t read = fread(tex->blobData, 1, tex->blobSize, dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, old_seek, SEEK_SET);
+    lazyLockLeave(dw);
 
     if (read != tex->blobSize) {
         fprintf(stderr, "loadTxtrIfNeeded: couldn't read %u bytes to load a texture.\n", tex->blobSize);
@@ -2704,14 +2774,57 @@ void DataWin_loadAudoIfNeeded(DataWin* dw, uint32_t audioEntryId) {
     entry->data = (uint8_t *)safeMalloc(entry->dataSize);
 
     memset(entry->data, 0, entry->dataSize);
+    lazyLockEnter(dw);
     long old_seek = ftell(dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, entry->dataOffset, SEEK_SET);
     size_t read = fread(entry->data, 1, entry->dataSize, dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, old_seek, SEEK_SET);
+    lazyLockLeave(dw);
 
     if (read != entry->dataSize) {
         fprintf(stderr, "loadAudoIfNeeded: couldn't read %u bytes to load audio entry %u.\n", entry->dataSize, audioEntryId);
     }
+}
+
+bool DataWin_readLazyBytes(DataWin* dw, size_t offset, size_t count, uint8_t** outData) {
+    if (!dw || !outData || count == 0) {
+        if (outData) {
+            *outData = NULL;
+        }
+        return false;
+    }
+    *outData = NULL;
+    if (offset > SIZE_MAX - count) {
+        return false;
+    }
+    if (dw->fileSize > 0 && offset + count > dw->fileSize) {
+        return false;
+    }
+    if (!dw->lazyLoadFile) {
+        return false;
+    }
+
+    uint8_t* data = (uint8_t *)safeMalloc(count);
+    if (!data) {
+        return false;
+    }
+
+    lazyLockEnter(dw);
+    bool ok = false;
+    long savedPos = ftell(dw->lazyLoadFile);
+    if (savedPos >= 0 && fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) == 0) {
+        size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
+        ok = (readCount == count);
+        fseek(dw->lazyLoadFile, savedPos, SEEK_SET);
+    }
+    lazyLockLeave(dw);
+
+    if (!ok) {
+        free(data);
+        return false;
+    }
+    *outData = data;
+    return true;
 }
 
 // ===[ MAIN PARSE FUNCTION ]===
@@ -2991,6 +3104,7 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         dw->lazyLoadFile = file;
         dw->lazyLoadFilePath = safeStrdup(filePath);
         dw->fileSize = (size_t) fileSize;
+        lazyLockInit(dw);
     } else {
         dw->lazyLoadFile = nullptr;
         dw->lazyLoadFilePath = nullptr;
@@ -3220,6 +3334,7 @@ void DataWin_free(DataWin* dw) {
         dw->lazyLoadFile = nullptr;
     }
     free(dw->lazyLoadFilePath);
+    lazyLockDestroy(dw);
 
     unmapFile(dw->mappedFile, dw->fileSize);
 
@@ -3272,8 +3387,10 @@ void DataWin_loadRoomPayload(DataWin* dw, int32_t roomIndex) {
     requireMessage(dw->lazyLoadFile != nullptr, "DataWin_loadRoomPayload called without an open lazy-load FILE*");
 
     FILE* f = dw->lazyLoadFile;
+    lazyLockEnter(dw);
     BinaryReader lazyReader = BinaryReader_create(f, dw->fileSize);
     readRoomPayload(&lazyReader, dw, room);
+    lazyLockLeave(dw);
 }
 
 // ===[ Dynamic Sprite Slot Allocation ]===

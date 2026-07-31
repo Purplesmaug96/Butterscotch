@@ -864,6 +864,60 @@ extern "C" void Butterscotch_xdkHandleException(const char* msg) {
 	Butterscotch_xdkHang();
 }
 
+// ===[ SEH crash handler ]===
+// Installed via __try/__except around the render-thread main loop and the
+// texture decode worker threads. Logs the exception record and a best-effort
+// XCONTEXT decode BEFORE the kernel's "Fatal crash intercepted" screen, so a
+// crash on real hardware produces a usable fault address instead of nothing.
+static volatile LONG gSehHandlerBusy = 0;
+
+extern "C" void Butterscotch_xdkHandleSEHException(PEXCEPTION_POINTERS ex, int drawScreen) {
+	if (InterlockedExchange((volatile LONG*)&gSehHandlerBusy, 1) != 0) {
+		return; // already handling a crash; the __except block hangs below
+	}
+
+	diagOpenLog();
+
+	if (!ex || !ex->ExceptionRecord) {
+		diagLog("Butterscotch: FATAL SEH exception with no exception record!\n");
+		return;
+	}
+
+	PEXCEPTION_RECORD rec = ex->ExceptionRecord;
+	diagLog("Butterscotch: FATAL SEH exception code=0x%08X flags=0x%X addr=%p thread=%lu\n",
+			(unsigned)rec->ExceptionCode, (unsigned)rec->ExceptionFlags,
+			(void*)rec->ExceptionAddress, (unsigned long)GetCurrentThreadId());
+
+	for (DWORD i = 0; i < rec->NumberParameters && i < 15; i++) {
+		diagLog("Butterscotch:   param[%u]=0x%016llX\n", (unsigned)i, (unsigned long long)rec->ExceptionInformation[i]);
+	}
+
+	if (rec->ExceptionCode == 0xC0000005u && rec->NumberParameters >= 2) {
+		diagLog("Butterscotch:   ACCESS_VIOLATION %s at VA 0x%016llX\n",
+				rec->ExceptionInformation[0] ? "WRITE" : "READ",
+				(unsigned long long)rec->ExceptionInformation[1]);
+	}
+
+	if (ex->ContextRecord) {
+		// Raw XCONTEXT dump. Best-effort decode of the XDK layout: R0-R31 are
+		// qwords 0-31, then IAR, LR, CTR, XER, CR, MSR, DSISR, DAR at qwords
+		// 32-39. If the decode ever looks wrong, dump more of the raw buffer.
+		const uint64_t* ctx = (const uint64_t*)ex->ContextRecord;
+		diagLog("Butterscotch:   R0=0x%016llX R1=0x%016llX R2=0x%016llX R3=0x%016llX R4=0x%016llX R5=0x%016llX\n",
+				(unsigned long long)ctx[0], (unsigned long long)ctx[1], (unsigned long long)ctx[2],
+				(unsigned long long)ctx[3], (unsigned long long)ctx[4], (unsigned long long)ctx[5]);
+		diagLog("Butterscotch:   IAR=0x%016llX LR=0x%016llX CTR=0x%016llX XER=0x%016llX CR=0x%016llX\n",
+				(unsigned long long)ctx[32], (unsigned long long)ctx[33], (unsigned long long)ctx[34],
+				(unsigned long long)ctx[35], (unsigned long long)ctx[36]);
+		diagLog("Butterscotch:   MSR=0x%016llX DSISR=0x%016llX DAR=0x%016llX\n",
+				(unsigned long long)ctx[37], (unsigned long long)ctx[38], (unsigned long long)ctx[39]);
+	}
+
+	if (drawScreen) {
+		drawFatalErrorScreen(&gLoadingScreen);
+	}
+}
+
 extern "C" void Butterscotch_xdkDataWinTrace(const char* fmt, ...) {
 	char line[1024];
 	va_list args;
@@ -1269,10 +1323,11 @@ int32_t* gGameW = NULL;
 int32_t* gGameH = NULL;
 
 // Buffer used to carry the pre-computed data.win path from the game_change
-// restart code (bottom of main()) back to the data.win search loop (top of
-// main()).  Must be file-scope static so recursive calls to main() share it.
+// restart code (bottom of the main body) back to the data.win search loop
+// (top of the main body).  Must be file-scope static so recursive calls
+// share it.
 static char gNextDataWinPath[512] = "";
-VOID __cdecl main() {
+static void _main() {
 	try {
 		diagOpenLog();
 
@@ -2082,9 +2137,10 @@ VOID __cdecl main() {
 			strncpy(gNextDataWinPath, newDataWinPath, sizeof(gNextDataWinPath) - 1);
 			gNextDataWinPath[sizeof(gNextDataWinPath) - 1] = '\0';
 
-			// Recursively re-enter main().  The symlink is already set up;
-			// CreateCustomDeviceLink will skip re-creation.
-			main();
+			// Re-run the main body.  The symlink is already set up;
+			// CreateCustomDeviceLink will skip re-creation.  main()'s __except
+			// frame still guards this recursive call.
+			_main();
 			return;
 		}
 
@@ -2102,5 +2158,18 @@ VOID __cdecl main() {
 
 	} catch (const char* msg) {
 		Butterscotch_xdkHandleException(msg);
+	}
+}
+
+// The CRT entry point.  SEH cannot be mixed with the C++ try/catch inside the
+// main body (C2713), so the entire body runs inside this SEH frame.  A CPU
+// fault such as 0xC0000005 is NOT a C++ exception: it propagates straight
+// through the catch (which only matches char* throws) and lands here, where
+// we log the fault before the kernel's "Fatal crash intercepted" screen.
+VOID __cdecl main() {
+	__try {
+		_main();
+	} __except (Butterscotch_xdkHandleSEHException(GetExceptionInformation(), 1), EXCEPTION_EXECUTE_HANDLER) {
+		Butterscotch_xdkHang();
 	}
 }

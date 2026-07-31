@@ -934,6 +934,12 @@ struct DataWin {
     // nullptr when lazy loading is disabled. Closed by DataWin_free.
     FILE* lazyLoadFile;
     char* lazyLoadFilePath; // owned strdup of the original file path, for diagnostics
+    // Serializes access to lazyLoadFile. The decode worker threads on Xbox 360
+    // call DataWin_loadTxtrIfNeeded concurrently with the render thread's
+    // DataWin_loadRoomPayload / DataWin_readLazyBytes, so every fseek/fread
+    // sequence on the shared FILE* must run under this lock. Opaque: a
+    // CRITICAL_SECTION on Windows/Xbox 360, a pthread_mutex_t elsewhere.
+    void* lazyLoadLock;
     uint8_t* mappedFile;
     size_t fileSize; // cached size of the DataWin, captured at parse time. Used for platforms where fseek(SEEK_END)+ftell is unreliable due to buffering (like the PlayStation 2).
     bool lazyLoadRooms; // mirrors the parser option so Runner can branch without re-reading options
@@ -956,6 +962,10 @@ uint32_t DataWin_allocSpriteSlot(DataWin* dw, uint32_t startIndex);
 bool DataWin_isVersionAtLeast(const DataWin* dw, uint32_t major, uint32_t minor, uint32_t release, uint32_t build);
 // Raises the detected effective version to at least (major, minor, release, build). No-op if the detected version is already >= the target.
 void DataWin_bumpVersionTo(DataWin* dw, uint32_t major, uint32_t minor, uint32_t release, uint32_t build);
+// Locked read of `count` bytes at absolute `offset` in the lazy-load file.
+// Returns a malloc'd buffer (caller frees) or NULL on failure. Thread-safe
+// against the other DataWin_load* lazy readers.
+bool DataWin_readLazyBytes(DataWin* dw, size_t offset, size_t count, uint8_t** outData);
 void GamePath_computeInternal(GamePath* path);
 PathPositionResult GamePath_getPosition(GamePath* path, float t);
 void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId);

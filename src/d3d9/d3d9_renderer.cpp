@@ -21,6 +21,11 @@
 
 #ifdef PLATFORM_XBOX360
 #include <textures.h>
+
+// Defined in xbox360/main.cpp. Logs an SEH exception record (code, faulting
+// address, context) before the kernel's fatal crash screen takes over.
+extern "C" void Butterscotch_xdkHandleSEHException(PEXCEPTION_POINTERS exceptionPointers, int drawScreen);
+extern "C" void Butterscotch_xdkHang();
 #endif
 
 // Threading strategy:
@@ -944,6 +949,8 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 			__dcbf(0, (const void*)(base + off));
 		}
 	}
+	Butterscotch_xdkDiagTrace("D3D9: staging filled %dx%d pitch=%u base=0x%08X\n",
+							  w, h, (unsigned)lr.Pitch, (unsigned)(uintptr_t)lr.pBits);
 #else
 	// Scalar fallback (desktop or no VMX)
 	for (int32_t y = 0; y < h; y++) {
@@ -985,6 +992,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	hr = D3DXLoadSurfaceFromSurface(dstSurf, nullptr, &dstRect,
 									stagingSurf, nullptr, &srcRect,
 									D3DX_FILTER_POINT, 0);
+	Butterscotch_xdkDiagTrace("D3D9: D3DX copy %dx%d hr=0x%08X\n", w, h, (unsigned)hr);
 
 	dstSurf->Release();
 	stagingSurf->Release();
@@ -1446,6 +1454,7 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
 	}
 
 	while (true) {
+		__try {
 		WaitForSingleObject(pool->workEvent, INFINITE);
 
 		while (true) {
@@ -1499,6 +1508,9 @@ static void textureDecodeWorker(D3D9Renderer* dr) {
 			}
 			dr->textureDecodeInFlight--;
 			LeaveCriticalSection(&pool->mutex);
+		}
+		} __except (Butterscotch_xdkHandleSEHException(GetExceptionInformation(), 0), EXCEPTION_EXECUTE_HANDLER) {
+			Butterscotch_xdkHang();
 		}
 	}
 }
@@ -1626,23 +1638,14 @@ static bool readBytesAt(DataWin* dw, size_t offset, size_t count, uint8_t** outD
 	}
 
 	// Prefer the persistent lazyLoadFile handle to avoid fopen/fclose per call.
+	// The seek+read is serialized internally by DataWin_readLazyBytes so worker
+	// thread decodes and render thread reads can share the FILE* safely.
+	// DataWin_readLazyBytes allocates its own buffer; release our scratch copy.
 	if (dw->lazyLoadFile) {
-		long savedPos = ftell(dw->lazyLoadFile);
-		if (savedPos < 0 || fseek(dw->lazyLoadFile, (long)offset, SEEK_SET) != 0) {
-			free(data);
+		free(data);
+		if (!DataWin_readLazyBytes(dw, offset, count, &data)) {
 			return false;
 		}
-
-		size_t readCount = fread(data, 1, count, dw->lazyLoadFile);
-		if (fseek(dw->lazyLoadFile, savedPos, SEEK_SET) != 0) {
-			free(data);
-			return false;
-		}
-		if (readCount != count) {
-			free(data);
-			return false;
-		}
-
 		*outData = data;
 		return true;
 	}
@@ -1839,6 +1842,8 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
 		return false;
 	}
+	Butterscotch_xdkDiagTrace("D3D9: async XG tex page=%u %dx%d fmt=0x%X mem=0x%08X\n",
+							  textureIndex, w, h, (unsigned)fmt, (unsigned)(uintptr_t)wcAlloc);
 	dr->textureWCAlloc[textureIndex] = wcAlloc;
 #else
 	HRESULT hr = dev->CreateTexture(D3D9_ALIGN4(w), D3D9_ALIGN4(h), 1, 0, D3D9_GPU_TEXTURE_FORMAT, D3DPOOL_MANAGED, &tex, nullptr);
