@@ -19,8 +19,6 @@ else()
     endif()
 endif()
 
-include(${CMAKE_SOURCE_DIR}/cmake/checks.cmake)
-
 set(PLATFORM "desktop" CACHE STRING "Platform backend")
 set(DESKTOP_BACKEND "" CACHE STRING "Desktop platform backend")
 set(AUDIO_BACKEND "" CACHE STRING "Audio backend")
@@ -109,6 +107,8 @@ if(PLATFORM STREQUAL "android")
 else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()
+
+include(${CMAKE_SOURCE_DIR}/cmake/checks.cmake)
 
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
