@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 #include "data_win.h"
 #endif
 

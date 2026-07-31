@@ -3871,10 +3871,10 @@ typedef ma_uint16 wchar_t;
     #endif
 
     /* The original Xbox. */
-    #if defined(NXDK) || defined(PLATFORM_XBOX360_XDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
+    #if defined(NXDK) || defined(PLATFORM_XBOX360)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
         #define MA_XBOX
 
-		#if defined(PLATFORM_XBOX360_XDK)
+		#if defined(PLATFORM_XBOX360)
 			#define MA_XBOX_360
 		#endif
 

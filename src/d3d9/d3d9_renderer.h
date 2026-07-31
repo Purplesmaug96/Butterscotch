@@ -62,7 +62,7 @@ typedef struct {
 	void* boundVertexShader;
 	void* boundPixelShader;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Only used on 360
 	bool boundViewportEnable;
 #endif
@@ -93,7 +93,7 @@ typedef struct {
 	int32_t* textureHeights;
 	uint32_t* textureBlobSizes;
 	uint32_t* textureLastUsedFrame;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// XPhysicalAlloc'd WC memory for XGSetTextureHeader-backed textures (parallel to textures[])
 	void** textureWCAlloc;
 #endif
@@ -104,7 +104,7 @@ typedef struct {
 
 	// 1x1 white texture for primitives
 	void* whiteTexture;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	void* whiteTextureWCAlloc; // XPhysicalAlloc'd memory for whiteTexture
 #endif
 

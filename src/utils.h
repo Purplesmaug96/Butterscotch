@@ -157,7 +157,7 @@ static inline char *safeStrdupFunction(const char *str, const char *file, int li
 }
 #define safeStrdup(str) safeStrdupFunction(str, __FILE__, __LINE__)
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 
 void diagLog(const char* fmt, ...);
 void fdiagLog(FILE* file, const char* fmt, ...);
@@ -208,7 +208,7 @@ static inline GMLReal clampFloat(GMLReal f) {
 #define BGR_R(c) (((c) >>  0) & 0xFF)
 #define BGR_A(c) (((c) >> 24) & 0xFF)
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 #define lrintf(x) (int)(x)
 #endif
 

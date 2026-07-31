@@ -102,7 +102,7 @@ export XEDK="/wherever/you/put/the/xdk"
 (you also need to replace the path on the right with wherever you put the xdk, in case that wasnt obvious enough)
 Then, after cloning recursively:
 ```bash
-cmake . -DPLATFORM=xbox360-xdk -B build-x360-xdk -DCMAKE_BUILD_TYPE=Release
+cmake . -DPLATFORM=xbox360 -B build-x360-xdk -DCMAKE_BUILD_TYPE=Release
 make -C build-x360-xdk -j$(nproc)
 ```
 Then, to use it, put a data.win on a USB drive, under its root dir, or "butterscotch" directory, and put the built butterscotch.xex in the same directory, and launch butterscotch.xex your favourite way.

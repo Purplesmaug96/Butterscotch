@@ -116,7 +116,7 @@ static float roundf(float x) {
 #define M_PI 3.14159265358979323846
 #endif
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 #include <windows.h>
 #include <float.h>
 

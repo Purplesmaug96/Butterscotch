@@ -4,7 +4,7 @@ if(PLATFORM STREQUAL "ps3")
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/ppu.cmake)
 endif()
 
-if(PLATFORM STREQUAL "xbox360-xdk")
+if(PLATFORM STREQUAL "xbox360")
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake)
 endif()
 
@@ -15,7 +15,7 @@ if(BUTTERSCOTCH_RELEASE)
 	add_compile_definitions(BUTTERSCOTCH_RELEASE)
 endif()
 
-if(PLATFORM STREQUAL "xbox360-xdk")
+if(PLATFORM STREQUAL "xbox360")
 set(ENABLE_MODERN_GL OFF)
 set(ENABLE_LEGACY_GL OFF)
 endif()
@@ -27,7 +27,7 @@ set(CMAKE_C_STANDARD 99)
 endif()
 
 set(CMAKE_C_STANDARD_REQUIRED ON)
-if(PLATFORM STREQUAL "xbox360-xdk")
+if(PLATFORM STREQUAL "xbox360")
     add_compile_options(/wd4127 /wd4702)
 	# Unused warnings should be fixed on desktop already anyways and i cant get MAYBE_UNUSED to work on MSVC
 	add_compile_options(/wd4100 /wd4101 /wd4505 /wd4189)
@@ -76,7 +76,7 @@ if(AUDIO_BACKEND STREQUAL "")
         set(AUDIO_BACKEND "openal")
     elseif(PLATFORM STREQUAL "ps2")
         set(AUDIO_BACKEND "ps2")
-	elseif(PLATFORM STREQUAL "xbox360-xdk")
+	elseif(PLATFORM STREQUAL "xbox360")
         set(AUDIO_BACKEND "xaudio2")
     else()
         set(AUDIO_BACKEND "miniaudio")
@@ -148,7 +148,7 @@ endif()
 # Platform specific files builds
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c src/${PLATFORM}/*.cpp)
 
-if(PLATFORM STREQUAL "xbox360-xdk")
+if(PLATFORM STREQUAL "xbox360")
 	file(GLOB ATG_SOURCES vendor/Atg/src/*.c vendor/Atg/src/*.cpp)
 	file(GLOB PRINTF_SOURCES compat/stdio/*.c)
 	set(ALL_XENON_SOURCES
@@ -174,7 +174,7 @@ endif()
 
 if(PLATFORM STREQUAL "android")
     add_library(butterscotch SHARED ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
-elseif(PLATFORM STREQUAL "xbox360-xdk")
+elseif(PLATFORM STREQUAL "xbox360")
 else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()
@@ -229,7 +229,7 @@ target_sources(butterscotch PRIVATE vendor/base64/base64.c)
 target_include_directories(butterscotch PUBLIC vendor/base64)
 
 # bzip2
-if(PLATFORM STREQUAL "xbox360-xdk")
+if(PLATFORM STREQUAL "xbox360")
 	set(BZIP2_SOURCES
 		vendor/bzip2/bz_internal_error.c
 		vendor/bzip2/bzlib.c
@@ -774,7 +774,7 @@ elseif(PLATFORM STREQUAL "ps3")
     target_include_directories(butterscotch PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(butterscotch PRIVATE ${SDL2_LIBRARIES} m gcm_sys rsx sysutil io audio rt lv2 io audio bzip2)
 
-elseif(PLATFORM STREQUAL "xbox360-xdk")
+elseif(PLATFORM STREQUAL "xbox360")
     file(GLOB D3D9_SOURCES src/d3d9/*.cpp)
 	file(GLOB IMAGE_SOURCES src/image/*.c)
     file(GLOB DEBUG_FONT_SOURCES src/debug_font/*.c)
@@ -782,7 +782,7 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
 	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/d3d9)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/image)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
-    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360-xdk)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360)
 	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/xbox360)
 	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/stdbool)
 
@@ -823,7 +823,7 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
 
     # Platform identifier for X360-specific code paths
-    add_compile_definitions(PLATFORM_XBOX360_XDK)
+    add_compile_definitions(PLATFORM_XBOX360)
 	add_compile_definitions(XENON)
     add_compile_definitions(IS_BIG_ENDIAN)
 

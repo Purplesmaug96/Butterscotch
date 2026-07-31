@@ -2,7 +2,7 @@
 #include <windows.h>
 #endif
 #include <d3d9.h>
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 #include <xtl.h>
 #include <d3dx9.h>
 #include <xgraphics.h>
@@ -19,7 +19,7 @@
 #include <limits.h>
 #include <algorithm>
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 #include <textures.h>
 #endif
 
@@ -28,7 +28,7 @@
 // - Xbox 360 XDK: use Win32 API (where available in headers) and/or XTL/xtl threading primitives.
 //   Note: Xbox 360 toolchains typically do not ship with the full C++ <thread> implementation.
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -37,7 +37,7 @@
 #include <queue>
 #endif
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 extern "C" {
 #include "data_win.h"
 }
@@ -47,7 +47,7 @@ extern "C" {
 #include "d3d9_renderer.h"
 #include "shader_loader.h"
 
-#if !defined(PLATFORM_XBOX360_XDK)
+#if !defined(PLATFORM_XBOX360)
 
 #define __cdecl __attribute__((cdecl))
 #define _vsnprintf vsnprintf
@@ -99,7 +99,7 @@ static int32_t* gGameH = &_gGameH;
 // Based on the FastGPUConstants XDK sample (Method 5: DIRECT_TO_SHADOW_AND_COMMANDBUFFER).
 
 static void FastSetVSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Prefetch the constant data into L2 before the D3D call reads it.
 	// For large uniform arrays (matrices: 16 floats = 64 bytes), prefetch
 	// both the first and second cache lines to avoid a D-cache miss stall
@@ -113,7 +113,7 @@ static void FastSetVSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const fl
 }
 
 static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	__dcbt(0, (const void*)data);
 	if (count > 2) {
 		__dcbt(0, (const void*)(data + 8));
@@ -126,7 +126,7 @@ static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const fl
 // Define D3D9_USE_16BIT_TEXTURES at build time to use D3DFMT_A4R4G4B4 (16-bit)
 // instead of D3DFMT_A8R8G8B8 (32-bit), halving GPU texture memory usage.
 // Staging/system-memory allocations remain 32-bit for upload compatibility.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 // Xbox 360: DXT5 block compression saves 75% vs A8R8G8B8 (1 BPP vs 4 BPP)
 // and provides full 8-bit alpha. The D3DXLoadSurfaceFromSurface upload path
 // handles ARGB -> DXT5 compression + tiling automatically.
@@ -144,7 +144,7 @@ static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const fl
 
 // On Xbox 360 (DXT5), texture dimensions must be multiples of 4 (DXT block size).
 // This macro clamps up to the next multiple of 4. No-op on other platforms.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 #define D3D9_ALIGN4(n) (((int32_t)(n) + 3) & ~3)
 #else
 #define D3D9_ALIGN4(n) (n)
@@ -152,7 +152,7 @@ static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const fl
 
 // Approximate GPU memory used by one texture (in bytes).
 // Used for cache-budget tracking in textureBlobSizes/textureBytesUsed.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 // DXT5: 1 byte per pixel on aligned dimensions (1 BPP vs 4 for RGBA)
 #define D3D9_GPU_MEM_SIZE(w, h) ((uint32_t)(D3D9_ALIGN4(w) * D3D9_ALIGN4(h)))
 #else
@@ -168,18 +168,18 @@ float _offx = 0.0f;
 #include "stb_ds.h"
 
 // Core headers — compiled as C++ alongside the .c files (via /TP flag)
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 extern "C" {
 #endif
 #include "utils.h"
 #include "text_utils.h"
 #include "runner.h"
 #include "image_decoder.h"
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 }
 #endif
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 unsigned long __cdecl DbgPrint(const char* format, ...) {
 	va_list args;
 	int result;
@@ -206,19 +206,19 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...) {
 
 #include "stb_image.h"
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 extern "C" {
 #endif
 unsigned long __cdecl DbgPrint(const char* format, ...);
 void Butterscotch_xdkDiagTrace(const char* fmt, ...);
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 }
 #endif
 
 using namespace std;
 
 static inline uint8_t floatToByteClamped(float v) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Fast integer clamp: avoid double conversion and __fsel overhead.
 	// PPC970 fctiwz + integer saturation is ~6 cycles vs 10+ for double path.
 	if (v <= 0.0f) return 0;
@@ -270,7 +270,7 @@ static inline void setVertexFast(SpriteVertex* __restrict sv, float px, float py
 // On Xbox 360, D3DRS_VIEWPORTENABLE=FALSE is used instead, so the shader is a
 // simple pass-through.
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 // Vertex shader: simple pass-through for pre-transformed screen-space vertices.
 // Position is already in screen pixels with z=0, w=1.
 // With D3DRS_VIEWPORTENABLE=FALSE, the GPU uses these directly.
@@ -357,7 +357,7 @@ void setShaders(D3D9Renderer* __restrict dr, void* __restrict pVertexShader, voi
 }
 
 // D3DRS_VIEWPORTENABLE is a 360-only extension, so this function is simply a no-op on desktop
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 void setViewportEnable(D3D9Renderer* dr, bool enableViewport) {
 	IDirect3DDevice9* dev = Dev(dr);
 	if (enableViewport != dr->boundViewportEnable) {
@@ -407,7 +407,7 @@ static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
 	} while (0)
 
 // File-level staging texture cache for Xbox 360 texture uploads.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 // Forward declaration for staging texture cleanup
 void d3d9ReleaseStagingTexture(void);
 
@@ -596,7 +596,7 @@ static void resolveApplicationSurface(D3D9Renderer* dr) {
 		return;
 	}
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	IDirect3DDevice9* dev = Dev(dr);
 	dev->Resolve(D3DRESOLVE_RENDERTARGET0, nullptr,
 				 (IDirect3DBaseTexture9*)dr->appSurfaceTexture,
@@ -610,7 +610,7 @@ static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
 	if (dr && dr->samplerStateApplied) {
 		return;
 	}
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	const DWORD kMaxSamplers = 4;
 	for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
 		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
@@ -697,7 +697,7 @@ static inline void bgrToFloatColor(uint32_t bgr, float alpha, float* __restrict 
 	*outA = alpha;
 }
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 // Xbox 360 tiled texture tile sizes.
 // D3DFMT_A8R8G8B8 uses 32-byte pitch tiles with 16 rows = 512 bytes per tile.
 // At 4 bytes/pixel, this corresponds to 32x16 pixels per tile.
@@ -716,7 +716,7 @@ static inline uint32_t alignToTile(uint32_t val, uint32_t tileSize) {
 // On Xbox 360 the tiled texture path expects the bytes laid out as [B,G,R,A]
 // in the temporary upload buffer before the runtime swizzles it into GPU memory.
 static inline void writePixelBGRA(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	dst[0] = b;
 	dst[1] = g;
 	dst[2] = r;
@@ -790,7 +790,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	// Xbox 360 performance: avoid allocating a new systemmem staging texture
 	// per upload. Instead, reuse a single staging texture owned by the
 	// renderer/device for the most recently seen size.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	D3DSURFACE_DESC dstDesc;
 	HRESULT hr = dstTex->GetLevelDesc(0, &dstDesc);
 	if (FAILED(hr)) {
@@ -827,7 +827,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	}
 
 	// Clear only the active rows we will write to.
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Use DCBZ (Data Cache Block Zero) for cache-optimized bulk zeroing.
 	// DCBZ allocates a zero-filled cache line without reading from memory,
 	// avoiding the read-for-ownership penalty of regular memset.
@@ -854,7 +854,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	}
 #endif
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
 	// Processes 16 pixels (64 bytes) per iteration using __vperm byte permutation.
 	// On PPC 970, __vperm has 2-cycle latency. Processing 4 vectors per iteration
@@ -1011,7 +1011,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		return false;
 	}
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// D3DPOOL_SYSTEMMEM surface memory is 16-byte aligned; use XMemSet128 for
 	// cache-optimised bulk zeroing via dcbz (Data Cache Block Zero).
 	XMemSet128(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
@@ -1067,7 +1067,7 @@ static D3D9ShaderUniform* findShaderUniform(D3D9GMLShader* shader, const char* n
 
 // ===[ Batch Flush ]===
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 static void flushBatch(D3D9Renderer* dr) {
 	// Cache batch counts locally to avoid multiple structure dereferences
 	const uint32_t quadCount = dr->quadCount;
@@ -1268,7 +1268,7 @@ typedef enum {
 } TextureLoadState;
 
 static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 	std::mutex* gpuMutex = dr && dr->textureGpuMutex ? (std::mutex*)dr->textureGpuMutex : nullptr;
 	std::unique_lock<std::mutex> gpuLock;
 	if (gpuMutex) {
@@ -1317,7 +1317,7 @@ static void releaseTexturePage(D3D9Renderer* dr, uint32_t index) {
 	}
 
 	if (dr->textures[index] != nullptr) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		if (dr->textureWCAlloc && dr->textureWCAlloc[index]) {
 			XPhysicalFree(dr->textureWCAlloc[index]);
 			dr->textureWCAlloc[index] = nullptr;
@@ -1416,7 +1416,7 @@ struct DecodeWorkItem {
 
 // Global thread pool state (per renderer)
 struct TextureDecodePool {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	CRITICAL_SECTION mutex;
 	HANDLE workEvent;
 	DecodeWorkItem* workQueue;
@@ -1435,7 +1435,7 @@ struct TextureDecodePool {
 	uint32_t numWorkers;
 };
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 static DWORD WINAPI textureDecodeWorkerThreadProc(LPVOID param);
 
 // Worker thread function: decodes a texture page from blob data
@@ -1763,7 +1763,7 @@ static void queueAsyncDecode(D3D9Renderer* dr, uint32_t textureIndex) {
 	item.blobSize = blobByteSize;
 	item.gm2022_5 = gm2022_5;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	EnterCriticalSection(&pool->mutex);
 	if (pool->queueCount < pool->queueCapacity) {
 		pool->workQueue[pool->queueTail] = item;
@@ -1828,7 +1828,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	D3DFORMAT fmt = textureBestCompression(pixels, (int32_t)w, (int32_t)h);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
@@ -1852,7 +1852,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 #endif
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, (int32_t)w, (int32_t)h)) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		Butterscotch_xdkDiagTrace("D3D9: async upload failed page=%u\n", textureIndex);
 		delete tex;
 		if (dr->textureWCAlloc[textureIndex]) {
@@ -1878,7 +1878,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 
 	dr->textureWidths[textureIndex] = (int32_t)w;
 	dr->textureHeights[textureIndex] = (int32_t)h;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	uint32_t memSize;
 	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
 	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE((int32_t)w, (int32_t)h) / 2;
@@ -1924,7 +1924,7 @@ static void processCompletedDecodes(D3D9Renderer* dr) {
 		dr->textureDecodedUploadCursor = next;
 		totalScanned++;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		// Prefetch load state ~128 slots ahead using the hoisted base pointer.
 		// textureLoadState is uint8_t per slot, so prefetch at 128-byte granularity.
 		if ((totalScanned & 63) == 0) {
@@ -2032,7 +2032,7 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 		return true;
 	}
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// TEXTURES.BIN + ATLAS.BIN + CLUT8.BIN fallback for Xbox 360.
 	// Uses the preprocessor's indexed-palette texture format which saves significant
 	// memory compared to storing full RGBA textures from TXTR chunks.
@@ -2219,7 +2219,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	D3DFORMAT fmt = textureBestCompression(pixels, w, h);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
@@ -2239,7 +2239,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 #endif
 
 	if (!uploadRgbaToTexture(dev, tex, pixels, w, h)) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		Butterscotch_xdkDiagTrace("D3D9: texture upload failed page=%u\n", index);
 		delete tex;
 		if (dr->textureWCAlloc[index]) {
@@ -2258,7 +2258,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	dr->textures[index] = tex;
 	dr->textureWidths[index] = w;
 	dr->textureHeights[index] = h;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	uint32_t memSize;
 	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
 	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(w, h) / 2;
@@ -2374,7 +2374,7 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
 	dr->surfaceHeight[slot] = 0;
 }
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 
 #include <unistd.h>
 #include <sys/wait.h>
@@ -2508,7 +2508,7 @@ HRESULT compileShader(
 HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSource, IDirect3DVertexShader9** pVertexShader, IDirect3DPixelShader9** pPixelShader) {
 	ID3DXBuffer* pCode = nullptr;
 	ID3DXBuffer* pErr = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Use vsSource/psSource directly since on 360 they are g_vsSource/g_psSource (pass-through shaders)
 	HRESULT hr = D3DXCompileShader(vsSource, (UINT)strlen(vsSource),
 								   nullptr, nullptr, "main", "vs_2_0", 0, &pCode, &pErr, nullptr);
@@ -2850,7 +2850,7 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 
 	// Compile pixel shader (ps_3_0 on 360 for discard support)
 	const char* psProfile = "ps_2_0";
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	psProfile = "ps_3_0";
 #endif
 	void* psBytecode = nullptr;
@@ -2949,14 +2949,14 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	Matrix4f_identity(&world);
 	renderer->gmlMatrices[MATRIX_WORLD] = world;
 
-#ifndef PLATFORM_XBOX360_XDK
+#ifndef PLATFORM_XBOX360
 	InitVertexDeclaration(dev);
 #endif
 
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
 	// Dont use setViewportEnable here because dr->boundViewportEnable should already be set to true by D3D9Renderer_create, so it wouldnt do anything
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	dev->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
 #endif
 
@@ -2983,14 +2983,14 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	dev->CreateVertexDeclaration(decl, (IDirect3DVertexDeclaration9**)&dr->pVertexDecl);
 
 	// Create white texture for primitives
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// DXT5 requires dimensions to be multiples of 4 (block size)
 	int whiteW = 4, whiteH = 4;
 #else
 	int whiteW = 1, whiteH = 1;
 #endif
 	IDirect3DTexture9* whiteTex = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	void* whiteWCAlloc = nullptr;
 	whiteTex = createXGTexture(whiteW, whiteH, D3D9_GPU_TEXTURE_FORMAT, &whiteWCAlloc);
 	if (!whiteTex) {
@@ -3008,7 +3008,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 		memset(whitePixel, 255, sizeof(whitePixel));
 		if (!uploadRgbaToTexture(dev, whiteTex, whitePixel, whiteW, whiteH)) {
 			fprintf(stderr, "D3D9 Error: Failed to fill white texture.\n");
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 			delete whiteTex;
 			XPhysicalFree(whiteWCAlloc);
 			whiteTex = nullptr;
@@ -3018,7 +3018,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 			whiteTex = nullptr;
 #endif
 		}
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		dr->whiteTextureWCAlloc = whiteWCAlloc;
 #endif
 	}
@@ -3031,7 +3031,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	dr->textureHeights = (int32_t*)safeCalloc(dr->textureCount, sizeof(int32_t));
 	dr->textureBlobSizes = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
 	dr->textureLastUsedFrame = (uint32_t*)safeCalloc(dr->textureCount, sizeof(uint32_t));
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	dr->textureWCAlloc = (void**)safeCalloc(dr->textureCount, sizeof(void*));
 #endif
 	dr->loadedTexturePages = 0;
@@ -3052,7 +3052,7 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	TextureDecodePool* pool = new TextureDecodePool();
 	dr->textureLoadMutex = (void*)pool;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	InitializeCriticalSection(&pool->mutex);
 	pool->workEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 	pool->workQueue = new DecodeWorkItem[256];
@@ -3113,7 +3113,7 @@ static void d3d9Destroy(Renderer* renderer) {
 	// Shut down the decode pool
 	TextureDecodePool* pool = (TextureDecodePool*)dr->textureLoadMutex;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	if (pool) {
 		EnterCriticalSection(&pool->mutex);
 		pool->shutdown = true;
@@ -3171,7 +3171,7 @@ static void d3d9Destroy(Renderer* renderer) {
 
 	for (uint32_t i = 0; i < dr->textureCount; i++) {
 		if (dr->textures[i]) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 			if (dr->textureWCAlloc && dr->textureWCAlloc[i]) {
 				XPhysicalFree(dr->textureWCAlloc[i]);
 				dr->textureWCAlloc[i] = nullptr;
@@ -3183,7 +3183,7 @@ static void d3d9Destroy(Renderer* renderer) {
 		}
 	}
 	free(dr->textures);
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	free(dr->textureWCAlloc);
 #endif
 	free(dr->textureWidths);
@@ -3197,7 +3197,7 @@ static void d3d9Destroy(Renderer* renderer) {
 	free(dr->texturePendingByteSize);
 	free(dr->vertexData);
 	if (dr->whiteTexture) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		if (dr->whiteTextureWCAlloc) {
 			XPhysicalFree(dr->whiteTextureWCAlloc);
 			dr->whiteTextureWCAlloc = nullptr;
@@ -3207,7 +3207,7 @@ static void d3d9Destroy(Renderer* renderer) {
 		((IDirect3DTexture9*)dr->whiteTexture)->Release();
 #endif
 	}
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	d3d9ReleaseStagingTexture();
 #endif
 	releaseApplicationSurface(dr);
@@ -3243,7 +3243,7 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	IDirect3DDevice9* dev = Dev(dr);
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	PIXBeginNamedEvent(0, "d3d9BeginFrame");
 #endif
 
@@ -3301,17 +3301,17 @@ static void d3d9BeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int
 
 static void d3d9EndFrame(Renderer* renderer) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	PIXBeginNamedEvent(0, "d3d9EndFrame_flush");
 #endif
 	flushBatch(dr);
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	PIXEndNamedEvent();
 	PIXBeginNamedEvent(0, "d3d9EndScene_Present");
 #endif
 	Dev(dr)->EndScene();
 	Dev(dr)->Present(nullptr, nullptr, nullptr, nullptr);
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	PIXEndNamedEvent();
 #endif
 }
@@ -4569,7 +4569,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	IDirect3DDevice9* dev = Dev(dr);
 
 	IDirect3DTexture9* tex = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	D3DFORMAT fmt = textureBestCompression(rgba, srcW, srcH);
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(srcW, srcH, fmt, &wcAlloc);
@@ -4587,7 +4587,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 #endif
 
 	if (!uploadRgbaToTexture(dev, tex, rgba, srcW, srcH)) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		delete tex;
 		if (dr->textureWCAlloc[pageId]) {
 			XPhysicalFree(dr->textureWCAlloc[pageId]);
@@ -4603,7 +4603,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 	dr->textures[pageId] = tex;
 	dr->textureWidths[pageId] = srcW;
 	dr->textureHeights[pageId] = srcH;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	uint32_t memSize;
 	if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(srcW * srcH * 4);
 	else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(srcW, srcH) / 2;
@@ -4708,7 +4708,7 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 	// Release dynamic D3D texture page.
 	flushBatch(dr);
 	if (dr->textures[pageId]) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		if (dr->textureWCAlloc && dr->textureWCAlloc[pageId]) {
 			XPhysicalFree(dr->textureWCAlloc[pageId]);
 			dr->textureWCAlloc[pageId] = nullptr;
@@ -5258,7 +5258,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 
 	IDirect3DTexture9* sampleTex = nullptr;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
 									D3DPOOL_DEFAULT, &sampleTex, nullptr);
 #else
@@ -5276,7 +5276,7 @@ static int32_t d3d9EnsureApplicationSurface(Renderer* renderer, int32_t width, i
 	}
 
 	IDirect3DSurface9* surface = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
 								 D3DMULTISAMPLE_NONE, 0, FALSE, &surface, nullptr);
 #else
@@ -5480,7 +5480,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			int32_t allocW = (width + 7) & ~7;
 			int32_t allocH = (height + 7) & ~7;
 			IDirect3DTexture9* sampleTex = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 			HRESULT hr = dev->CreateTexture((UINT)allocW, (UINT)allocH, 1, 0, D3DFMT_A8R8G8B8,
 											D3DPOOL_DEFAULT, &sampleTex, nullptr);
 #else
@@ -5498,7 +5498,7 @@ static void d3d9SurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t wid
 			}
 
 			IDirect3DSurface9* surface = nullptr;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 			hr = dev->CreateRenderTarget((UINT)allocW, (UINT)allocH, D3DFMT_A8R8G8B8,
 										 D3DMULTISAMPLE_NONE, 0, FALSE, &surface, nullptr);
 #else
@@ -5730,7 +5730,7 @@ static bool d3d9SurfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t*
 			// A8R8G8B8 in little-endian memory: byte[0]=B, byte[1]=G, byte[2]=R, byte[3]=A
 			// On big-endian (360), D3DXLoadSurfaceFromSurface byte-swaps the data
 			// On little-endian (desktop), bytes are already B,G,R,A
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 			// D3DXLoadSurfaceFromSurface writes A8R8G8B8 in big-endian byte order on PowerPC
 			// So byte[0]=A, byte[1]=R, byte[2]=G, byte[3]=B
 			dst[x2 * 4 + 0] = src[x2 * 4 + 1]; // R
@@ -8161,7 +8161,7 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	dr->boundVertexShader = nullptr;
 	dr->boundPixelShader = nullptr;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	dr->boundViewportEnable = true;
 #endif
 

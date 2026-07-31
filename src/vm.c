@@ -2870,7 +2870,7 @@ static RValue executeLoop(VMContext* ctx) {
         // Prefetch next cache line of bytecode.
 		// Does this help?
 		// Absolutely no idea.
-#if defined(PLATFORM_XBOX360_XDK)
+#if defined(PLATFORM_XBOX360)
         __dcbt(128, (const void*)(bytecodeBase + ip));
 #endif
 

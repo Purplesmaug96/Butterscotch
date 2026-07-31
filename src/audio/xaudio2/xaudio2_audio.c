@@ -165,7 +165,7 @@ struct XAudio2DecodedSound {
 	uint32_t sampleRate;
 	uint16_t channels;
 	uint32_t sampleFrames;
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	bool isXma2;                    // true = pcmData holds raw XMA2 compressed data
 	uint32_t xma2BytesPerBlock;
 	uint32_t xma2SamplesEncoded;
@@ -332,7 +332,7 @@ static void destroyInstance(XAudio2SoundInstance* inst) {
 		inst->pVoice = NULL;
 	}
 	if (inst->ownsDecoded && inst->decoded) {
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 		if (inst->decoded->isXma2) {
 			XPhysicalFree(inst->decoded->pcmData);
 		} else {
@@ -663,7 +663,7 @@ static bool decodeAudioBytes(const uint8_t* data, int size, XAudio2DecodedSound*
 		return false;
 	}
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	// Check for XMA2 format: WAVE_FORMAT_XMA2 (0x0166) inside a RIFF/WAVE container
 	if (size >= 60 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WAVE", 4) == 0) {
 		int offset = 12;
@@ -947,7 +947,7 @@ static bool createVoiceForInstance(XAudio2AudioSystem* xa, XAudio2SoundInstance*
 	IXAudio2* pXA = (IXAudio2*)xa->pXAudio2;
 	HRESULT hr;
 
-#ifdef PLATFORM_XBOX360_XDK
+#ifdef PLATFORM_XBOX360
 	if (decoded->isXma2) {
 		XMA2WAVEFORMATEX xma2Wfx;
 		memset(&xma2Wfx, 0, sizeof(xma2Wfx));
