@@ -19179,7 +19179,6 @@ MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConf
     pQueue->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    }
     pQueue->flags    = pConfig->flags;
     pQueue->capacity = pConfig->capacity;
     pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);

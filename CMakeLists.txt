@@ -5,7 +5,7 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/ppu.cmake)
 endif()
 
 if(PLATFORM STREQUAL "xbox360-xdk")
-set(CMAKE_TOOLCHAIN_FILE "${CMAKE_SOURCE_DIR}/vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake")
+set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/vendor/cmake-xenon-toolchain/cmake/toolchain/xenon-toolchain.cmake)
 endif()
 
 project(butterscotch C CXX)
@@ -16,9 +16,6 @@ if(BUTTERSCOTCH_RELEASE)
 endif()
 
 if(PLATFORM STREQUAL "xbox360-xdk")
-include(vendor/cmake-xenon-toolchain/cmake/config.cmake)
-include(vendor/cmake-xenon-toolchain/cmake/compiler.cmake)
-include(vendor/cmake-xenon-toolchain/cmake/scripts/xenon-utils.cmake)
 set(ENABLE_MODERN_GL OFF)
 set(ENABLE_LEGACY_GL OFF)
 endif()
@@ -28,9 +25,10 @@ set(CMAKE_C_STANDARD 23)
 else()
 set(CMAKE_C_STANDARD 99)
 endif()
+
 set(CMAKE_C_STANDARD_REQUIRED ON)
 if(PLATFORM STREQUAL "xbox360-xdk")
-    add_compile_options(/nologo /W4 /wd4127 /TP /Zc:wchar_t /EHsc /wd4702)
+    add_compile_options(/wd4127 /wd4702)
 	# Unused warnings should be fixed on desktop already anyways and i cant get MAYBE_UNUSED to work on MSVC
 	add_compile_options(/wd4100 /wd4101 /wd4505 /wd4189)
 	# add_compile_options(/wd9025)
@@ -786,7 +784,6 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360-xdk)
 	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/xbox360)
-	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/stdbool)
 
 	# Butterscotch VM/interpreter profiler
     option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
