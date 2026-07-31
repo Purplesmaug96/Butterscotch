@@ -784,6 +784,7 @@ elseif(PLATFORM STREQUAL "xbox360-xdk")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/xbox360-xdk)
 	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/xbox360)
+	target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/compat/stdbool)
 
 	# Butterscotch VM/interpreter profiler
     option(ENABLE_VM_GML_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
