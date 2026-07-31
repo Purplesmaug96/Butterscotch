@@ -11,6 +11,7 @@ if(MSVC)
     " HAVE_MIXED_DECLARATIONS)
     if(NOT HAVE_MIXED_DECLARATIONS)
         add_compile_options("/TP")
+		set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} /TP")
     endif()
 endif()
 
@@ -70,14 +71,26 @@ endif()
 
 # Math functions checks (defines NO_<FUNC> if missing)
 set(MATH_FUNCS fmin fmax round log2 lround sqrtf fabsf fmodf sinf cosf floorf roundf)
+set(TWO_ARG_MATH_FUNCS fmin fmax fmodf)
 foreach(func ${MATH_FUNCS})
     string(TOUPPER ${func} UPPER_FUNC)
-    check_symbol_exists(${func} "math.h" HAVE_${UPPER_FUNC})
+    if(func IN_LIST TWO_ARG_MATH_FUNCS)
+        set(CALL "${func}(1.0, 2.0)")
+    else()
+        set(CALL "${func}(1.0)")
+    endif()
+
+    check_c_source_compiles("
+        #include <math.h>
+        int main(void) {
+            return ${CALL} > 0.0 ? 0 : 1;
+        }
+    " HAVE_${UPPER_FUNC})
+
     if(NOT HAVE_${UPPER_FUNC})
         add_compile_definitions(NO_${UPPER_FUNC}=1)
     endif()
 endforeach()
-
 unset(CMAKE_REQUIRED_LIBRARIES)
 
 # Macro/Math checks (isinf, isnan)
@@ -128,3 +141,6 @@ if(NOT HAVE_SNPRINTF)
     list(APPEND COMPAT_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/compat/stdio")
     list(APPEND COMPAT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/compat/stdio/printf.c")
 endif()
+
+target_include_directories(butterscotch PRIVATE ${COMPAT_INCLUDES})
+target_sources(butterscotch PRIVATE ${COMPAT_SOURCES})
