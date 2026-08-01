@@ -17,7 +17,11 @@
 #include <math.h>
 #include <stdarg.h>
 #include <limits.h>
-#include <algorithm>
+
+#ifndef PLATFORM_XBOX360
+#include <unistd.h>
+#include <sys/wait.h>
+#endif
 
 #ifdef PLATFORM_XBOX360
 #include <textures.h>
@@ -92,8 +96,6 @@ static int32_t* gGameH = &_gGameH;
 #undef D3DPOOL_MANAGED
 #endif
 #define D3DPOOL_MANAGED D3DPOOL_DEFAULT
-
-// #define D3DFMT_A8R8G3608B8 D3DFMT_LIN_A8R8G8B8
 
 #endif
 
@@ -219,8 +221,6 @@ void Butterscotch_xdkDiagTrace(const char* fmt, ...);
 #ifdef PLATFORM_XBOX360
 }
 #endif
-
-using namespace std;
 
 static inline uint8_t floatToByteClamped(float v) {
 #ifdef PLATFORM_XBOX360
@@ -374,21 +374,6 @@ void setViewportEnable(D3D9Renderer* dr, bool enableViewport) {
 static inline void setViewportEnable(MAYBE_UNUSED D3D9Renderer* dr, MAYBE_UNUSED bool enableViewport) {}
 #endif
 
-static void d3d9DiagOnce(bool* flag, const char* fmt, ...) {
-	if (*flag) {
-		return;
-	}
-	*flag = true;
-
-	char line[512];
-	va_list args;
-	va_start(args, fmt);
-	_vsnprintf(line, sizeof(line) - 1, fmt, args);
-	va_end(args);
-	line[sizeof(line) - 1] = '\0';
-	Butterscotch_xdkDiagTrace("%s", line);
-}
-
 static void d3d9DiagLimited(int* counter, int limit, const char* fmt, ...) {
 	if (*counter >= limit) {
 		return;
@@ -529,30 +514,13 @@ static void setGameTargetTransform(D3D9Renderer* dr) {
 	dr->portOffsetY = dr->renderOffsetY;
 }
 
-static void setWindowSurfaceTransform(D3D9Renderer* dr) {
-	// Use uniform scale to preserve the application surface's aspect ratio
-	// within the fixed 720p backbuffer. This prevents stretching when the
-	// app surface aspect differs from the screen aspect (e.g., 4:3 game
-	// content or widescreen mod application surface on a 16:9 display).
-	dr->renderStateDirty = true;
-	float scaleX = (dr->appSurfaceW > 0) ? ((float)dr->screenW / (float)dr->appSurfaceW) : 1.0f;
-	float scaleY = (dr->appSurfaceH > 0) ? ((float)dr->screenH / (float)dr->appSurfaceH) : 1.0f;
-	float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
-	dr->offsetX = _offx + 0.0f;
-	dr->offsetY = 0.0f;
-	dr->portScaleX = uniformScale;
-	dr->portScaleY = uniformScale;
-	dr->portOffsetX = _offx + ((float)dr->screenW - (float)dr->appSurfaceW * uniformScale) * 0.5f;
-	dr->portOffsetY = ((float)dr->screenH - (float)dr->appSurfaceH * uniformScale) * 0.5f;
-}
-
 static void setApplicationSurfaceTransform(D3D9Renderer* dr) {
 	dr->renderStateDirty = true;
-	dr->offsetX = _offx + 0.0f;
+	dr->offsetX = _offx;
 	dr->offsetY = 0.0f;
 	dr->portScaleX = 1.0f;
 	dr->portScaleY = 1.0f;
-	dr->portOffsetX = _offx + 0.0f;
+	dr->portOffsetX = _offx;
 	dr->portOffsetY = 0.0f;
 }
 
@@ -617,15 +585,9 @@ static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
 	}
 #ifdef PLATFORM_XBOX360
 	const DWORD kMaxSamplers = 4;
-	for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
-		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_MIPFILTER, D3DTEXF_POINT);
-		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-	}
 #else
 	const DWORD kMaxSamplers = 8;
+#endif
 	for (DWORD sampler = 0; sampler < kMaxSamplers; sampler++) {
 		dev->SetSamplerState(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
 		dev->SetSamplerState(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -633,7 +595,6 @@ static void applyPointSampling(IDirect3DDevice9* dev, D3D9Renderer* dr) {
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
 		dev->SetSamplerState(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 	}
-#endif
 	if (dr) {
 		dr->samplerStateApplied = true;
 	}
@@ -1019,13 +980,7 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		return false;
 	}
 
-#ifdef PLATFORM_XBOX360
-	// D3DPOOL_SYSTEMMEM surface memory is 16-byte aligned; use XMemSet128 for
-	// cache-optimised bulk zeroing via dcbz (Data Cache Block Zero).
-	XMemSet128(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
-#else
 	memset(lr.pBits, 0, (size_t)lr.Pitch * desc.Height);
-#endif
 	for (int32_t y = 0; y < h; y++) {
 		const uint8_t* src = pixels + y * (size_t)w * 4;
 		uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
@@ -1155,7 +1110,6 @@ static void flushBatch(D3D9Renderer* dr) {
 	}
 }
 #else
-IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
 static void flushBatch(D3D9Renderer* dr) {
 	const uint32_t quadCount = (uint32_t)dr->quadCount;
 	const uint32_t triCount = (uint32_t)dr->triCount;
@@ -2381,11 +2335,6 @@ static void d3d9ReleaseSurfaceSlot(D3D9Renderer* dr, uint32_t slot) {
 
 #ifndef PLATFORM_XBOX360
 
-#include <unistd.h>
-#include <sys/wait.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #define FXC_EXE "/hdd/Program Files (x86)/Microsoft DirectX SDK (June 2010)/Utilities/bin/x64/fxc.exe"
 
 HRESULT compileShader(
@@ -2438,20 +2387,6 @@ HRESULT compileShader(
 	fclose(fBin);
 
 	return S_OK;
-}
-
-// IDirect3DVertexDeclaration9* g_pVertexDecl = nullptr;
-
-// Call this once during D3D9 renderer initialization:
-void InitVertexDeclaration(IDirect3DDevice9* dev) {
-	D3DVERTEXELEMENT9 decl[] = {
-		// Stream, Offset, Type, Method, Usage, UsageIndex
-		{ 0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },	// x, y, z, w
-		{ 0, 16, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 }, // u, v
-		{ 0, 24, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1 }, // r, g, b, a (Mapped to TEXCOORD1)
-		D3DDECL_END()
-	};
-	dev->CreateVertexDeclaration(decl, &g_pVertexDecl);
 }
 
 #else
@@ -2590,9 +2525,6 @@ HRESULT useShaders(IDirect3DDevice9* dev, const char* vsSource, const char* psSo
 }
 
 // ===[ Shader Compilation Helpers ]===
-
-// Forward declaration of compileShader
-HRESULT compileShader(const char* source, const char* profile, void** outBytecode, size_t* outSize);
 
 // Debug mode flag (defined in main.cpp)
 extern bool debugMode;
@@ -2882,13 +2814,11 @@ static bool compileD3D9Program(D3D9GMLShader* gmlShader, const char* vertexShade
 	gmlShader->compiled = true;
 
 	// Parse uniforms from HLSL source
-	// fprintf(stderr, "D3D9: === STEP 5: parse uniforms for %s ===\n", name ? name : "unknown");
 	gmlShader->uniformCount = parseHLSLUniforms(vertexShaderSource, "vs_2_0", gmlShader->uniforms);
 	uint32_t psUniforms = parseHLSLUniforms(fragmentShaderSource, "ps_2_0", gmlShader->uniforms + gmlShader->uniformCount);
 	gmlShader->uniformCount += psUniforms;
 
 	// Assign sampler slots sequentially
-	// fprintf(stderr, "D3D9: === STEP 6: sampler loop for %s ===\n", name ? name : "unknown");
 	uint32_t nextSamplerSlot = 0;
 	for (uint32_t i = 0; i < gmlShader->uniformCount; i++) {
 		if (gmlShader->uniforms[i].isSampler) {
@@ -2954,10 +2884,6 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	Matrix4f_identity(&world);
 	renderer->gmlMatrices[MATRIX_WORLD] = world;
 
-#ifndef PLATFORM_XBOX360
-	InitVertexDeclaration(dev);
-#endif
-
 	Dev(dr)->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	Dev(dr)->SetRenderState(D3DRS_ZENABLE, FALSE);
 	// Dont use setViewportEnable here because dr->boundViewportEnable should already be set to true by D3D9Renderer_create, so it wouldnt do anything
@@ -2967,10 +2893,6 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 
 	// Allocate CPU vertex staging buffer (shared between quads and triangles)
 	dr->vertexData = (uint8_t*)safeMalloc((D3D9_MAX_QUADS * D3D9_VERTS_PER_QUAD + D3D9_MAX_TRIS * D3D9_VERTS_PER_TRI) * sizeof(SpriteVertex));
-
-	// // Compile shaders from source
-	// ID3DXBuffer* pCode = nullptr;
-	// ID3DXBuffer* pErr = nullptr;
 
 	HRESULT hr = useShaders(dev, g_vsSource, g_psSource, (IDirect3DVertexShader9**)&dr->pVertexShader, (IDirect3DPixelShader9**)&dr->pPixelShader);
 	if (FAILED(hr)) {
@@ -3103,13 +3025,6 @@ static void d3d9Init(Renderer* renderer, DataWin* dataWin) {
 	dr->gmlShaderCount = 0;
 	fprintf(stderr, "D3D9: GML shaders disabled via D3D9_DISABLE_SHADERS\n");
 #endif
-
-	// Initialize dynamic surface arrays (empty)
-	dr->surfaces = nullptr;
-	dr->surfaceTexture = nullptr;
-	dr->surfaceWidth = nullptr;
-	dr->surfaceHeight = nullptr;
-	dr->surfaceCount = 0;
 }
 
 static void d3d9Destroy(Renderer* renderer) {
@@ -3391,8 +3306,8 @@ static void d3d9BeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int3
 	D3DVIEWPORT9 vp;
 	vp.X = (DWORD)scLeft;
 	vp.Y = (DWORD)scTop;
-	vp.Width = max(1U, (DWORD)(scRight - scLeft));
-	vp.Height = max(1U, (DWORD)(scBottom - scTop));
+	vp.Width = ((DWORD)(scRight - scLeft) > 1U) ? (DWORD)(scRight - scLeft) : 1U;
+	vp.Height = ((DWORD)(scBottom - scTop) > 1U) ? (DWORD)(scBottom - scTop) : 1U;
 	vp.MinZ = 0.0f;
 	vp.MaxZ = 1.0f;
 	dev->SetViewport(&vp);
@@ -3685,11 +3600,6 @@ static void d3d9DrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float
 
 	float cr, cg, cb, ca;
 	bgrToFloatColor(color, alpha, &cr, &cg, &cb, &ca);
-
-	if (false) {
-		fprintf(stderr, "D3D9: drawSprite color=BGR(0x%06X) alpha=%.3f -> RGBA(%.3f,%.3f,%.3f,%.3f) pos=(%.1f,%.1f) scale=(%.2f,%.2f)\n",
-				color, alpha, cr, cg, cb, ca, x, y, xscale, yscale);
-	}
 
 	// Build 4 corners
 	float cx[4], cy[4];
@@ -4670,7 +4580,7 @@ static void d3d9DeleteSprite(Renderer* renderer, int32_t spriteIndex) {
 	// This backend overloads sprite IDs returned by createSpriteFromSurface.
 	// We tagged dynamic sprites by making their tpagIndices point at a
 	// renderer-side dynamic texture page (dr->textureCount+ growth), and
-	// by appending a TPAG entry at the end of dw->tpag.build-x360-xdk/bin/xenon-x86/Release/butterscotch.xex
+	// by appending a TPAG entry at the end of dw->tpag.
 	DataWin* dw = renderer->dataWin;
 	if (!dw) {
 		return;
@@ -5098,7 +5008,6 @@ static bool d3d9SurfaceExists(Renderer* renderer, int32_t surfaceID) {
 static bool d3d9SetRenderTarget(Renderer* renderer, int32_t surfaceID, bool implicitApplicationSurface) {
 	D3D9Renderer* dr = (D3D9Renderer*)renderer;
 	IDirect3DDevice9* dev = Dev(dr);
-	static int logged = 0;
 
 	dr->renderStateDirty = true;
 
@@ -5361,7 +5270,6 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 
 	// Handle application surface switching from render target mode to draw mode
 	if (surfaceID == APPLICATION_SURFACE_ID && dr->renderingToApplicationSurface) {
-		static int switchLogged = 0;
 		flushBatch(dr);
 		resolveApplicationSurface(dr);
 		bindBackbuffer(dr);
@@ -5371,9 +5279,10 @@ static void d3d9DrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLe
 		// the game positions it in game-space coordinates (e.g., draw_surface_stretched
 		// to fill the room). Use the game-to-screen transform to map those coordinates
 		// to the backbuffer, preserving aspect ratio.
-		// For auto-draw, setWindowSurfaceTransform would be used, but in the manual
-		// path the GML code handles stretching the app surface to the game frame,
-		// and setGameTargetTransform correctly maps the game frame to the screen.
+		// For auto-draw, the game-to-screen transform would be applied here, but
+		// in the manual path the GML code handles stretching the app surface to
+		// the game frame, and setGameTargetTransform correctly maps the game frame
+		// to the screen.
 		setGameTargetTransform(dr);
 		Dev(dr)->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
 		dr->samplerStateApplied = false;
@@ -7011,10 +6920,6 @@ static void ensureShaderCompiled(D3D9Renderer* dr, int32_t shaderIndex) {
 		// Only patch shaders that use _v_vPosition in the VS
 		const char* oldPat = "(_v_vPosition = vec2_ctor(_in_Position.x, _in_Position.y));";
 		const char* vsPos = strstr(vertexShaderSource, oldPat);
-		// if (false) {
-		// 	fprintf(stderr, "D3D9: _v_vPosition pattern %s in %s\n",
-		// 		vsPos ? "FOUND" : "NOT FOUND", shdr->name);
-		// }
 		if (vsPos) {
 			size_t patOff = (size_t)(vsPos - vertexShaderSource);
 			size_t oldLen = strlen(vertexShaderSource);
@@ -7112,17 +7017,6 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 	setViewportEnable(dr, true);
 
 	// Set built-in uniforms
-	if (dr->base.dataWin && (uint32_t)shaderIndex < dr->base.dataWin->shdr.count) {
-		const char* sname = dr->base.dataWin->shdr.shaders[shaderIndex].name;
-		// fprintf(stderr, "D3D9: gpuSetShader %s uniforms (%u total):\n", sname, shader->uniformCount);
-		for (uint32_t ui = 0; ui < shader->uniformCount; ui++) {
-			D3D9ShaderUniform* u = &shader->uniforms[ui];
-			// fprintf(stderr, "D3D9:   [%u] %s reg=%d slot=%d %s%s\n",
-			// 		ui, u->name, u->registerIndex, u->samplerSlot,
-			// 		u->isSampler ? "sampler " : "",
-			// 		u->isVertex ? "VS" : "PS");
-		}
-	}
 	D3D9ShaderUniform* gmMatrices = findShaderUniform(shader, "gm_Matrices");
 	if (gmMatrices != nullptr) {
 		// gm_Matrices is float4x4[5] - 5 matrices, each 4 registers
@@ -7137,7 +7031,6 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			}
 		}
 		if (matricesChanged) {
-			// fprintf(stderr, "D3D9: uploading gm_Matrices to register %d\n", gmMatrices->registerIndex);
 			Matrix4f upload[MATRICES_MAX];
 			memcpy(upload, renderer->gmlMatrices, sizeof(upload));
 			// Adjust projection and WVP for screen-space vertex data (see
@@ -7214,10 +7107,6 @@ static void d3d9GpuSetShader(Renderer* renderer, int32_t shaderIndex) {
 			float offX = dr->offsetX - dr->portOffsetX * invSx + 0.5f * invSx;
 			float offY = dr->offsetY - dr->portOffsetY * invSy + 0.5f * invSy;
 			float v[4] = { invSx, invSy, offX, offY };
-			// if (false) {
-			// 	fprintf(stderr, "D3D9: setting dx_WorldOffset reg=%u = {%f,%f,%f,%f}\n",
-			// 		u->registerIndex, v[0], v[1], v[2], v[3]);
-			// }
 			FastSetVSConstF(dev, u->registerIndex, v, 1);
 		}
 	}
@@ -7321,12 +7210,6 @@ static void d3d9ShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t co
 
 	IDirect3DDevice9* dev = Dev(dr);
 	float values[4] = { value1, value2, value3, value4 };
-	if (false) {
-		fprintf(stderr, "D3D9: setUniform '%s' = {%.6f, %.6f, %.6f, %.6f} (handle=%d, reg=%d, count=%u, %s)\n",
-				u->name, values[0], values[1], values[2], values[3],
-				handle, u->registerIndex, u->registerCount,
-				u->isVertex ? "VS" : "PS");
-	}
 	// Only set the shader stage this uniform belongs to
 	if (u->isVertex) {
 		FastSetVSConstF(dev, u->registerIndex, values, u->registerCount);
@@ -8100,8 +7983,6 @@ Renderer* D3D9Renderer_create(void* pd3dDevice) {
 	d3d9RendererVtable.gpuGetBlendEnable = d3d9GpuGetBlendEnable;
 	d3d9RendererVtable.gpuSetFog = d3d9GpuSetFog;
 	d3d9RendererVtable.drawTile = d3d9DrawTile;
-	// Doesnt exist anymore??? (after a merge)
-	//  d3d9RendererVtable.drawTiled = d3d9DrawTiled;
 	d3d9RendererVtable.createSurface = d3d9CreateSurface;
 	d3d9RendererVtable.surfaceExists = d3d9SurfaceExists;
 	d3d9RendererVtable.setRenderTarget = d3d9SetRenderTarget;
