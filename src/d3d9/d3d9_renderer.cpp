@@ -793,32 +793,10 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 	}
 
 	// Clear only the active rows we will write to.
-#ifdef PLATFORM_XBOX360
-	// Use DCBZ (Data Cache Block Zero) for cache-optimized bulk zeroing.
-	// DCBZ allocates a zero-filled cache line without reading from memory,
-	// avoiding the read-for-ownership penalty of regular memset.
-	{
-		uint8_t* base = (uint8_t*)lr.pBits;
-		const size_t rowBytes = (size_t)w * 4;
-		for (int32_t y = 0; y < h; y++) {
-			uint8_t* row = base + (size_t)y * (size_t)lr.Pitch;
-			size_t off = 0;
-			for (; off + 128 <= rowBytes; off += 128) {
-				__dcbz(0, row + off);
-			}
-			for (; off < rowBytes; off++) {
-				row[off] = 0;
-			}
-		}
+	const size_t rowBytes = (size_t)w * 4;
+	for (int32_t y = 0; y < h; y++) {
+		memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, rowBytes);
 	}
-#else
-	{
-		const size_t rowBytes = (size_t)w * 4;
-		for (int32_t y = 0; y < h; y++) {
-			memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, rowBytes);
-		}
-	}
-#endif
 
 #ifdef PLATFORM_XBOX360
 	// XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
