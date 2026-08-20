@@ -703,48 +703,49 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 //   D3DFMT_DXT5  (8 BPP) - full alpha (≤8 values/block), ≤4 colors/block
 //   D3DFMT_A8R8G8B8 (32 BPP) - lossless fallback
 static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_t h) {
-	if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
-	// Small textures (< 8x8) are not worth the analysis overhead;
-	// just use DXT5 which is always safe.
-	if (w < 8 && h < 8) return D3DFMT_DXT5;
-	bool needDXT5 = false;
-	for (int32_t by = 0; by < h; by += 4) {
-		for (int32_t bx = 0; bx < w; bx += 4) {
-			uint16_t colors[16];
-			uint8_t alphas[16];
-			int nColors = 0, nAlphas = 0;
-			int bw = (bx + 4 > w) ? w - bx : 4;
-			int bh = (by + 4 > h) ? h - by : 4;
-			bool hasTransparent = false;
-			bool hasIntermediateAlpha = false;
-			bool blockOpaque = true;
-			for (int32_t y = 0; y < bh; y++) {
-				for (int32_t x = 0; x < bw; x++) {
-					const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
-					uint8_t r = p[0], g = p[1], b2 = p[2], a = p[3];
-					uint16_t c = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b2 >> 3);
-					if (a == 0) {
-						hasTransparent = true;
-						blockOpaque = false;
-					} else if (a != 255) {
-						hasIntermediateAlpha = true;
-						blockOpaque = false;
-					}
-					bool found = false;
-					for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
-					if (!found) { if (nColors >= 16) { return D3DFMT_A8R8G8B8; } colors[nColors++] = c; }
-					if (!blockOpaque) {
-						found = false;
-						for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
-						if (!found) { if (nAlphas >= 16) { return D3DFMT_A8R8G8B8; } alphas[nAlphas++] = a; }
-					}
-				}
-			}
-			if (nColors > 4 || (!blockOpaque && nAlphas > 8)) return D3DFMT_A8R8G8B8;
-			if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
-		}
-	}
-	return needDXT5 ? D3DFMT_DXT5 : D3DFMT_DXT1;
+	return D3DFMT_A8R8G8B8;
+	// if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
+	// // Small textures (< 8x8) are not worth the analysis overhead;
+	// // just use DXT5 which is always safe.
+	// if (w < 8 && h < 8) return D3DFMT_DXT5;
+	// bool needDXT5 = false;
+	// for (int32_t by = 0; by < h; by += 4) {
+	// 	for (int32_t bx = 0; bx < w; bx += 4) {
+	// 		uint16_t colors[16];
+	// 		uint8_t alphas[16];
+	// 		int nColors = 0, nAlphas = 0;
+	// 		int bw = (bx + 4 > w) ? w - bx : 4;
+	// 		int bh = (by + 4 > h) ? h - by : 4;
+	// 		bool hasTransparent = false;
+	// 		bool hasIntermediateAlpha = false;
+	// 		bool blockOpaque = true;
+	// 		for (int32_t y = 0; y < bh; y++) {
+	// 			for (int32_t x = 0; x < bw; x++) {
+	// 				const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
+	// 				uint8_t r = p[0], g = p[1], b2 = p[2], a = p[3];
+	// 				uint16_t c = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b2 >> 3);
+	// 				if (a == 0) {
+	// 					hasTransparent = true;
+	// 					blockOpaque = false;
+	// 				} else if (a != 255) {
+	// 					hasIntermediateAlpha = true;
+	// 					blockOpaque = false;
+	// 				}
+	// 				bool found = false;
+	// 				for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
+	// 				if (!found) { if (nColors >= 16) { return D3DFMT_A8R8G8B8; } colors[nColors++] = c; }
+	// 				if (!blockOpaque) {
+	// 					found = false;
+	// 					for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
+	// 					if (!found) { if (nAlphas >= 16) { return D3DFMT_A8R8G8B8; } alphas[nAlphas++] = a; }
+	// 				}
+	// 			}
+	// 		}
+	// 		if (nColors > 4 || (!blockOpaque && nAlphas > 8)) return D3DFMT_A8R8G8B8;
+	// 		if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
+	// 	}
+	// }
+	// return needDXT5 ? D3DFMT_DXT5 : D3DFMT_DXT1;
 }
 
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
@@ -1886,75 +1887,76 @@ static inline bool isTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 // Priority-ordered async ensure: processes pending uploads in order rather than
 // checking every texture every frame. Also handles the first-time synchronous fallback.
 static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
-	if (!dr || textureIndex >= dr->textureCount) {
-		return false;
-	}
+	return ensureTexturePageLoaded(dr, textureIndex);
+	// if (!dr || textureIndex >= dr->textureCount) {
+	// 	return false;
+	// }
 
-	// Already loaded on GPU - fast path
-	if (dr->textures[textureIndex]) {
-		if (dr->textureLastUsedFrame) {
-			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-		}
-		return true;
-	}
+	// // Already loaded on GPU - fast path
+	// if (dr->textures[textureIndex]) {
+	// 	if (dr->textureLastUsedFrame) {
+	// 		dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+	// 	}
+	// 	return true;
+	// }
 
-	// Check async state
-	__lwsync(); // acquire barrier: ensure worker thread writes to textureLoadState[] are visible
-	uint8_t state = dr->textureLoadState[textureIndex];
-	switch (state) {
-	case TEX_LOAD_DECODED:
-		// Decoded but not uploaded yet - upload now on render thread
-		if (uploadDecodedTexture(dr, textureIndex)) {
-			if (dr->textureLastUsedFrame) {
-				dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-			}
-			return true;
-		}
-		return false;
+	// // Check async state
+	// __lwsync(); // acquire barrier: ensure worker thread writes to textureLoadState[] are visible
+	// uint8_t state = dr->textureLoadState[textureIndex];
+	// switch (state) {
+	// case TEX_LOAD_DECODED:
+	// 	// Decoded but not uploaded yet - upload now on render thread
+	// 	if (uploadDecodedTexture(dr, textureIndex)) {
+	// 		if (dr->textureLastUsedFrame) {
+	// 			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+	// 		}
+	// 		return true;
+	// 	}
+	// 	return false;
 
-	case TEX_LOAD_QUEUED:
-	case TEX_LOAD_UPLOADING:
-		// Still being decoded or uploaded
-		return false;
+	// case TEX_LOAD_QUEUED:
+	// case TEX_LOAD_UPLOADING:
+	// 	// Still being decoded or uploaded
+	// 	return false;
 
-	case TEX_LOAD_FAILED:
-		// Previously failed, don't retry
-		return false;
+	// case TEX_LOAD_FAILED:
+	// 	// Previously failed, don't retry
+	// 	return false;
 
-	case TEX_LOAD_IDLE:
-	default:
-		break;
-	}
+	// case TEX_LOAD_IDLE:
+	// default:
+	// 	break;
+	// }
 
-	// Not queued yet. Try to queue for async decode.
-	DataWin* dw = dr->base.dataWin;
-	if (!dw || textureIndex >= dw->txtr.count) {
-		return false;
-	}
+	// // Not queued yet. Try to queue for async decode.
+	// DataWin* dw = dr->base.dataWin;
+	// if (!dw || textureIndex >= dw->txtr.count) {
+	// 	return false;
+	// }
 
-	Texture* txtr = &dw->txtr.textures[textureIndex];
+	// Texture* txtr = &dw->txtr.textures[textureIndex];
 
-	if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
-		queueAsyncDecode(dr, textureIndex);
-		return false;
-	}
+	// if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
+	// 	queueAsyncDecode(dr, textureIndex);
+	// 	return false;
+	// }
 
-	// External textures (no blob data) - must load synchronously
-	if (txtr->present) {
-		ensureTextureCacheRoom(dr);
-		bool ok = loadExternalTexturePage(dr, textureIndex);
-		if (ok) {
-			dr->loadedTexturePages++;
-			if (dr->textureLastUsedFrame) {
-				dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-			}
-			return true;
-		}
-		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
-		return false;
-	}
+	// // External textures (no blob data) - must load synchronously
+	// if (txtr->present) {
+	// 	ensureTextureCacheRoom(dr);
+	// 	bool ok = loadExternalTexturePage(dr, textureIndex);
+	// 	if (ok) {
+	// 		dr->loadedTexturePages++;
+	// 		if (dr->textureLastUsedFrame) {
+	// 			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+	// 		}
+	// 		return true;
+	// 	}
+	// 	dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+	// 	return false;
+	// }
 
-	return false;
+	// return false;
 }
 
 // Synchronous fallback (for external textures and non-async callers)
