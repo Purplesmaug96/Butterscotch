@@ -29,8 +29,6 @@ extern "C" ULONG __cdecl DbgPrint(const char* format, ...);
 #include "d3d9_renderer.h"
 #include "shader_loader.h"
 
-#include <textures.h>
-
 #ifdef USE_XAUDIO2_AUDIO
 #include "xaudio2_audio.h"
 #elif USE_MINIAUDIO
@@ -1613,44 +1611,6 @@ static void _main() {
 		// ===[ Create Subsystems ]===
 		diagLog("Butterscotch: (08) creating subsystems\n");
 
-		// Xbox 360 texture streaming backend using preprocessor's TEXTURES.BIN / ATLAS.BIN / CLUT8.BIN format.
-		// This loads indexed-palette textures that save ~4-8x memory compared to storing full RGBA TXTR pages.
-		{
-			char texturesDir[512];
-			char texturesBinPath[512];
-			char atlasBinPath[512];
-			char clut8Path[512];
-			const char* lastSlash = strrchr(dataWinPath, '\\');
-			if (!lastSlash) {
-				lastSlash = strrchr(dataWinPath, '/');
-			}
-			if (lastSlash) {
-				size_t dirLen = (size_t)(lastSlash - dataWinPath + 1);
-				if (dirLen < sizeof(texturesDir) - 1) {
-					memcpy(texturesDir, dataWinPath, dirLen);
-				} else {
-					strcpy(texturesDir, "butterscotch:\\");
-				}
-			} else {
-				strcpy(texturesDir, "butterscotch:\\");
-			}
-			// Ensure null terminator
-			texturesDir[sizeof(texturesDir) - 1] = '\0';
-			_snprintf(texturesBinPath, sizeof(texturesBinPath), "%sTEXTURES.BIN", texturesDir);
-			_snprintf(atlasBinPath, sizeof(atlasBinPath), "%sATLAS.BIN", texturesDir);
-			_snprintf(clut8Path, sizeof(clut8Path), "%sCLUT8.BIN", texturesDir);
-			texturesBinPath[sizeof(texturesBinPath) - 1] = '\0';
-			atlasBinPath[sizeof(atlasBinPath) - 1] = '\0';
-			clut8Path[sizeof(clut8Path) - 1] = '\0';
-
-			bool texturesOk = Xbox360Textures_init(texturesBinPath, atlasBinPath, clut8Path);
-			if (!texturesOk) {
-				diagLog("Butterscotch: Xbox360Textures_init failed (TEXTURES.BIN/ATLAS.BIN/CLUT8.BIN not found)\n");
-			} else {
-				diagLog("Butterscotch: Xbox360Textures_init ok (TEXTURES.BIN, ATLAS.BIN, CLUT8.BIN)\n");
-			}
-		}
-
 		char* dataWinDir = (char*)safeStrdup(dataWinPath);
 
 		char* lastSlash2 = (char*)strrchr(dataWinDir, '\\');
@@ -2046,7 +2006,6 @@ static void _main() {
 		// ===[ Cleanup ]===
 		// Free subsystems in reverse creation order.
 		// Temporary streaming texture backend cleanup.
-		Xbox360Textures_free();
 
 		// Destroy audio before Runner_free since runner owns the audioSystem pointer reference.
 		if (runner->audioSystem) {

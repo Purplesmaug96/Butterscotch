@@ -6,8 +6,6 @@
 #include <xtl.h>
 #include <d3dx9.h>
 #include <xgraphics.h>
-// VMX/AltiVec intrinsics for PowerPC 970
-#include <ppcintrinsics.h>
 // XDK PIX instrumentation for GPU performance analysis
 #include <pix.h>
 #endif
@@ -24,8 +22,6 @@
 #endif
 
 #ifdef PLATFORM_XBOX360
-#include <textures.h>
-
 // Defined in xbox360/main.cpp. Logs an SEH exception record (code, faulting
 // address, context) before the kernel's fatal crash screen takes over.
 extern "C" void Butterscotch_xdkHandleSEHException(PEXCEPTION_POINTERS exceptionPointers, int drawScreen);
@@ -99,33 +95,11 @@ static int32_t* gGameH = &_gGameH;
 
 #endif
 
-// Fast GPU constant upload wrappers for Xbox 360.
-// Uses BeginVertexShaderConstantF4 (two-pointer: shadow + command buffer) to
-// bypass D3D shadow state copies, which is significantly faster than calling
-// SetVertexShaderConstantF. Falls back to standard D3D calls on desktop.
-// Based on the FastGPUConstants XDK sample (Method 5: DIRECT_TO_SHADOW_AND_COMMANDBUFFER).
-
-static void FastSetVSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
-#ifdef PLATFORM_XBOX360
-	// Prefetch the constant data into L2 before the D3D call reads it.
-	// For large uniform arrays (matrices: 16 floats = 64 bytes), prefetch
-	// both the first and second cache lines to avoid a D-cache miss stall
-	// inside SetVertexShaderConstantF.
-	__dcbt(0, (const void*)data);
-	if (count > 2) {
-		__dcbt(0, (const void*)(data + 8));
-	}
-#endif
+static inline void FastSetVSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
 	dev->SetVertexShaderConstantF(reg, data, count);
 }
 
-static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
-#ifdef PLATFORM_XBOX360
-	__dcbt(0, (const void*)data);
-	if (count > 2) {
-		__dcbt(0, (const void*)(data + 8));
-	}
-#endif
+static inline void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const float* __restrict data, UINT count) {
 	dev->SetPixelShaderConstantF(reg, data, count);
 }
 
@@ -134,10 +108,7 @@ static void FastSetPSConstF(IDirect3DDevice9* __restrict dev, UINT reg, const fl
 // instead of D3DFMT_A8R8G8B8 (32-bit), halving GPU texture memory usage.
 // Staging/system-memory allocations remain 32-bit for upload compatibility.
 #ifdef PLATFORM_XBOX360
-// Xbox 360: DXT5 block compression saves 75% vs A8R8G8B8 (1 BPP vs 4 BPP)
-// and provides full 8-bit alpha. The D3DXLoadSurfaceFromSurface upload path
-// handles ARGB -> DXT5 compression + tiling automatically.
-#define D3D9_GPU_TEXTURE_FORMAT D3DFMT_DXT5
+#define D3D9_GPU_TEXTURE_FORMAT D3DFMT_A8R8G8B8
 #define D3D9_GPU_LINEAR_FORMAT D3DFMT_LIN_A8R8G8B8
 #else
 #ifdef D3D9_USE_16BIT_TEXTURES
@@ -696,58 +667,6 @@ static inline void writeLinearPixelARGB(uint8_t* dst, uint8_t r, uint8_t g, uint
 	*(DWORD*)dst = D3DCOLOR_ARGB(a, r, g, b);
 }
 
-// Select the most aggressive DXT compression format that will not cause
-// visible artifacts. Examines each 4x4 block for distinct 565-quantized
-// colors and alpha values, then returns the best format:
-//   D3DFMT_DXT1  (4 BPP) - binary alpha (0 or 255 only), ≤4 colors/block
-//   D3DFMT_DXT5  (8 BPP) - full alpha (≤8 values/block), ≤4 colors/block
-//   D3DFMT_A8R8G8B8 (32 BPP) - lossless fallback
-static D3DFORMAT textureBestCompression(const uint8_t* pixels, int32_t w, int32_t h) {
-	return D3DFMT_A8R8G8B8;
-	// if (!pixels || w <= 0 || h <= 0) return D3DFMT_DXT1;
-	// // Small textures (< 8x8) are not worth the analysis overhead;
-	// // just use DXT5 which is always safe.
-	// if (w < 8 && h < 8) return D3DFMT_DXT5;
-	// bool needDXT5 = false;
-	// for (int32_t by = 0; by < h; by += 4) {
-	// 	for (int32_t bx = 0; bx < w; bx += 4) {
-	// 		uint16_t colors[16];
-	// 		uint8_t alphas[16];
-	// 		int nColors = 0, nAlphas = 0;
-	// 		int bw = (bx + 4 > w) ? w - bx : 4;
-	// 		int bh = (by + 4 > h) ? h - by : 4;
-	// 		bool hasTransparent = false;
-	// 		bool hasIntermediateAlpha = false;
-	// 		bool blockOpaque = true;
-	// 		for (int32_t y = 0; y < bh; y++) {
-	// 			for (int32_t x = 0; x < bw; x++) {
-	// 				const uint8_t* p = pixels + ((by + y) * w + bx + x) * 4;
-	// 				uint8_t r = p[0], g = p[1], b2 = p[2], a = p[3];
-	// 				uint16_t c = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b2 >> 3);
-	// 				if (a == 0) {
-	// 					hasTransparent = true;
-	// 					blockOpaque = false;
-	// 				} else if (a != 255) {
-	// 					hasIntermediateAlpha = true;
-	// 					blockOpaque = false;
-	// 				}
-	// 				bool found = false;
-	// 				for (int i = 0; i < nColors; i++) { if (colors[i] == c) { found = true; break; } }
-	// 				if (!found) { if (nColors >= 16) { return D3DFMT_A8R8G8B8; } colors[nColors++] = c; }
-	// 				if (!blockOpaque) {
-	// 					found = false;
-	// 					for (int i = 0; i < nAlphas; i++) { if (alphas[i] == a) { found = true; break; } }
-	// 					if (!found) { if (nAlphas >= 16) { return D3DFMT_A8R8G8B8; } alphas[nAlphas++] = a; }
-	// 				}
-	// 			}
-	// 		}
-	// 		if (nColors > 4 || (!blockOpaque && nAlphas > 8)) return D3DFMT_A8R8G8B8;
-	// 		if (hasIntermediateAlpha || (hasTransparent && nColors > 3)) needDXT5 = true;
-	// 	}
-	// }
-	// return needDXT5 ? D3DFMT_DXT5 : D3DFMT_DXT1;
-}
-
 static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex,
 								const uint8_t* pixels, int32_t w, int32_t h) {
 	if (!dev || !dstTex || !pixels || w <= 0 || h <= 0) {
@@ -799,100 +718,6 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 		memset((uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch, 0, rowBytes);
 	}
 
-#ifdef PLATFORM_XBOX360
-	// XDK VMX/AltiVec accelerated inner loop for RGBA -> ARGB conversion.
-	// Processes 16 pixels (64 bytes) per iteration using __vperm byte permutation.
-	// On PPC 970, __vperm has 2-cycle latency. Processing 4 vectors per iteration
-	// doubles the compute-to-loop-overhead ratio vs 2 vectors, and 64 bytes matches
-	// half a cache line for better prefetching.
-	//
-	// The permute control vector maps byte positions from the source (RGBA) to
-	// the destination (ARGB). For big-endian memory layout where each 4-byte word
-	// is R,G,B,A (byte 0=R, 1=G, 2=B, 3=A), the permute indices to get
-	// A,R,G,B per pixel are: {3,0,1,2} per group = {3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14}
-	__declspec(align(16)) static const uint32_t sPermARGB[4] = {
-		0x03000102, 0x07040506, 0x0B08090A, 0x0F0C0D0E
-	};
-	__vector4 vPerm = __lvx(sPermARGB, 0);
-
-	for (int32_t y = 0; y < h; y++) {
-		const uint8_t* src = pixels + y * (size_t)w * 4;
-		uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
-		int32_t x = 0;
-
-		// Prefetch source row into L2 ahead of VMX loop.
-		// Software pipeline: prefetch 5 cache lines (640 bytes) ahead.
-		const int32_t prefetchDist = 5 * 128;
-		__dcbt(0, (const void*)src);
-		__dcbt(0, (const void*)(src + 128));
-		__dcbt(0, (const void*)(src + 256));
-
-		// Process 16 pixels (4 vector loads, 4 permutes, 4 stores) per iteration.
-		// This doubles the compute-to-overhead ratio vs the original 8-pixel loop.
-		for (; x + 15 < w; x += 16) {
-			// Prefetch 5 cache lines ahead every 64 bytes (every other iteration)
-			if ((x & 63) == 0) {
-				__dcbt(0, (const void*)(src + x * 4 + prefetchDist));
-				__dcbt(0, (const void*)(src + x * 4 + prefetchDist + 128));
-			}
-			// Load 4 groups of 4 pixels (16 pixels total)
-			__vector4 v0 = __lvx(src, x * 4);
-			__vector4 v1 = __lvx(src, (x + 4) * 4);
-			__vector4 v2 = __lvx(src, (x + 8) * 4);
-			__vector4 v3 = __lvx(src, (x + 12) * 4);
-			// Permute RGBA -> ARGB (2-cycle latency, pipeline 4 in parallel)
-			__vector4 p0 = __vperm(v0, v0, vPerm);
-			__vector4 p1 = __vperm(v1, v1, vPerm);
-			__vector4 p2 = __vperm(v2, v2, vPerm);
-			__vector4 p3 = __vperm(v3, v3, vPerm);
-			// Store 4 groups (16 ARGB pixels total)
-			__stvx(p0, dst, x * 4);
-			__stvx(p1, dst, (x + 4) * 4);
-			__stvx(p2, dst, (x + 8) * 4);
-			__stvx(p3, dst, (x + 12) * 4);
-		}
-
-		// Process remaining pixels in groups of 8 (original inner loop width)
-		for (; x + 7 < w; x += 8) {
-			__vector4 v0 = __lvx(src, x * 4);
-			__vector4 v1 = __lvx(src, (x + 4) * 4);
-			__vector4 p0 = __vperm(v0, v0, vPerm);
-			__vector4 p1 = __vperm(v1, v1, vPerm);
-			__stvx(p0, dst, x * 4);
-			__stvx(p1, dst, (x + 4) * 4);
-		}
-
-		// Remaining pixels (scalar fallback)
-		for (; x < w; x++) {
-			uint8_t r = src[x * 4 + 0];
-			uint8_t g = src[x * 4 + 1];
-			uint8_t b = src[x * 4 + 2];
-			uint8_t a = src[x * 4 + 3];
-			if (a == 0) {
-				r = 0;
-				g = 0;
-				b = 0;
-			}
-			writeLinearPixelARGB(dst + x * 4, r, g, b, a);
-		}
-	}
-
-	// Flush the staging texture from cache before D3DXLoadSurfaceFromSurface
-	// reads it. The GPU DMA engine may see stale data if the cache is not flushed.
-	{
-		const size_t totalBytes = (size_t)h * (size_t)lr.Pitch;
-		uint8_t* base = (uint8_t*)lr.pBits;
-		// Flush every 128-byte cache line using a single tight loop.
-		// Each __dcbf flushes one 128-byte line. The original code used a
-		// 512-byte stride with manual unrolling which was harder to verify.
-		for (size_t off = 0; off < totalBytes; off += 128) {
-			__dcbf(0, (const void*)(base + off));
-		}
-	}
-	Butterscotch_xdkDiagTrace("D3D9: staging filled %dx%d pitch=%u base=0x%08X\n",
-							  w, h, (unsigned)lr.Pitch, (unsigned)(uintptr_t)lr.pBits);
-#else
-	// Scalar fallback (desktop or no VMX)
 	for (int32_t y = 0; y < h; y++) {
 		const uint8_t* src = pixels + y * (size_t)w * 4;
 		uint8_t* dst = (uint8_t*)lr.pBits + (size_t)y * (size_t)lr.Pitch;
@@ -909,7 +734,6 @@ static bool uploadRgbaToTexture(IDirect3DDevice9* dev, IDirect3DTexture9* dstTex
 			writeLinearPixelARGB(dst + x * 4, r, g, b, a);
 		}
 	}
-#endif
 
 	gStagingTex->UnlockRect(0);
 
@@ -1765,7 +1589,7 @@ static bool uploadDecodedTexture(D3D9Renderer* dr, uint32_t textureIndex) {
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360
-	D3DFORMAT fmt = textureBestCompression(pixels, (int32_t)w, (int32_t)h);
+	const D3DFORMAT fmt = D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
@@ -1886,77 +1710,78 @@ static inline bool isTextureLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 
 // Priority-ordered async ensure: processes pending uploads in order rather than
 // checking every texture every frame. Also handles the first-time synchronous fallback.
-static bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
-	return ensureTexturePageLoaded(dr, textureIndex);
-	// if (!dr || textureIndex >= dr->textureCount) {
-	// 	return false;
-	// }
+// static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex);
+static inline bool ensureTexturePageLoadedAsync(D3D9Renderer* dr, uint32_t textureIndex) {
+	// return ensureTexturePageLoaded(dr, textureIndex);
+	if (!dr || textureIndex >= dr->textureCount) {
+		return false;
+	}
 
-	// // Already loaded on GPU - fast path
-	// if (dr->textures[textureIndex]) {
-	// 	if (dr->textureLastUsedFrame) {
-	// 		dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-	// 	}
-	// 	return true;
-	// }
+	// Already loaded on GPU - fast path
+	if (dr->textures[textureIndex]) {
+		if (dr->textureLastUsedFrame) {
+			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+		}
+		return true;
+	}
 
-	// // Check async state
-	// __lwsync(); // acquire barrier: ensure worker thread writes to textureLoadState[] are visible
-	// uint8_t state = dr->textureLoadState[textureIndex];
-	// switch (state) {
-	// case TEX_LOAD_DECODED:
-	// 	// Decoded but not uploaded yet - upload now on render thread
-	// 	if (uploadDecodedTexture(dr, textureIndex)) {
-	// 		if (dr->textureLastUsedFrame) {
-	// 			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-	// 		}
-	// 		return true;
-	// 	}
-	// 	return false;
+	// Check async state
+	__lwsync(); // acquire barrier: ensure worker thread writes to textureLoadState[] are visible
+	uint8_t state = dr->textureLoadState[textureIndex];
+	switch (state) {
+	case TEX_LOAD_DECODED:
+		// Decoded but not uploaded yet - upload now on render thread
+		if (uploadDecodedTexture(dr, textureIndex)) {
+			if (dr->textureLastUsedFrame) {
+				dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+			}
+			return true;
+		}
+		return false;
 
-	// case TEX_LOAD_QUEUED:
-	// case TEX_LOAD_UPLOADING:
-	// 	// Still being decoded or uploaded
-	// 	return false;
+	case TEX_LOAD_QUEUED:
+	case TEX_LOAD_UPLOADING:
+		// Still being decoded or uploaded
+		return false;
 
-	// case TEX_LOAD_FAILED:
-	// 	// Previously failed, don't retry
-	// 	return false;
+	case TEX_LOAD_FAILED:
+		// Previously failed, don't retry
+		return false;
 
-	// case TEX_LOAD_IDLE:
-	// default:
-	// 	break;
-	// }
+	case TEX_LOAD_IDLE:
+	default:
+		break;
+	}
 
-	// // Not queued yet. Try to queue for async decode.
-	// DataWin* dw = dr->base.dataWin;
-	// if (!dw || textureIndex >= dw->txtr.count) {
-	// 	return false;
-	// }
+	// Not queued yet. Try to queue for async decode.
+	DataWin* dw = dr->base.dataWin;
+	if (!dw || textureIndex >= dw->txtr.count) {
+		return false;
+	}
 
-	// Texture* txtr = &dw->txtr.textures[textureIndex];
+	Texture* txtr = &dw->txtr.textures[textureIndex];
 
-	// if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
-	// 	queueAsyncDecode(dr, textureIndex);
-	// 	return false;
-	// }
+	if (txtr->blobSize > 0 && (txtr->blobData || txtr->blobOffset > 0)) {
+		queueAsyncDecode(dr, textureIndex);
+		return false;
+	}
 
-	// // External textures (no blob data) - must load synchronously
-	// if (txtr->present) {
-	// 	ensureTextureCacheRoom(dr);
-	// 	bool ok = loadExternalTexturePage(dr, textureIndex);
-	// 	if (ok) {
-	// 		dr->loadedTexturePages++;
-	// 		if (dr->textureLastUsedFrame) {
-	// 			dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-	// 		}
-	// 		return true;
-	// 	}
-	// 	dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
-	// 	return false;
-	// }
+	// External textures (no blob data) - must load synchronously
+	if (txtr->present) {
+		ensureTextureCacheRoom(dr);
+		bool ok = loadExternalTexturePage(dr, textureIndex);
+		if (ok) {
+			dr->loadedTexturePages++;
+			if (dr->textureLastUsedFrame) {
+				dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
+			}
+			return true;
+		}
+		dr->textureLoadState[textureIndex] = TEX_LOAD_FAILED;
+		return false;
+	}
 
-	// return false;
+	return false;
 }
 
 // Synchronous fallback (for external textures and non-async callers)
@@ -1970,54 +1795,6 @@ static bool ensureTexturePageLoaded(D3D9Renderer* dr, uint32_t textureIndex) {
 		}
 		return true;
 	}
-
-#ifdef PLATFORM_XBOX360
-	// TEXTURES.BIN + ATLAS.BIN + CLUT8.BIN fallback for Xbox 360.
-	// Uses the preprocessor's indexed-palette texture format which saves significant
-	// memory compared to storing full RGBA textures from TXTR chunks.
-	//
-	// IMPORTANT priority rule: TXTR/preprocessed/embedded content must take precedence.
-	// So we only attempt streaming from TEXTURES.BIN when the TXTR page has *not*
-	// produced a loaded GPU texture.
-	if ((uint32_t)textureIndex < dr->originalTexturePageCount && dr->textures[textureIndex] == nullptr) {
-		// Check if this TPAG has a mapping in the atlas
-		if (Xbox360Textures_hasTpagMapping((int32_t)textureIndex)) {
-			uint8_t* rgba = nullptr;
-			int w = 0, h = 0;
-			if (Xbox360Textures_loadPage((int32_t)textureIndex, &w, &h, &rgba) && rgba && w > 0 && h > 0) {
-				ensureTextureCacheRoom(dr);
-				IDirect3DDevice9* dev = Dev(dr);
-				IDirect3DTexture9* tex = nullptr;
-				D3DFORMAT fmt = textureBestCompression(rgba, w, h);
-				void* wcAlloc = nullptr;
-				tex = createXGTexture(w, h, fmt, &wcAlloc);
-				if (tex) {
-					if (uploadRgbaToTexture(dev, tex, rgba, w, h)) {
-						dr->textures[textureIndex] = tex;
-						dr->textureWCAlloc[textureIndex] = wcAlloc;
-						dr->textureWidths[textureIndex] = w;
-						dr->textureHeights[textureIndex] = h;
-						uint32_t memSize;
-						if (fmt == D3DFMT_A8R8G8B8) memSize = (uint32_t)(w * h * 4);
-						else if (fmt == D3DFMT_DXT1) memSize = D3D9_GPU_MEM_SIZE(w, h) / 2;
-						else memSize = D3D9_GPU_MEM_SIZE(w, h);
-						dr->textureBlobSizes[textureIndex] = memSize;
-						dr->textureBytesUsed += memSize;
-						dr->loadedTexturePages++;
-						if (dr->textureLastUsedFrame) {
-							dr->textureLastUsedFrame[textureIndex] = dr->frameCounter;
-						}
-						free(rgba);
-						return true;
-					}
-					delete tex;
-					XPhysicalFree(wcAlloc);
-				}
-				free(rgba);
-			}
-		}
-	}
-#endif
 
 async_loop:
 	// If async is in progress, process completed decodes (may upload our texture)
@@ -2159,7 +1936,7 @@ static bool loadTextureBytes(D3D9Renderer* dr, uint32_t index, const uint8_t* by
 	IDirect3DDevice9* dev = Dev(dr);
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360
-	D3DFORMAT fmt = textureBestCompression(pixels, w, h);
+	const D3DFORMAT fmt = D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(w, h, fmt, &wcAlloc);
 	if (!tex) {
@@ -4465,7 +4242,7 @@ static int32_t d3d9CreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID
 
 	IDirect3DTexture9* tex = nullptr;
 #ifdef PLATFORM_XBOX360
-	D3DFORMAT fmt = textureBestCompression(rgba, srcW, srcH);
+	const D3DFORMAT fmt = D3D9_GPU_TEXTURE_FORMAT;
 	void* wcAlloc = nullptr;
 	tex = createXGTexture(srcW, srcH, fmt, &wcAlloc);
 	if (!tex) {
