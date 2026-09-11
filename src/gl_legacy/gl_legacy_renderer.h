@@ -9,6 +9,8 @@
 #include "rsxutil.h"
 #elif PLATFORM_VITA
 #include <vitaGL.h>
+#elif PLATFORM_XBOX360
+#include <GL/gl.h>
 #else
 #include <glad/glad.h>
 #endif

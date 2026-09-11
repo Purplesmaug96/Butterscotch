@@ -148,8 +148,13 @@ static bool platformGetWindowFocus(void) {
 
 bool platformInit(int reqW, int reqH, const char *title, bool headless) {
     // Init SDL
+    #ifdef PLATFORM_XBOX360
+    // TODO: Once this is implemented in SDL remove this conditional
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    #else
     if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD)) {
-        logError("Failed to initialize SDL\n");
+    #endif
+        logError("Failed to initialize SDL: %s\n", SDL_GetError());
         return false;
     }
 

@@ -33,6 +33,10 @@ extern GLint  gPalettedUPaletteVLoc;
 #include "vita_textures.h"
 #define PS3_PALETTED_BEGIN(tpagIndex) ((void)0)
 #define PS3_PALETTED_END()            ((void)0)
+#elif defined(PLATFORM_XBOX360)
+#include <GL/gl.h>
+#define PS3_PALETTED_BEGIN(tpagIndex) ((void)0)
+#define PS3_PALETTED_END()            ((void)0)
 #else
 #include <glad/glad.h>
 #define PS3_PALETTED_BEGIN(tpagIndex) ((void)0)
@@ -145,7 +149,7 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     Matrix4f_identity(&world);
     renderer->gmlMatrices[MATRIX_WORLD] = world;
 
-#if !defined(PLATFORM_PS3) && !defined(PLATFORM_VITA)
+#if !defined(PLATFORM_PS3) && !defined(PLATFORM_VITA) && !defined(PLATFORM_XBOX360)
     gl_init_wrappers();
 #endif
 
