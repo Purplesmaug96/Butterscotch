@@ -2,6 +2,8 @@
 
 #include "log.h"
 
+int DbgPrint(char* fmt, ...);
+
 void platformLog(const logType type, const char *format, va_list va) {
     FILE *out = stderr;
     switch (type) {
@@ -18,5 +20,9 @@ void platformLog(const logType type, const char *format, va_list va) {
             fputs("Debug: ", out);
             break;
     }
-    vfprintf(out, format, va);
+    char formatted[2048];
+
+    vsnprintf(formatted, 2048, format, va);
+    
+    DbgPrint(formatted);
 }

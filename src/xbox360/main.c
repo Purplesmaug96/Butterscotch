@@ -9,10 +9,10 @@
 #include <SDL3/SDL_main.h>
 #endif
 
-int main(int argc, char* argv[]) {
-    (void)argc;
-    setbuf(stderr, NULL);
-    setbuf(stdout, NULL);
+int DbgPrint(char* fmt, ...);
+
+int main() {
+    DbgPrint("Hello world!");
 
     CommandLineArgs args = {0};
 
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     args.dataWinPath = "game:\\data.win";
     args.saveFolder = "game:\\";
 
-    int ret = loop(args, argv[0]);
+    int ret = loop(args, "butterscotch");
     freeCommandLineArgs(&args);
     return ret;
 }
