@@ -7,13 +7,11 @@
 #include <SDL2/SDL_main.h>
 #elif defined(USE_SDL3)
 #include <SDL3/SDL_main.h>
-#endif
+#endif  
 
 int DbgPrint(char* fmt, ...);
 
 int main() {
-    DbgPrint("Hello world!");
-
     CommandLineArgs args = {0};
 
     args.exitAtFrame = -1;
