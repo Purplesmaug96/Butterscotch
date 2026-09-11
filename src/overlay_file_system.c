@@ -13,6 +13,11 @@
 #include <windows.h>
 #define overlayMkdir(path) _mkdir(path)
 #define overlayRmdir(path) _rmdir(path)
+#elif defined(PLATFORM_XBOX360)
+// TODO: Make sure this is returning the error code
+// TODO: Better: actually implement it
+#define overlayMkdir(path) (0)
+#define overlayRmdir(path) (0)
 #else
 #include <unistd.h>
 #include <dirent.h>
@@ -355,6 +360,7 @@ static void listSingleDir(FileSystemDirEntry** list, const char* fullDir) {
         dirListPush(list, name, isDir);
     } while (FindNextFileA(h, &findData));
     FindClose(h);
+#elif defined(PLATFORM_XBOX360)
 #else
     DIR* dir = opendir(fullDir);
     if (dir == nullptr) return;
