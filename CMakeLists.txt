@@ -26,6 +26,19 @@ endif()
 
 set(BACKEND "sdl2")
 
+elseif(PLATFORM STREQUAL "xbox360")
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    if(NOT DEFINED XECHAIN_SYSROOT)
+        message(FATAL_ERROR "Please define XECHAIN_SYSROOT to point to your sysroot path!")
+    endif()
+    set(CMAKE_TOOLCHAIN_FILE "${XECHAIN_SYSROOT}/../cmake/ppc-xbox360-toolchain.cmake" CACHE PATH "toolchain file")
+endif()
+include("${XECHAIN_SYSROOT}/../cmake/XEX.cmake" REQUIRED)
+
+set(BACKEND "sdl3")
+set(ENV{PKG_CONFIG_PATH} "${XECHAIN_SYSROOT}/lib/pkgconfig")
+set(ENV{PKG_CONFIG_LIBDIR} "${XECHAIN_SYSROOT}/lib/pkgconfig")
+
 endif()
 
 project(butterscotch C)
@@ -93,6 +106,8 @@ if(AUDIO_BACKEND STREQUAL "")
         set(AUDIO_BACKEND "openal")
     elseif(PLATFORM STREQUAL "ps2")
         set(AUDIO_BACKEND "ps2")
+    elseif(PLATFORM STREQUAL "xbox360")
+        set(AUDIO_BACKEND "none")
     else()
         set(AUDIO_BACKEND "miniaudio")
     endif()
@@ -183,6 +198,10 @@ else()
     add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
 endif()
 
+if(PLATFORM STREQUAL "xbox360")
+    openxechain_add_xex(butterscotch)
+endif()
+
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(butterscotch PRIVATE src/${PLATFORM})
 
@@ -260,7 +279,7 @@ if(ENABLE_VM_EXCEPTIONS_LOGS)
     add_compile_definitions(ENABLE_VM_EXCEPTIONS_LOGS)
 endif()
 
-if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "switch")
+if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "switch" OR PLATFORM STREQUAL "xbox360")
     if(PLATFORM STREQUAL "vita")
         # Normally, __VITA__ should already be defined, but for some reason,
         # in my case, this didn't really work... so just in case, when we're
@@ -278,6 +297,18 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
         endif()
 
         add_compile_definitions(PLATFORM_SWITCH)
+
+        set(VM_GML_PROFILER_DEFAULT OFF)
+        set(VM_TRACING_DEFAULT OFF)
+        set(VM_OPCODE_PROFILER_DEFAULT OFF)
+        set(VM_STUB_LOGS_DEFAULT OFF)
+    elseif(PLATFORM STREQUAL "xbox360")
+        add_compile_definitions(PLATFORM_XBOX360)
+
+        target_link_libraries(butterscotch PRIVATE stb_ds)
+
+        set(ENABLE_LEGACY_GL OFF CACHE BOOL "Enable the legacy OpenGL renderer" FORCE)
+        set(ENABLE_MODERN_GL ON CACHE BOOL "Enable the modern OpenGL renderer" FORCE)
 
         set(VM_GML_PROFILER_DEFAULT OFF)
         set(VM_TRACING_DEFAULT OFF)
@@ -341,7 +372,7 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
 
     set(PLATFORM_LIBRARIES bzip2 stb_ds sha1 stb_vorbis)
-    if(NOT PLATFORM STREQUAL "vita" AND NOT PLATFORM STREQUAL "switch")
+    if(NOT PLATFORM STREQUAL "vita" AND NOT PLATFORM STREQUAL "switch" AND NOT PLATFORM STREQUAL "xbox360")
         # GLAD
         add_library(glad STATIC vendor/glad/src/glad.c)
         target_include_directories(glad PUBLIC vendor/glad/include)
@@ -831,6 +862,7 @@ elseif(PLATFORM STREQUAL "ps3")
     target_link_libraries(mojoal PUBLIC ${SDL2_LIBRARIES})
     target_link_libraries(butterscotch PRIVATE bzip2 sha1 ps3gl mojoal ${SDL2_LIBRARIES} gcm_sys rsx sysutil io audio rt lv2 m stb_ds stb_vorbis)
 elseif(PLATFORM STREQUAL "vita")
+elseif(PLATFORM STREQUAL "xbox360")
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()

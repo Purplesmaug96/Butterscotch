@@ -2,7 +2,7 @@
 #include "matrix_math.h"
 #include "text_utils.h"
 
-#if defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(__SWITCH__)
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(__SWITCH__) || defined(PLATFORM_XBOX360)
 #include <GLES3/gl3.h>
 #elif PLATFORM_VITA
 #include <vitaGL.h>
@@ -439,7 +439,7 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     gl->isGL3 = (ver.major >= 3);
     gl->isGLES = ver.isGLES;
 
-#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__) && !defined(PLATFORM_VITA) && !defined(__SWITCH__)
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__) && !defined(PLATFORM_VITA) && !defined(__SWITCH__) && !defined(PLATFORM_XBOX360)
     gl_init_wrappers();
 #endif
 
