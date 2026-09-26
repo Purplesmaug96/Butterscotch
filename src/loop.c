@@ -1204,6 +1204,7 @@ int loop(CommandLineArgs args, const char *argv0) {
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
                 if (gfx == LEGACY_GL || gfx == MODERN_GL) {
                     glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
+                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                     glClear(GL_COLOR_BUFFER_BIT);
                 }
 #endif
