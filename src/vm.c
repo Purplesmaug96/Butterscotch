@@ -923,7 +923,8 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
     }
 
     // The slow path is used for builtin vars, object/instance references (instanceType >= 0), INSTANCE_ARG/STACKTOP, and other miscellaneous things like if we get a nullptr above
-    ArrayAccess access = popArrayAccess(ctx, varRef);
+    uint32_t consumedVarRef = (varRef & 0x07FFFFFF) | ((uint32_t) VARTYPE_NORMAL << 24);
+    ArrayAccess access = popArrayAccess(ctx, consumedVarRef);
 
     // Use instance type from stack when available (VARTYPE_ARRAY / VARTYPE_STACKTOP)
     int32_t originalInstanceType = instanceType;
@@ -1363,6 +1364,8 @@ static void handlePop(VMContext* ctx, uint8_t type1, uint8_t type2, uint32_t var
 
     int32_t originalInstanceType = instanceType;
     if (varType == VARTYPE_ARRAY) {
+        varRef = (varRef & 0x07FFFFFF) | ((uint32_t) VARTYPE_NORMAL << 24);
+
         if (type1 == GML_TYPE_VARIABLE) {
             // Simple assignment (Pop.v.v): stack bottom-to-top = [value, (realInstance,) instanceType, arrayIndex]
             arrayIndex = stackPopInt32(ctx);
