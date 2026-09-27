@@ -6,6 +6,7 @@
 #include "utils.h"
 #include "json_writer.h"
 #include "collision.h"
+#include "video.h"
 
 #include <stdint.h>
 #include "stdio_compat.h"
@@ -687,7 +688,10 @@ static int compareDrawKeys(const DrawKey* a, const DrawKey* b) {
     if (a->type == DRAWABLE_TILE)
         return (a->order > b->order) - (a->order < b->order); // tiles: higher index later
 
-    return (a->order < b->order) - (a->order > b->order); // instance/layer: higher first
+    if (a->type == DRAWABLE_INSTANCE)
+        return (a->order > b->order) - (a->order < b->order); // instances: newer (higher id) on top
+
+    return (a->order < b->order) - (a->order > b->order); // layer/particle: higher first
 }
 
 static int compareDrawables(const void* a, const void* b) {
@@ -697,6 +701,29 @@ static int compareDrawables(const void* a, const void* b) {
     DrawKey drawKeyB = drawableKey(drawableB);
 
     return compareDrawKeys(&drawKeyA, &drawKeyB);
+}
+
+static int32_t Runner_pushLayerShader(Runner* runner, int32_t layerId) {
+    Renderer* renderer = runner->renderer;
+    if (renderer == nullptr) return -1;
+    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, layerId);
+    if (runtimeLayer == nullptr || runtimeLayer->shaderIndex == -1) return -1;
+
+    int32_t previousShader = renderer->currentShader;
+    if (previousShader != runtimeLayer->shaderIndex)
+        renderer->vtable->gpuSetShader(renderer, runtimeLayer->shaderIndex);
+    return previousShader;
+}
+
+static void Runner_popLayerShader(Runner* runner, int32_t previousShader) {
+    Renderer* renderer = runner->renderer;
+    if (renderer == nullptr || previousShader == -1) return;
+    if (renderer->currentShader == previousShader) return;
+
+    if (previousShader == -1)
+        renderer->vtable->gpuResetShader(renderer);
+    else
+        renderer->vtable->gpuSetShader(renderer, previousShader);
 }
 
 static void fireDrawSubtype(Runner* runner, Drawable* drawables, int32_t drawableCount, int32_t subtype) {
@@ -715,7 +742,9 @@ static void fireDrawSubtype(Runner* runner, Drawable* drawables, int32_t drawabl
         int32_t ownerObjectIndex = -1;
         int32_t codeId = ResolvedEventTable_lookup(&runner->eventTable, inst->objectIndex, slot, &ownerObjectIndex);
         if (0 > codeId) continue;
+        int32_t previousShader = Runner_pushLayerShader(runner, inst->layer);
         Runner_executeResolvedEvent(runner, inst, EVENT_DRAW, subtype, codeId, ownerObjectIndex);
+        Runner_popLayerShader(runner, previousShader);
     }
 }
 
@@ -749,6 +778,7 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
             uint32_t cell = data->tileData[ty * data->tilesX + tx];
             uint32_t tileIndex = cell & GMS2_TILE_INDEX_MASK;
             if (tileIndex == 0) continue; // 0 = empty
+            if (tileIndex > tileset->gms2TileCount) continue;
 
             uint32_t col = tileIndex % columns;
             uint32_t row = tileIndex / columns;
@@ -991,6 +1021,7 @@ void Runner_draw(Runner* runner) {
             // Filter inactive/invisible instances at draw time so the cache doesn't need invalidation when those flags toggle.
             if (!inst->active || !inst->visible) continue;
 
+            int32_t previousShader = Runner_pushLayerShader(runner, inst->layer);
             int32_t ownerObjectIndex = -1;
             int32_t codeId = findEventCodeIdAndOwner(runner, inst->objectIndex, EVENT_DRAW, DRAW_NORMAL, &ownerObjectIndex);
             if (codeId >= 0) {
@@ -998,6 +1029,7 @@ void Runner_draw(Runner* runner) {
             } else if (runner->renderer != nullptr) {
                 Renderer_drawSelf(runner->renderer, inst);
             }
+            Runner_popLayerShader(runner, previousShader);
         } else if (d->type == DRAWABLE_PARTICLE_SYSTEM) {
             // Filtered at draw time, like instance visibility: part_system_automatic_draw can be
             // toggled from a Draw event that already ran this frame.
@@ -1008,6 +1040,7 @@ void Runner_draw(Runner* runner) {
             // Re-resolve every iteration: a previous instance's Draw event may have called layer_create/layer_destroy and reallocated runner->runtimeLayers.
             RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, d->runtimeLayerId);
             if (runtimeLayer == nullptr || !runtimeLayer->visible) continue;
+            int32_t previousShader = Runner_pushLayerShader(runner, (int32_t) runtimeLayer->id);
             VMContext* ctx = runner->vmContext;
             Instance* savedInstance = ctx->currentInstance;
             int32_t savedEventType = ctx->currentEventType;
@@ -1046,7 +1079,10 @@ void Runner_draw(Runner* runner) {
 
             // Everything after this point is static/parsed layers from the Room itself
             RoomLayer* parsedLayer = Runner_findRoomLayerById(runner->currentRoom, (int32_t) runtimeLayer->id);
-            if (parsedLayer == nullptr) continue;
+            if (parsedLayer == nullptr) {
+                Runner_popLayerShader(runner, previousShader);
+                continue;
+            }
             if (parsedLayer->type == RoomLayerType_Assets) {
                 RoomLayerAssetsData* data = parsedLayer->assetsData;
                 size_t tileElementCount = arrlenu(runtimeLayer->elements);
@@ -1142,6 +1178,7 @@ void Runner_draw(Runner* runner) {
             ctx->currentInstance = savedInstance;
             ctx->currentEventType = savedEventType;
             ctx->currentEventSubtype = savedEventSubtype;
+            Runner_popLayerShader(runner, previousShader);
         }
     }
 
@@ -1178,6 +1215,19 @@ void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t ta
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_BEGIN);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_END);
+
+    //Rendering cursor_sprite
+    if (runner->cursorSprite >= 0 && (uint32_t)runner->cursorSprite < runner->dataWin->sprt.count) {
+        Sprite* cursorSprite = &runner->dataWin->sprt.sprites[runner->cursorSprite];
+        if (cursorSprite->textureCount > 0) {
+            float cursorX = (float)(runner->mouse->normalizedX * guiW);
+            float cursorY = (float)(runner->mouse->normalizedY * guiH);
+            Renderer_drawSpriteExt(runner->renderer, runner->cursorSprite, runner->cursorSpriteSubimage,
+                                   cursorX, cursorY, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
+            runner->cursorSpriteSubimage = (runner->cursorSpriteSubimage + 1) % (int32_t) cursorSprite->textureCount;
+        }
+    }
+
     endGuiPass(runner);
 
     if (runner->fpsRealFrameStartNanos != 0) {
@@ -1618,6 +1668,7 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         runtimeLayer.dynamic = false;
         runtimeLayer.beginScript = -1;
         runtimeLayer.endScript = -1;
+        runtimeLayer.shaderIndex = -1;
         arrput(runner->runtimeLayers, runtimeLayer);
         if (layerSource->id > maxLayerId) maxLayerId = layerSource->id;
     }
@@ -1773,6 +1824,7 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
                 runtimeLayer.dynamicName = safeStrdup(oldLayerName);
                 runtimeLayer.beginScript = -1;
                 runtimeLayer.endScript = -1;
+                runtimeLayer.shaderIndex = -1;
                 arrput(runner->runtimeLayers, runtimeLayer);
                 newLayerId = (int32_t) runtimeLayer.id;
                 newLayerDepth = runtimeLayer.depth;
@@ -1819,7 +1871,7 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
 
     // In GMS2, instances get their depth from their room layer, not the object definition.
     // This must happen before firing Create events so scripts like scr_depth() read the layer depth.
-    if (DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0)) {
+    if (DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0) && DataWin_isVersionOlder(runner->dataWin, 2024, 14, 0, 0)) {
         repeat(room->layerCount, li) {
             RoomLayer* layer = &room->layers[li];
             if (layer->type != RoomLayerType_Instances || layer->instancesData == nullptr) continue;
@@ -2131,7 +2183,10 @@ void Runner_reset(Runner* runner) {
     runner->score = 0.0;
     runner->lives = -1.0;
     runner->health = 0.0;
+    runner->cursorSprite = -1;
+    runner->cursorSpriteSubimage = 0;
     runner->gameStartFired = false;
+    runner->gameSpeedOverride = 0.0;
     runner->currentRoomIndex = -1;
     runner->currentRoomOrderPosition = -1;
     runner->nextInstanceId = runner->dataWin->gen8.lastObj + 1;
@@ -2153,6 +2208,7 @@ void Runner_reset(Runner* runner) {
     runner->mpPotStep = 10.0;
     runner->mpPotAhead = 3.0;
     runner->mpPotOnSpot = true;
+    runner->dateTimeLocal = true;
     runner->lastMusicInstance = -1;
 
     arrsetlen(runner->cachedDrawables, 0);
@@ -2298,6 +2354,7 @@ static void validateRendererVtable(Renderer* renderer) {
     requireNotNullFunction(gpuSetBlendMode);
     requireNotNullFunction(gpuSetBlendModeExt);
     requireNotNullFunction(gpuSetBlendEnable);
+    requireNotNullFunction(gpuSetTexFilter);
     requireNotNullFunction(gpuGetBlendEnable);
     requireNotNullFunction(gpuSetAlphaTestEnable);
     requireNotNullFunction(gpuSetAlphaTestRef);
@@ -2331,6 +2388,26 @@ static void validateRendererVtable(Renderer* renderer) {
     #undef requireNotNullFunction
 }
 
+void Runner_setPaused(Runner* runner, bool paused) {
+    if (runner == nullptr) {
+        return;
+    }
+
+    runner->paused = paused;
+
+    if (runner->audioSystem != nullptr && runner->audioSystem->vtable != nullptr) {
+        if (paused) {
+            runner->audioSystem->vtable->pauseAll(runner->audioSystem);
+        } else {
+            runner->audioSystem->vtable->resumeAll(runner->audioSystem);
+        }
+    }
+}
+
+bool Runner_isPaused(Runner* runner) {
+    return runner != nullptr && runner->paused;
+}
+
 Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem, uint32_t randomSeed) {
     requireNotNull(dataWin);
     requireNotNull(vm);
@@ -2346,6 +2423,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->fileSystem = fileSystem;
     runner->audioSystem = audioSystem;
     runner->frameCount = 0;
+    runner->gameSpeedOverride = 0.0;
     double initialFps = (double)dataWin->gen8.gms2FPS;
     runner->fps = initialFps;
     runner->fpsReal = initialFps;
@@ -2355,6 +2433,12 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->keyboard = RunnerKeyboard_create();
     runner->gamepads = RunnerGamepad_create();
     runner->mouse = RunnerMouse_create();
+    runner->vertexFormats = nullptr;
+    runner->newVertexFormat = nullptr;
+    runner->vertexFormatBit = 0;
+    runner->currentVertexFormatId = 1;
+    runner->vertexBuffers = nullptr;
+    runner->vertexBufferCount = 0;
     runner->appSurfaceEnabled = true;
     runner->windowTitle = dataWin->gen8.displayName ? safeStrdup(dataWin->gen8.displayName) : nullptr;
     runner->appSurfaceAutoDraw = true;
@@ -2373,6 +2457,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->viewportW = 1;
     runner->viewportH = 1;
     runner->random = Random_create(randomSeed);
+    runner->paused = false;
 
     repeat(MAX_SURFACES, i) {
         runner->surfaceStack[i] = -1;
@@ -2460,6 +2545,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     // Link runner to VM context
     vm->runner = (struct Runner*) runner;
 
+    renderer->texFilter = (dataWin->optn.info & 0x2) != 0;
     renderer->vtable->init(renderer, dataWin);
     audioSystem->vtable->init(audioSystem, dataWin, fileSystem);
 
@@ -2814,6 +2900,26 @@ static FlattenedCollisionEvent* findSymmetricCollisionEvent(Runner* runner, Inst
     }
 
     return nullptr;
+}
+
+static int32_t mostSpecificCollisionTarget(Runner* runner, Instance* self, Instance* other) {
+    DataWin* dataWin = runner->dataWin;
+    FlattenedCollisionEventList* list = &runner->flattenedCollisionEvents[self->objectIndex];
+    int32_t partnerObj = other->objectIndex;
+    int32_t depth = 0;
+    while (partnerObj >= 0 && dataWin->objt.count > (uint32_t) partnerObj && 32 > depth) {
+        repeat(list->eventCount, e) {
+            FlattenedCollisionEvent* evt = &list->events[e];
+            if ((int32_t) evt->targetObjectIndex == partnerObj) {
+                if (0 > evt->codeId)
+                    return -1;
+                return partnerObj;
+            }
+        }
+        partnerObj = dataWin->objt.objects[partnerObj].parentId;
+        depth++;
+    }
+    return -1;
 }
 
 static void executeCollisionEvent(Runner* runner, Instance* self, Instance* other, int32_t targetObjectIndex, int32_t codeId, int32_t ownerObjectIndex) {
@@ -3296,6 +3402,9 @@ static void dispatchCollisionEvents(Runner* runner) {
                     Instance* other = runner->instanceSnapshots[snapIdx];
                     if (!other->active) continue;
                     if (other == self) continue;
+
+                    if (mostSpecificCollisionTarget(runner, self, other) != targetObjIndex)
+                        continue;
 
                     // Compute bboxes
                     if (selfDirty) {
@@ -4179,6 +4288,8 @@ void Runner_step(Runner* runner) {
         arrfree(pending);
     }
 
+    Video_executePendingAsyncEvents(runner);
+
     // Dispatch collision events
     dispatchCollisionEvents(runner);
 
@@ -4718,6 +4829,59 @@ void Runner_free(Runner* runner) {
         free(runner->gameArgs[i]);
     }
     arrfree(runner->gameArgs);
+
+    if (runner->vertexFormats != nullptr) {
+        repeat((int32_t) arrlen(runner->vertexFormats), i) {
+            VmVertexFormat* format = runner->vertexFormats[i];
+            if (format == nullptr) continue;
+            if (format->pNative != nullptr) {
+                free(format->pNative);
+                format->pNative = nullptr;
+            }
+            if (format->format != nullptr) {
+                arrfree(format->format);
+                format->format = nullptr;
+            }
+            free(format);
+        }
+        arrfree(runner->vertexFormats);
+        runner->vertexFormats = nullptr;
+    }
+    if (runner->newVertexFormat != nullptr) {
+        if (runner->newVertexFormat->pNative != nullptr) {
+            free(runner->newVertexFormat->pNative);
+            runner->newVertexFormat->pNative = nullptr;
+        }
+        if (runner->newVertexFormat->format != nullptr) {
+            free(runner->newVertexFormat->format);
+            runner->newVertexFormat->format = nullptr;
+        }
+        free(runner->newVertexFormat);
+        runner->newVertexFormat = nullptr;
+    }
+    if (runner->vertexBuffers != nullptr) {
+        repeat(runner->vertexBufferCount, i) {
+            Buffer_Vertex* buffer = runner->vertexBuffers[i];
+            if (buffer == nullptr) continue;
+            if (buffer->buffer.pBuffer8 != nullptr) {
+                free(buffer->buffer.pBuffer8);
+                buffer->buffer.pBuffer8 = nullptr;
+            }
+            if (buffer->pFrozenVB != nullptr) {
+                if (buffer->pFrozenVB->pVertexBuffer != nullptr) {
+                    free(buffer->pFrozenVB->pVertexBuffer);
+                    buffer->pFrozenVB->pVertexBuffer = nullptr;
+                }
+                free(buffer->pFrozenVB);
+                buffer->pFrozenVB = nullptr;
+            }
+            free(buffer);
+            runner->vertexBuffers[i] = nullptr;
+        }
+        free(runner->vertexBuffers);
+        runner->vertexBuffers = nullptr;
+    }
+    runner->vertexBufferCount = 0;
 
     RunnerKeyboard_free(runner->keyboard);
     RunnerGamepad_free(runner->gamepads);
